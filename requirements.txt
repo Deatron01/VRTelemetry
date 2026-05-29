@@ -1,0 +1,23 @@
+# --- Alapvető adatkezelés és matematika ---
+pandas
+numpy
+scipy
+
+# --- Adatvizualizáció és Dashboard ---
+plotly
+matplotlib
+seaborn
+streamlit
+
+# --- VR Kapcsolat és Logger ---
+openvr
+Pillow
+PyGetWindow
+
+# --- Képfeldolgozás (2D Hőtérkép) ---
+opencv-python
+
+# --- Audio Rögzítés és Átírás ---
+soundcard
+soundfile
+openai-whisper
