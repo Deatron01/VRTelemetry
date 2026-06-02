@@ -1,127 +1,134 @@
-import streamlit as st
+import gradio as gr
 import pandas as pd
 import os
-import plotly.express as px
-import streamlit.components.v1 as components
 import subprocess
 
-# --- Ablak és Design Beállítások ---
-st.set_page_config(page_title="VR Telemetry", layout="wide", initial_sidebar_state="expanded")
+# ==========================================
+# 1. ADATKEZELŐ FÜGGVÉNYEK
+# ==========================================
+def get_sessions():
+    sessions_dir = "Sessions"
+    if not os.path.exists(sessions_dir):
+        os.makedirs(sessions_dir)
+    sessions = [d for d in os.listdir(sessions_dir) if os.path.isdir(os.path.join(sessions_dir, d))]
+    sessions.sort(reverse=True)
+    return sessions
 
-# Minimalista egyedi CSS beillesztése
-st.markdown("""
-    <style>
-    .main { background-color: #0E1117; }
-    h1, h2, h3 { font-weight: 300; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: transparent; border-radius: 4px; font-size: 16px; }
-    </style>
-""", unsafe_allow_html=True)
+def launch_pipeline():
+    print("Mérés és feldolgozás indítása...")
+    # Futtatjuk a pipeline-t, és megvárjuk amíg befejeződik
+    subprocess.run(["python", "run_pipeline.py"])
+    print("Mérés befejezve!")
+    # Frissítjük a lenyíló menüt az új méréssel
+    return gr.Dropdown(choices=get_sessions())
 
-st.title("🕶️ VR Telemetry Dashboard")
-
-# --- Oldalsáv: Mérések kezelése ---
-st.sidebar.header("Mérések")
-sessions_dir = "Sessions"
-
-if not os.path.exists(sessions_dir):
-    os.makedirs(sessions_dir)
-
-# Session mappák beolvasása és rendezése (legújabb legfelül)
-sessions = [d for d in os.listdir(sessions_dir) if os.path.isdir(os.path.join(sessions_dir, d))]
-sessions.sort(reverse=True)
-
-selected_session = st.sidebar.selectbox("Válaszd ki a betöltendő mérést:", ["Nincs kiválasztva"] + sessions)
-
-st.sidebar.markdown("---")
-
-# Új mérés indítása
-if st.sidebar.button("🚀 Új mérés indítása", use_container_width=True):
-    with st.spinner("Mérés folyamatban... Várd meg a végét!"):
-        # Itt hívjuk meg a meglévő pipeline-t
-        subprocess.run(["python", "run_pipeline.py"])
-    st.success("Mérés és feldolgozás befejezve!")
-    st.rerun()  # Frissíti a felületet az új méréssel
-
-# --- Fő tartalom megjelenítése ---
-if selected_session != "Nincs kiválasztva":
-    session_path = os.path.join(sessions_dir, selected_session)
-    st.subheader(f"Betöltött projekt: {selected_session}")
-    
-    # Fülek (Tabs) létrehozása a letisztultság érdekében
-    tab_graphs, tab_heatmap, tab_audio = st.tabs(["📈 Gráfok & Adatok", "🗺️ 3D Heatmap", "🎙️ Audio & Transcript"])
-    
-    # --- 1. FÜL: Gráfok és Telemetria ---
-    with tab_graphs:
-        csv_path = os.path.join(session_path, "telemetry.csv")
-        qa_img = os.path.join(session_path, "qa_dashboard_results.png")
+def load_session_data(session_name):
+    """Betölti a kiválasztott mérés adatait a UI komponensekbe."""
+    if not session_name or session_name == "Nincs kiválasztva":
+        return pd.DataFrame(), [], "<p style='color:gray;'>Válassz ki egy mérést a betöltéshez.</p>", "", None, None
         
-        col1, col2 = st.columns([2, 1])
+    session_path = os.path.join("Sessions", session_name)
+    
+    # 1. CSV Adatok betöltése
+    csv_path = os.path.join(session_path, "telemetry.csv")
+    df = pd.DataFrame()
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
         
-        with col1:
-            if os.path.exists(csv_path):
-                df = pd.read_csv(csv_path)
-                
-                # Egy interaktív Plotly gráf példa (ha van time és fps oszlop)
-                # Ezt a CSV-d valós oszlopaihoz kell igazítani!
-                if len(df.columns) >= 2:
-                    x_col = df.columns[0]  # pl. timestamp
-                    y_col = df.columns[1]  # pl. value
-                    fig = px.line(df, x=x_col, y=y_col, title="Fő metrika alakulása", template="plotly_dark")
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                with st.expander("Nyers CSV adatok megtekintése"):
-                    st.dataframe(df, use_container_width=True)
-            else:
-                st.info("Nem található telemetry.csv az adott méréshez.")
-                
-        with col2:
-            if os.path.exists(qa_img):
-                st.image(qa_img, caption="QA Dashboard statikus eredmények", use_container_width=True)
-            else:
-                st.info("Nincs elérhető QA Dashboard kép.")
-
-    # --- 2. FÜL: 3D Heatmap ---
-    with tab_heatmap:
-        html_path = os.path.join(session_path, "vr_3d_heatmap.html")
-        if os.path.exists(html_path):
-            with open(html_path, 'r', encoding='utf-8') as f:
-                html_data = f.read()
-            # Interaktív HTML beágyazása
-            components.html(html_data, height=700, scrolling=True)
-        else:
-            st.info("A 3D Heatmap (vr_3d_heatmap.html) még nem generálódott le ehhez a méréshez.")
-
-    # --- 3. FÜL: Audio és Transcript ---
-    with tab_audio:
-        transcript_path = os.path.join(session_path, "transcript.txt")
-        if os.path.exists(transcript_path):
-            with open(transcript_path, 'r', encoding='utf-8') as f:
-                transcript_text = f.read()
-            st.markdown("### 📝 Szöveges leirat")
-            st.text_area(label="", value=transcript_text, height=300, disabled=True)
-        else:
-            st.info("Nem található transcript.txt.")
+    # 2. Generált képek (Graphs) betöltése
+    graphs_dir = os.path.join(session_path, "graphs")
+    images = []
+    if os.path.exists(graphs_dir):
+        # Összeszedjük és sorba rendezzük a png fájlokat
+        images = [os.path.join(graphs_dir, f) for f in sorted(os.listdir(graphs_dir)) if f.endswith(".png")]
+    elif os.path.exists(os.path.join(session_path, "qa_dashboard_results.png")):
+        # Kompatibilitás a régi mérésekkel
+        images = [os.path.join(session_path, "qa_dashboard_results.png")]
+        
+    # 3. 3D Heatmap HTML betöltése
+    html_path = os.path.join(session_path, "vr_3d_heatmap.html")
+    html_content = "<p style='color:gray;'>A 3D Heatmap nem található ehhez a méréshez.</p>"
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as f:
+            raw_html = f.read()
+        # Beágyazzuk egy méretezett iframe-be, hogy tökéletesen mutasson
+        html_content = f'<iframe style="width: 100%; height: 750px; border: none; border-radius: 8px;" srcdoc="{raw_html.replace("\"", "&quot;")}"></iframe>'
+        
+    # 4. Whisper Transcript betöltése
+    transcript_path = os.path.join(session_path, "transcript.txt")
+    transcript = "Nem készült hang leirat (transcript.txt nem található)."
+    if os.path.exists(transcript_path):
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            transcript = f.read()
             
-        st.markdown("---")
-        st.markdown("### 🎧 Hanganyagok")
-        col_mic, col_game = st.columns(2)
-        
-        with col_mic:
-            st.markdown("**Mikrofon bemenet**")
-            mic_path = os.path.join(session_path, "audio_microphone.wav")
-            if os.path.exists(mic_path):
-                st.audio(mic_path)
-            else:
-                st.warning("Nincs mikrofon felvétel.")
-                
-        with col_game:
-            st.markdown("**Játék / Rendszer hangja**")
-            game_path = os.path.join(session_path, "audio_stereo_game.wav")
-            if os.path.exists(game_path):
-                st.audio(game_path)
-            else:
-                st.warning("Nincs játék hang felvétel.")
+    # 5. Audio fájlok
+    mic_path = os.path.join(session_path, "audio_microphone.wav")
+    game_path = os.path.join(session_path, "audio_stereo_game.wav")
+    mic_audio = mic_path if os.path.exists(mic_path) else None
+    game_audio = game_path if os.path.exists(game_path) else None
+    
+    return df, images, html_content, transcript, mic_audio, game_audio
 
-else:
-    st.write("⬅️ **Kérlek, válassz egy korábbi mérést a bal oldali sávból, vagy indíts el egy újat.**")
+# ==========================================
+# 2. FELHASZNÁLÓI FELÜLET (UI) FELÉPÍTÉSE
+# ==========================================
+with gr.Blocks(title="VR Telemetry") as demo:
+    gr.Markdown("# 🕶️ VR Telemetry Dashboard")
+    
+    with gr.Row():
+        # --- BAL OLDALSÁV (Vezérlés) ---
+        with gr.Column(scale=1, variant="panel"):
+            gr.Markdown("### 🗂️ Mérések Kezelése")
+            
+            session_dropdown = gr.Dropdown(
+                choices=get_sessions(), 
+                label="Betöltendő mérés", 
+                info="Válaszd ki a projektet a lenyíló menüből."
+            )
+            
+            refresh_btn = gr.Button("🔄 Lista frissítése", size="sm")
+            
+            gr.Markdown("---")
+            start_btn = gr.Button("🚀 ÚJ MÉRÉS INDÍTÁSA", variant="primary")
+            
+        # --- JOBB OLDAL (Tartalom megjelenítés) ---
+        with gr.Column(scale=4):
+            with gr.Tabs():
+                
+                # 1. FÜL: Grafikonok
+                with gr.TabItem("📈 Gráfok & Adatok"):
+                    gallery_view = gr.Gallery(label="Analitikai Ábrák", columns=2, height="auto", object_fit="contain")
+                    with gr.Accordion("Nyers CSV Adatok megtekintése", open=False):
+                        df_view = gr.Dataframe(label="Telemetria", max_height=300)
+                    
+                # 2. FÜL: 3D Heatmap
+                with gr.TabItem("🗺️ 3D Heatmap"):
+                    gr.Markdown("*Tipp: Használd az egeret a 3D modell forgatásához és nagyításához!*")
+                    html_view = gr.HTML(label="3D Interaktív Tér")
+                    
+                # 3. FÜL: Audio
+                with gr.TabItem("🎙️ Audio & Transcript"):
+                    transcript_view = gr.Textbox(label="📝 Szöveges leirat (Whisper AI)", lines=12, interactive=False)
+                    with gr.Row():
+                        mic_view = gr.Audio(label="Mikrofon bemenet", type="filepath", interactive=False)
+                        game_view = gr.Audio(label="Játék / Rendszer hangja", type="filepath", interactive=False)
+                        
+    # ==========================================
+    # 3. INTERAKCIÓK ÖSSZEKÖTÉSE
+    # ==========================================
+    # Ha a legördülő menüben mérést váltasz, betölti az összes adatot:
+    session_dropdown.change(
+        fn=load_session_data, 
+        inputs=[session_dropdown], 
+        outputs=[df_view, gallery_view, html_view, transcript_view, mic_view, game_view]
+    )
+    
+    # Gombok funkciói
+    refresh_btn.click(fn=lambda: gr.Dropdown(choices=get_sessions()), outputs=[session_dropdown])
+    start_btn.click(fn=launch_pipeline, outputs=[session_dropdown])
+
+# ==========================================
+# ALKALMAZÁS INDÍTÁSA
+# ==========================================
+if __name__ == "__main__":
+    demo.launch(inbrowser=True, theme=gr.themes.Monochrome())
