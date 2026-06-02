@@ -65,6 +65,7 @@ def get_session_details(session_id: str):
         "heatmap_url": f"http://localhost:8000/Sessions/{session_id}/vr_3d_heatmap.html" if os.path.exists(os.path.join(session_path, "vr_3d_heatmap.html")) else None,
         "mic_url": f"http://localhost:8000/Sessions/{session_id}/audio_microphone.wav" if os.path.exists(os.path.join(session_path, "audio_microphone.wav")) else None,
         "game_url": f"http://localhost:8000/Sessions/{session_id}/audio_stereo_game.wav" if os.path.exists(os.path.join(session_path, "audio_stereo_game.wav")) else None,
+        "playback_url": f"http://localhost:8000/Sessions/{session_id}/vr_playback.html" if os.path.exists(os.path.join(session_path, "vr_playback.html")) else None
     }
 
 # 4. Új Mérés / Elemzés indítása a pipeline-al
