@@ -35,11 +35,12 @@ try:
     
     print("Whisper AI (Turbo modell) betöltése... (Első alkalommal le is tölti a modellt!)")
     # A 'turbo' modell már kiválóan ért magyarul, de nem eszi meg az összes RAM-ot.
-    model = whisper.load_model("turbo")
+    # model = whisper.load_model("turbo") 
+    model = whisper.load_model("small")
     
     print("Hanganyag mesterséges intelligencia alapú elemzése folyamatban...")
     # A transcribe funkció magától felismeri a nyelvet (pl. magyart)
-    result = model.transcribe(AUDIO_FILE, language="hu", condition_on_previous_text=True)
+    result = model.transcribe(AUDIO_FILE, language="en", condition_on_previous_text=True)
     
     print(f"Átírás kész! Mentés ide: {OUTPUT_TXT}")
     

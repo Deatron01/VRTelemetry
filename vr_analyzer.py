@@ -104,6 +104,33 @@ def save_plot(fig, filename):
     fig.savefig(out_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     plt.close(fig)
     print(f"Mentve: {filename}")
+    
+# --- ÚJ BIOMECHANIKAI ÉS ORVOSI SZÁMÍTÁSOK ---
+
+# 1. Ízületi terhelés (Jerk) - Gyorsulás deriváltja
+for prefix in ['LeftCtrl', 'RightCtrl']:
+    df[f'{prefix}_Jerk'] = (df[f'{prefix}_Accel_Mag'].diff() / dt).fillna(0).abs()
+
+# 2. Kiberbetegség (Cybersickness) Index
+# A Roll (Z) és Pitch (X) forgás okozza a legnagyobb vesztibuláris zavart
+df['Cybersickness_Index'] = (df['HMD_AngVelZ'].abs() * 2.0) + (df['HMD_AngVelX'].abs() * 1.5) + (df['HMD_AngVelY'].abs() * 0.5)
+df['Cybersickness_Rolling'] = df['Cybersickness_Index'].rolling(window=50).mean().fillna(0)
+
+# 3. Kifáradási görbe (Sebesség mozgóátlaga hosszú ablakon)
+# A fillna(method='bfill') helyett közvetlenül a bfill()-t használjuk:
+df['Left_Fatigue'] = df['LeftCtrl_Velocity_Mag'].rolling(window=300).mean().bfill()
+df['Right_Fatigue'] = df['RightCtrl_Velocity_Mag'].rolling(window=300).mean().bfill()
+
+# 4. Intenzitási zónák kiszámítása a MET alapján
+# Zónák: Pihenő (<3), Mérsékelt (3-6), Intenzív (>6)
+conditions = [
+    (df['Estimated_MET'] < 3.0),
+    (df['Estimated_MET'] >= 3.0) & (df['Estimated_MET'] < 6.0),
+    (df['Estimated_MET'] >= 6.0)
+]
+choices = ['Pihenő / Könnyű', 'Mérsékelt (Zsírégető)', 'Intenzív (Kardió)']
+df['Intensity_Zone'] = np.select(conditions, choices, default='Pihenő / Könnyű')
+zone_counts = df['Intensity_Zone'].value_counts()
 
 # --- 1. Térbeli Útvonal (3D) ---
 fig1 = plt.figure(figsize=(10, 8), facecolor=BG_COLOR)
@@ -224,5 +251,100 @@ ax12.set_xlabel('Idő (s)')
 ax12.grid(True, alpha=0.2)
 ax12.legend()
 save_plot(fig12, "12_Energy_Expenditure.png")
+
+# --- 13. Kiberbetegség Kockázat (Cybersickness Susceptibility) ---
+fig13, ax13 = plt.subplots(figsize=(10, 6), facecolor=BG_COLOR)
+ax13.plot(df['Time_Sec'], df['Cybersickness_Rolling'], color='red', label='Rosszullét Kockázati Index')
+ax13.axhline(y=df['Cybersickness_Rolling'].mean() + df['Cybersickness_Rolling'].std()*2, color='orange', linestyle='--', label='Kritikus Küszöb')
+ax13.set_title('Kiberbetegség Kockázati Index (VIMS)')
+ax13.set_ylabel('Vesztibuláris Terhelés')
+ax13.set_xlabel('Idő (s)')
+ax13.grid(True, alpha=0.2)
+ax13.legend()
+save_plot(fig13, "13_Cybersickness_Risk.png")
+
+# --- 14. Mozgási Aszimmetria (Bal vs. Jobb Izomegyensúly) ---
+fig14, ax14 = plt.subplots(figsize=(10, 6), facecolor=BG_COLOR)
+asym_labels = ['Megtett Út (m)', 'Átlagos Sebesség (m/s)', 'Átlagos Kinyújtás (m)']
+left_vals = [metrics['LeftCtrl_TotalDist'], df['LeftCtrl_Velocity_Mag'].mean(), df['LeftArm_Ext'].mean()]
+right_vals = [metrics['RightCtrl_TotalDist'], df['RightCtrl_Velocity_Mag'].mean(), df['RightArm_Ext'].mean()]
+
+x = np.arange(len(asym_labels))
+width = 0.35
+ax14.bar(x - width/2, left_vals, width, label='Bal Kar', color='red', alpha=0.8)
+ax14.bar(x + width/2, right_vals, width, label='Jobb Kar', color='lime', alpha=0.8)
+ax14.set_title('Mozgási Aszimmetria (Bal vs. Jobb Dominancia)')
+ax14.set_xticks(x)
+ax14.set_xticklabels(asym_labels)
+ax14.legend()
+save_plot(fig14, "14_Movement_Asymmetry.png")
+
+# --- 15. "VR Nyak" - Nyakcsigolya Terhelés (Fej Pitch) ---
+fig15, ax15 = plt.subplots(figsize=(10, 6), facecolor=BG_COLOR)
+# Feltételezve, hogy a HMD_RotX negatív, ha lefelé néz (SteamVR specifikus lehet, szükség esetén -1-gyel szorozható)
+sns.kdeplot(df['HMD_RotX'], fill=True, color='purple', ax=ax15)
+ax15.axvline(x=0, color='white', linestyle='--', label='Egyenes fejtartás (0°)')
+ax15.axvline(x=-20, color='red', linestyle='--', label='Kritikus lefelé dőlés (-20°)')
+ax15.axvline(x=20, color='red', linestyle='--')
+ax15.set_title('Testtartás Analízis (Nyakcsigolya Terhelés)')
+ax15.set_xlabel('Bólintás Szöge (Pitch °)')
+ax15.legend()
+save_plot(fig15, "15_Cervical_Strain_Posture.png")
+
+# --- 16. Ízületi Terhelés (Jerk / Rántás) ---
+fig16, ax16 = plt.subplots(figsize=(10, 6), facecolor=BG_COLOR)
+ax16.plot(df['Time_Sec'], df['LeftCtrl_Jerk'], color='red', alpha=0.6, label='Bal Kar Rántás')
+ax16.plot(df['Time_Sec'], df['RightCtrl_Jerk'], color='lime', alpha=0.6, label='Jobb Kar Rántás')
+ax16.set_title('Ízületi Terhelés (Jerk - Hirtelen mozdulatok)')
+ax16.set_ylabel('Rántás (m/s³)')
+ax16.set_xlabel('Idő (s)')
+ax16.grid(True, alpha=0.2)
+ax16.legend()
+save_plot(fig16, "16_Joint_Stress_Jerk.png")
+
+# --- 17. Kifáradási Profil (Teljesítmény esés) ---
+fig17, ax17 = plt.subplots(figsize=(10, 6), facecolor=BG_COLOR)
+ax17.plot(df['Time_Sec'], df['Left_Fatigue'], color='red', label='Bal Kar (Mozgóátlag)')
+ax17.plot(df['Time_Sec'], df['Right_Fatigue'], color='lime', label='Jobb Kar (Mozgóátlag)')
+ax17.set_title('Kifáradási Görbe (Dinamika csökkenése)')
+ax17.set_ylabel('Átlagos Sebesség (m/s)')
+ax17.set_xlabel('Idő (s)')
+ax17.grid(True, alpha=0.2)
+ax17.legend()
+save_plot(fig17, "17_Fatigue_Profile.png")
+
+# --- 18. Intenzitási Zónák Eloszlása (Modernizált Fánk Diagram) ---
+fig18, ax18 = plt.subplots(figsize=(8, 8), facecolor=BG_COLOR)
+
+# Fix szín-hozzárendelés a zónákhoz, hogy a sorrend ne rontsa el a vizualizációt
+zone_color_map = {
+    'Pihenő / Könnyű': '#3b82f6',    # Kék
+    'Mérsékelt (Zsírégető)': '#10b981', # Zöld
+    'Intenzív (Kardió)': '#ef4444'      # Piros
+}
+
+# Kinyerjük a pontos színeket a zone_counts aktuális sorrendje alapján
+mapped_colors = [zone_color_map.get(zone, '#888888') for zone in zone_counts.index]
+
+# Diagram megrajzolása
+wedges, texts, autotexts = ax18.pie(
+    zone_counts.values, 
+    labels=zone_counts.index, 
+    autopct='%1.1f%%', 
+    startangle=140, 
+    colors=mapped_colors, 
+    textprops={'color': "white", 'fontsize': 12, 'fontweight': 'bold'},
+    wedgeprops={'linewidth': 3, 'edgecolor': BG_COLOR} # Vastagabb elválasztó vonalak a sötét háttér színével
+)
+
+# Belső "lyuk" létrehozása a fánk (Donut) stílushoz
+centre_circle = plt.Circle((0, 0), 0.65, fc=BG_COLOR)
+fig18.gca().add_artist(centre_circle)
+
+# Középső felirat hozzáadása
+ax18.text(0, 0, 'Intenzitás\nZónák', ha='center', va='center', fontsize=18, fontweight='bold', color='white', alpha=0.8)
+
+ax18.set_title('Edzés Intenzitási Zónák Eloszlása', color='white', fontsize=16, pad=20)
+save_plot(fig18, "18_Intensity_Zones.png")
 
 print(f"\n✅ Összesen 12 analitikai ábra sikeresen elmentve a {GRAPHS_DIR} mappába!")

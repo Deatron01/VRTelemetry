@@ -23,7 +23,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 class VRTelemetryLogger:
     def __init__(self, root):
         self.root = root
-        self.root.title("Project Mimir - VR QA Logger")
+        self.root.title("VR QA Logger")
         self.root.geometry("450x250")
         self.root.resizable(False, False)
 

@@ -1,0 +1,6 @@
+Automatikus Audio Leirat (Whisper AI)
+==================================================
+
+[0.0s - 30.0s]: Köszönöm szépen.
+[30.0s - 60.0s]: Köszönöm szépen.
+[60.0s - 90.0s]: Köszönöm szépen.
