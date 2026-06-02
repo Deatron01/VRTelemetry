@@ -52,6 +52,8 @@ def main():
             print(f"    -> [UGRÁS] A '{script_name}' nem található a főkönyvtárban.\n")
 
     print("=" * 50)
+    print("\n[5/5] 3D Visszajátszás generálása...")
+    subprocess.run([sys.executable, "vr_animator.py", latest_session])
     print("MINDEN FELDOLGOZÁS BEFEJEZŐDÖTT!")
     
     # Kész ablak, hogy vizuálisan is jelezze a végét

@@ -112,6 +112,8 @@ function App() {
             <TabButton active={activeTab === 'graphs'} onClick={() => setActiveTab('graphs')} icon={<Activity size={18}/>} label="Gráfok" />
             <TabButton active={activeTab === 'heatmap'} onClick={() => setActiveTab('heatmap')} icon={<Map size={18}/>} label="3D Heatmap" />
             <TabButton active={activeTab === 'audio'} onClick={() => setActiveTab('audio')} icon={<Mic size={18}/>} label="Audio & Transcript" />
+            <TabButton active={activeTab === 'playback'} onClick={() => setActiveTab('playback')} icon={<Play size={18}/>} label="Szimuláció" />
+
           </div>
 
           {/* TARTALOM MEGJELENÍTŐ */}
@@ -166,6 +168,15 @@ function App() {
                         {sessionData.game_url ? <audio src={sessionData.game_url} className="w-full rounded-lg outline-none" controls /> : <p className="text-gray-600">Nincs fájl.</p>}
                       </div>
                     </div>
+                  </div>
+                )}
+                {activeTab === 'playback' && (
+                  <div className="w-full h-full min-h-[600px] bg-black/40 rounded-xl border border-white/10 overflow-hidden shadow-lg">
+                    {sessionData.playback_url ? (
+                      <iframe src={sessionData.playback_url} className="w-full h-full border-none" title="3D Szimuláció" />
+                    ) : (
+                      <p className="text-gray-500 p-6">Nincs szimuláció ehhez a méréshez.</p>
+                    )}
                   </div>
                 )}
               </>
