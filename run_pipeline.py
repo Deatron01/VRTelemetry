@@ -53,7 +53,7 @@ def main():
 
     print("=" * 50)
     print("\n[5/5] 3D Visszajátszás generálása...")
-    subprocess.run([sys.executable, "vr_animator.py", latest_session])
+    subprocess.run([sys.executable, "vr_animator.py", session_dir])
     print("MINDEN FELDOLGOZÁS BEFEJEZŐDÖTT!")
     
     # Kész ablak, hogy vizuálisan is jelezze a végét

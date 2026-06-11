@@ -1,3 +1,6 @@
+# --- Backend Szerver ---
+fastapi
+uvicorn
 # --- Alapvető adatkezelés és matematika ---
 pandas
 numpy
