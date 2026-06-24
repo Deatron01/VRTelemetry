@@ -13,7 +13,7 @@ class VRAIPreprocessor:
         self.raw_file = os.path.join(session_dir, "telemetry_raw.parquet")
         self.ai_file = os.path.join(session_dir, "ai_ready_telemetry.parquet")
         self.etl_meta_file = os.path.join(session_dir, "etl_metadata.json")
-        self.version = "v1.0.0"
+        self.version = "v1.1.0" # Verzió frissítve a kinematikai bővítés miatt
 
     def process(self):
         print("="*50)
@@ -44,12 +44,39 @@ class VRAIPreprocessor:
         df[smooth_cols] = df[smooth_cols].ewm(span=5, adjust=False).mean()
         print("[+] Tracker zajszűrés (EMA) alkalmazva.")
 
+        # --- KINEMATIKAI FEATURE ENGINEERING (REQ-02) ---
+        print("[+] Kinematikai deriváltak (Sebesség) számítása...")
+        
+        # Mivel a mérési ablak fix (REQ-02), a dt konstans.
+        dt = 1.0 / 90.0  # 90Hz feltételezése alapján
+        
+        pos_columns = [c for c in df.columns if 'pos_' in c]
+        for col in pos_columns:
+            vel_col = col.replace('pos_', 'vel_')
+            # Egyszerű deriválás a simított adaton (sebesség = út / idő)
+            df[vel_col] = df[col].diff() / dt
+            df[vel_col] = df[vel_col].fillna(0.0) # A legelső frame-nél nincs sebesség
+            
+        # VII. Táblázat Származtatott Feature: Kéztávolság (V-05, V-06)
+        if 'target_obj_pos_x' in df.columns:
+            df['dist_to_target_left'] = np.sqrt(
+                (df['left_pos_x'] - df['target_obj_pos_x'])**2 +
+                (df['left_pos_y'] - df['target_obj_pos_y'])**2 +
+                (df['left_pos_z'] - df['target_obj_pos_z'])**2
+            )
+            df['dist_to_target_right'] = np.sqrt(
+                (df['right_pos_x'] - df['target_obj_pos_x'])**2 +
+                (df['right_pos_y'] - df['target_obj_pos_y'])**2 +
+                (df['right_pos_z'] - df['target_obj_pos_z'])**2
+            )
+        # ------------------------------------------------
+
         # 4. NORMALIZÁLÁS (TRANSFORM - Step 3)
         # A Neurális hálók (LSTM, Transformer) akkor tanulnak a leggyorsabban, 
         # ha minden bemenet nagyjából -1 és 1, vagy 0 és 1 között van.
         
-        # A) Z-Score Standardizálás a pozíciókra (Középérték 0 lesz, szórás 1)
-        norm_cols = [c for c in df.columns if 'pos_' in c or 'distance' in c or 'pupil' in c or 'amplitude' in c]
+        # A) Z-Score Standardizálás a pozíciókra ÉS az új sebességekre
+        norm_cols = [c for c in df.columns if 'pos_' in c or 'vel_' in c or 'distance' in c or 'pupil' in c or 'amplitude' in c or 'dist_to_' in c]
         for col in norm_cols:
             std_val = df[col].std()
             if std_val > 0.0001:  # Nullával osztás elkerülése
@@ -78,8 +105,8 @@ class VRAIPreprocessor:
             "data_provenance": {
                 "preprocessor_version": self.version,
                 "smoothing_algorithm": "Exponential Moving Average (span=5)",
-                "scaling_method": "Z-Score Standardization (Pos) & MinMax (Sys)",
-                "velocity_deriv_method": "None (Raw positions scaled)",
+                "scaling_method": "Z-Score Standardization (Pos & Vel) & MinMax (Sys)",
+                "velocity_deriv_method": "First-order Difference (dt=1/90)", # Frissítve a kódnak megfelelően
                 "outlier_removal": "Linear Interpolation & Forward/Backward Fill",
                 "total_dropped_frames": int(missing_values_before), 
                 "processed_at": datetime.now(timezone.utc).isoformat()
