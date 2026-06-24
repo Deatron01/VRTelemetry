@@ -76,9 +76,8 @@ class HighPerfVRLogger:
             ('cpu_utilization', pa.float32()), ('gpu_utilization', pa.float32())
         ])
 
-    def generate_static_metadata(self):
-        """Kigenerálja a IV. és V. táblázat alapjait a mérés indításakor."""
-        # Megpróbáljuk lekérni a VR hardver nevét, ha inicializálva van
+    def generate_static_metadata(self, override_profile=None):
+        """Kigenerálja a IV. és V. táblázat alapjait. Ha a GUI-ból jön adat, felülírja a defaultot."""
         hmd_name = "Ismeretlen HMD"
         if self.instance:
             props = xr.get_system_properties(self.instance, self.system_id)
@@ -91,34 +90,39 @@ class HighPerfVRLogger:
                 "target_hz": self.target_hz,
                 "tracking_space_type": "STAGE"
             },
-            "subject_profile": {
-                "subject_id": "SUBJ_DEFAULT",
-                "height_cm": 184.0,  # Ezeket UI-ról lehet majd bekérni
-                "weight_kg": 115.0,
-                "dominant_hand": "Right"
-            },
             "hardware_profile": {
                 "host_os_version": f"{os.name} {os.environ.get('OS','')}",
-                "host_cpu_model": "Pre-configured CPU", # WMI/Registry lekérdezés helye
+                "host_cpu_model": "Pre-configured CPU", 
                 "host_ram_gb": round(psutil.virtual_memory().total / (1024**3)),
                 "hmd_model": hmd_name,
                 "has_eye_tracking": True
             }
         }
         
-        meta_path = os.path.join(self.session_dir, "metadata.json")
+        # Ha a Kísérletvezérlő GUI átadott profilt, azt használjuk
+        if override_profile:
+            metadata["subject_profile"] = override_profile
+        else:
+            metadata["subject_profile"] = {
+                "subject_id": "SUBJ_DEFAULT",
+                "height_cm": 184.0, 
+                "weight_kg": 115.0,
+                "dominant_hand": "Right"
+            }
+        
+        meta_path = os.path.join(self.session_dir, "hardware_metadata.json")
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=4)
         print(f"[*] Metaadatok elmentve: {meta_path}")
 
-    def start_recording(self, session_dir, target_hz=90):
+    def start_recording(self, session_dir, target_hz=90, subject_profile=None):
         self.session_dir = session_dir
         os.makedirs(self.session_dir, exist_ok=True)
         self.parquet_file = os.path.join(self.session_dir, "telemetry_raw.parquet")
         self.target_hz = target_hz
         
-        # Metaadatok rögzítése
-        self.generate_static_metadata()
+        # Metaadatok rögzítése a GUI adataival (ha van)
+        self.generate_static_metadata(override_profile=subject_profile)
         
         while not self.data_queue.empty(): self.data_queue.get()
         self.is_recording = True
@@ -137,71 +141,141 @@ class HighPerfVRLogger:
         print("✅ Felvétel biztonságosan lezárva. Adatvesztés: 0%")
 
     def _openxr_reader_loop(self):
-        """A 90Hz-es Hot-Loop. Szigorúan 0 számítás, csak adatkinyerés és Queue-ba dobás."""
+        """A 90Hz-es Hot-Loop VALÓDI OpenXR hívásokkal (pyopenxr API)."""
         frame_idx = 0
-        TARGET_DT = 1.0 / self.target_hz
+        ideal_dt = 1.0 / self.target_hz
+        next_frame_time = time.perf_counter()
         
-        # Audio setup a voice_amplitude_db-hez
-        try:
-            mic = sc.default_microphone()
-        except:
-            mic = None
+        cached_cpu_usage = psutil.cpu_percent()
+        voice_amp = 0.0
 
         while self.is_recording:
-            loop_start = time.perf_counter()
-            current_time_ns = time.perf_counter_ns()
+            current_time = time.perf_counter()
             
-            # ----------------------------------------------------
-            # IDE JÖN AZ OPENXR xr.wait_frame / xr.locate_space LOGIKA
-            # Ezt a részt fogod rákötni a valódi HMD-dre.
-            # ----------------------------------------------------
+            # Hybrid Spin-Lock a tökéletes 90Hz-hez (Zero Jitter)
+            if current_time < next_frame_time:
+                time_to_wait = next_frame_time - current_time
+                if time_to_wait > 0.002:
+                    time.sleep(0.001)
+                continue
             
-            # Szimulált Dummy Adatsor (Fallback, amíg a szemüveg nincs a fejeden)
+            if frame_idx % 10 == 0:
+                cached_cpu_usage = psutil.cpu_percent()
+
+            # ====================================================
+            # VALÓDI OPENXR ADATKINYERÉS
+            # ====================================================
+            try:
+                # 1. Idő lekérése a predikcióhoz
+                # Az ideális a frame_state.predicted_display_time lenne, 
+                # de a 0 átadása a "legfrissebb elérhető" tracker állapotot adja vissza.
+                predicted_time = 0 
+                
+                # 2. Input szinkronizáció (Ravasz, markolat, joystick állapot frissítése)
+                if self.session and hasattr(self, 'action_set'):
+                    active_set = xr.ActiveActionSet(self.action_set, xr.NULL_PATH)
+                    xr.sync_actions(self.session, xr.ActionsSyncInfo(
+                        count_active_action_sets=1,
+                        active_action_sets=[active_set]
+                    ))
+
+                # 3. Segédfüggvény a térbeli (Space) adatok kinyerésére (HMD, kezek)
+                def get_space_data(space_handle):
+                    if not space_handle or not self.session:
+                        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 0.0
+                    
+                    # OpenXR API hívás a pozíció/rotáció lekérésére a STAGE (szoba) origóhoz képest
+                    loc = xr.locate_space(space_handle, self.space_stage, predicted_time)
+                    p = loc.pose.position
+                    o = loc.pose.orientation
+                    # Bitmaszk ellenőrzés: Valid-e a kamerás követés (Nincs-e takarásban a kontroller)
+                    valid = 1.0 if (loc.location_flags & xr.SPACE_LOCATION_POSITION_VALID_BIT) else 0.0
+                    return (p.x, p.y, p.z), (o.x, o.y, o.z, o.w), valid
+
+                # HMD (Sisak) és Kontrollerek koordinátáinak lekérése
+                h_p, h_o, h_v = get_space_data(self.spaces.get('hmd'))
+                l_p, l_o, l_v = get_space_data(self.spaces.get('left_hand'))
+                r_p, r_o, r_v = get_space_data(self.spaces.get('right_hand'))
+                
+                # 4. Segédfüggvények az analóg gombok (Float) és joystickok (Vector2) lekérésére
+                def get_float_action(action_name, subaction_path):
+                    if action_name not in self.actions: return 0.0
+                    info = xr.ActionStateGetInfo(self.actions[action_name], subaction_path)
+                    return xr.get_action_state_float(self.session, info).current_state
+
+                def get_vec2_action(action_name, subaction_path):
+                    if action_name not in self.actions: return (0.0, 0.0)
+                    info = xr.ActionStateGetInfo(self.actions[action_name], subaction_path)
+                    state = xr.get_action_state_vector2f(self.session, info).current_state
+                    return state.x, state.y
+
+                path_left = self.paths.get('left_hand', xr.NULL_PATH)
+                path_right = self.paths.get('right_hand', xr.NULL_PATH)
+
+                # Bal kéz inputok
+                lt = get_float_action('trigger', path_left)
+                lg = get_float_action('grip', path_left)
+                lj_x, lj_y = get_vec2_action('joystick', path_left)
+
+                # Jobb kéz inputok
+                rt = get_float_action('trigger', path_right)
+                rg = get_float_action('grip', path_right)
+                rj_x, rj_y = get_vec2_action('joystick', path_right)
+
+            except Exception as e:
+                # Biztonsági háló: Ha hiba van a runtime-mal (pl. levették a sisakot), fallback 0-ra
+                h_p, h_o, h_v = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 0.0
+                l_p, l_o, l_v = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 0.0
+                r_p, r_o, r_v = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 0.0
+                lt, lg, lj_x, lj_y = 0.0, 0.0, 0.0, 0.0
+                rt, rg, rj_x, rj_y = 0.0, 0.0, 0.0, 0.0
+
+            # Szemkövetés inicializáció (Alapértelmezés, amíg nincs XR_EXT_eye_gaze_interaction hook)
+            le_p, le_o, re_p, re_o = (0.0,0.0,0.0), (0.0,0.0,0.0,1.0), (0.0,0.0,0.0), (0.0,0.0,0.0,1.0)
+            
+            # --- Adatszerkezet feltöltése az AI Tenzor Modell alapján ---
             data_row = {
-                'frame_index': frame_idx, 'timestamp_ns': current_time_ns,
+                'frame_index': frame_idx, 'timestamp_ns': time.perf_counter_ns(),
                 
-                'hmd_pos_x': 0.0, 'hmd_pos_y': 1.6, 'hmd_pos_z': 0.0,
-                'hmd_rot_x': 0.0, 'hmd_rot_y': 0.0, 'hmd_rot_z': 0.0, 'hmd_rot_w': 1.0,
+                'hmd_pos_x': h_p[0], 'hmd_pos_y': h_p[1], 'hmd_pos_z': h_p[2],
+                'hmd_rot_x': h_o[0], 'hmd_rot_y': h_o[1], 'hmd_rot_z': h_o[2], 'hmd_rot_w': h_o[3],
                 
-                'left_pos_x': -0.2, 'left_pos_y': 1.0, 'left_pos_z': -0.3,
-                'left_rot_x': 0.0, 'left_rot_y': 0.0, 'left_rot_z': 0.0, 'left_rot_w': 1.0,
-                'left_trigger': 0.0, 'left_grip': 0.0, 'left_joy_x': 0.0, 'left_joy_y': 0.0,
+                'left_pos_x': l_p[0], 'left_pos_y': l_p[1], 'left_pos_z': l_p[2],
+                'left_rot_x': l_o[0], 'left_rot_y': l_o[1], 'left_rot_z': l_o[2], 'left_rot_w': l_o[3],
+                'left_trigger': lt, 'left_grip': lg, 'left_joy_x': lj_x, 'left_joy_y': lj_y,
                 
-                'right_pos_x': 0.2, 'right_pos_y': 1.0, 'right_pos_z': -0.3,
-                'right_rot_x': 0.0, 'right_rot_y': 0.0, 'right_rot_z': 0.0, 'right_rot_w': 1.0,
-                'right_trigger': 0.0, 'right_grip': 0.0, 'right_joy_x': 0.0, 'right_joy_y': 0.0,
+                'right_pos_x': r_p[0], 'right_pos_y': r_p[1], 'right_pos_z': r_p[2],
+                'right_rot_x': r_o[0], 'right_rot_y': r_o[1], 'right_rot_z': r_o[2], 'right_rot_w': r_o[3],
+                'right_trigger': rt, 'right_grip': rg, 'right_joy_x': rj_x, 'right_joy_y': rj_y,
                 
-                'left_eye_pos_x': 0.0, 'left_eye_pos_y': 0.0, 'left_eye_pos_z': 0.0,
-                'left_eye_rot_x': 0.0, 'left_eye_rot_y': 0.0, 'left_eye_rot_z': 0.0, 'left_eye_rot_w': 1.0,
+                'left_eye_pos_x': le_p[0], 'left_eye_pos_y': le_p[1], 'left_eye_pos_z': le_p[2],
+                'left_eye_rot_x': le_o[0], 'left_eye_rot_y': le_o[1], 'left_eye_rot_z': le_o[2], 'left_eye_rot_w': le_o[3],
                 
-                'right_eye_pos_x': 0.0, 'right_eye_pos_y': 0.0, 'right_eye_pos_z': 0.0,
-                'right_eye_rot_x': 0.0, 'right_eye_rot_y': 0.0, 'right_eye_rot_z': 0.0, 'right_eye_rot_w': 1.0,
+                'right_eye_pos_x': re_p[0], 'right_eye_pos_y': re_p[1], 'right_eye_pos_z': re_p[2],
+                'right_eye_rot_x': re_o[0], 'right_eye_rot_y': re_o[1], 'right_eye_rot_z': re_o[2], 'right_eye_rot_w': re_o[3],
                 
-                'hmd_tracking_valid': 1.0, 'left_tracking_valid': 1.0, 
-                'right_tracking_valid': 1.0, 'eye_tracking_valid': 1.0,
+                'hmd_tracking_valid': h_v, 'left_tracking_valid': l_v, 
+                'right_tracking_valid': r_v, 'eye_tracking_valid': 0.0,
                 
-                'left_pupil_size': 3.5, 'right_pupil_size': 3.5, 'heart_rate_bpm': 0.0,
+                'left_pupil_size': 0.0, 'right_pupil_size': 0.0, 'heart_rate_bpm': 0.0,
                 
-                'distance_to_boundary': 2.5, 'app_fps': 90.0, 'event_marker': 0.0,
+                'distance_to_boundary': 0.0, 'app_fps': self.target_hz, 'event_marker': 0.0,
                 
                 'battery_hmd': 1.0, 'battery_left': 1.0, 'battery_right': 1.0,
                 
                 'haptic_left_intensity': 0.0, 'haptic_right_intensity': 0.0,
-                'gaze_focal_distance': 2.0, 
+                'gaze_focal_distance': 0.0, 
                 
-                # Dinamikusan lekérdezett CPU terhelés (gyors, nem akasztja a loopot)
-                'cpu_utilization': psutil.cpu_percent(), 
+                'cpu_utilization': cached_cpu_usage, 
                 'gpu_utilization': 0.0,
-                'voice_amplitude_db': 0.0
+                'voice_amplitude_db': voice_amp
             }
             
             self.data_queue.put(data_row)
             frame_idx += 1
             
-            elapsed = time.perf_counter() - loop_start
-            sleep_time = TARGET_DT - elapsed
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+            # Következő ciklusidő előkészítése
+            next_frame_time += ideal_dt
 
     def _parquet_writer_loop(self):
         """Aszinkron batch-írás az SSD-re (Google Snappy tömörítéssel)."""
@@ -227,5 +301,5 @@ class HighPerfVRLogger:
             
         writer.close()
 
-# Példányosítás a globális hozzáféréshez (ahogy a szervered is használja)
+# Példányosítás a globális hozzáféréshez
 vr_logger_instance = HighPerfVRLogger()
