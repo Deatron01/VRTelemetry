@@ -1,105 +1,79 @@
 import time
 import ctypes
 from pathlib import Path
-from typing import Optional
-
-from src.core.interfaces import IVRBackend
-from src.backends.backend_openxr import OpenXRBackend
+from src.backends import discover_active_backend
 from src.storage.parquet_writer import AsyncParquetWriter
+from src.utils.hardware_monitor import HardwareMonitor
+from src.utils.logger import logger
+from src.core.exceptions import HardwareBindingError
 
-# Windows-specific: Force high-resolution OS timers (1ms instead of default 15.6ms)
-# Crucial for 90Hz (11.1ms) and 120Hz (8.33ms) precision.
 try:
     winmm = ctypes.windll.winmm
 except AttributeError:
-    raise EnvironmentError("VRTelemetry requires a Windows operating system.")
+    raise EnvironmentError("OS Kernel Platform Conflict: VRTelemetry requires a Windows host environment.")
 
 class TelemetryEngine:
     """
-    The main orchestrator. 
-    Handles backend lifecycle, asynchronous storage, and the high-precision polling loop.
+    Core orchestrator loop execution context. Governs timing precision down to
+    sub-millisecond limits to support stable time-series matrix generation.
     """
     def __init__(self, target_hz: int = 90, output_dir: str = "Sessions"):
         self.target_hz = target_hz
-        self.ideal_dt = 1.0 / self.target_hz
+        self.ideal_dt = 1.0 / target_hz
         self.is_running = False
         self.frames_recorded = 0
         
-        # Prepare Storage
         out_path = Path(output_dir)
         out_path.mkdir(parents=True, exist_ok=True)
-        session_id = time.strftime("%Y%m%d_%H%M%S")
-        self.parquet_path = out_path / f"vr_telemetry_{session_id}.parquet"
-        self.writer = AsyncParquetWriter(output_path=self.parquet_path, target_hz=target_hz)
+        self.session_id = time.strftime("%Y%m%d_%H%M%S")
         
-        # Determine Backend (For now, strictly OpenXR. Auto-discovery can be expanded here)
-        self.backend: IVRBackend = OpenXRBackend()
+        self.parquet_path = out_path / f"vr_telemetry_{self.session_id}.parquet"
+        self.writer = AsyncParquetWriter(output_path=self.parquet_path, target_hz=target_hz)
+        self.hardware = HardwareMonitor()
+        self.backend = None
 
     def start(self) -> None:
-        """Initializes hardware and starts the strict timing loop."""
-        print(f"[*] Initializing VRTelemetry Engine at {self.target_hz}Hz...")
-        
-        if not self.backend.initialize():
-            print("[!] CRITICAL: Could not bind to any VR hardware. Exiting.")
-            return
-
+        self.backend = discover_active_backend()
+        self.hardware.start()
         self.writer.start()
         self.is_running = True
         
-        # Elevate timer resolution for the duration of the run
+        # Stabilize system clock limits across host scheduling pools
         winmm.timeBeginPeriod(1)
         
         try:
-            self._telemetry_loop()
+            self._loop()
         except KeyboardInterrupt:
-            print("\n[*] Manual stop requested.")
+            print("\n[*] Execution execution loop interrupted manually.")
         finally:
-            self._shutdown()
+            self._teardown()
 
-    def _telemetry_loop(self) -> None:
-        """
-        The Zero-Loss Polling Loop.
-        Uses a hybrid sleep/spin algorithm for microsecond precision without maxing out CPU.
-        """
-        print("[+] Telemetry loop active. Recording data... (Press Ctrl+C to stop)")
-        
+    def _loop(self) -> None:
         next_frame_time = time.perf_counter()
-        
         while self.is_running:
-            # 1. Poll Hardware (GIL might be released depending on C-bindings)
             frame_data = self.backend.poll_frame(self.frames_recorded)
             
-            # 2. Push to asynchronous storage (Non-blocking)
-            self.writer.push(frame_data)
+            # Inject cached low-frequency system metrics safely without blocking the timeline
+            frame_data.cpu_utilization = self.hardware.cpu_usage
+            frame_data.voice_amplitude_db = self.hardware.voice_db
             
+            self.writer.push(frame_data)
             self.frames_recorded += 1
             next_frame_time += self.ideal_dt
             
-            # 3. Precision Timing
+            # Hybrid Sleep/Spin Execution Strategy
             now = time.perf_counter()
             time_to_sleep = next_frame_time - now
-            
             if time_to_sleep > 0.002:
-                # Sleep if we have more than 2ms to spare, yielding CPU to the OS
                 time.sleep(time_to_sleep - 0.002)
-            
-            # Spin-lock for the remaining <2ms. This guarantees we hit the exact 
-            # microsecond for the next frame, maintaining perfect Δt for AI tensors.
             while time.perf_counter() < next_frame_time:
-                pass 
+                pass
 
-    def stop(self) -> None:
+    def _teardown(self) -> None:
         self.is_running = False
-
-    def _shutdown(self) -> None:
-        """Gracefully tears down all threads and releases hardware hooks."""
-        print("[*] Shutting down telemetry engine...")
-        self.is_running = False
-        
-        winmm.timeEndPeriod(1) # Restore OS timer resolution
-        
+        winmm.timeEndPeriod(1)
+        self.hardware.stop()
         self.writer.stop()
-        self.backend.shutdown()
-        
-        print(f"[+] Shutdown complete. Total frames recorded: {self.frames_recorded}")
-        print(f"[+] Parquet saved to: {self.parquet_path}")
+        if self.backend:
+            self.backend.shutdown()
+        print(f"[+] Operational log finalized. Frames output: {self.frames_recorded}")
