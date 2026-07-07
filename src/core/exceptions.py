@@ -1,23 +1,27 @@
+# src/core/exceptions.py
+
 class VRTelemetryError(Exception):
-    """Base exception class for all VRTelemetry-specific errors."""
-    pass
-
-class HardwareBindingError(VRTelemetryError):
-    """Raised when a backend (OpenXR/SteamVR/Oculus) fails to initialize or find a headset."""
-    pass
-
-class TelemetryQueueOverflowError(VRTelemetryError):
-    """Raised when the asynchronous Parquet I/O thread cannot keep up with the 120Hz polling rate."""
-    pass
-
-class SensorDataMissingError(VRTelemetryError):
-    """Raised when critical spatial data is completely unavailable, prompting a fallback frame generation."""
+    """Base exception class for all custom VRTelemetry framework errors."""
     pass
 
 class GDPRConsentError(VRTelemetryError):
-    """Raised when biometric data collection is attempted without explicit user consent."""
+    """
+    Raised when biometric tracking initialization is attempted without explicit 
+    user consent, or if consent is programmatically revoked during a live session.
+    Enforces compliance with biometric data collection regulations.
+    """
     pass
 
-class DependencyMissingError(VRTelemetryError):
-    """Raised when required DLLs or Python packages are not found on the host system."""
+class HardwareBindingError(VRTelemetryError):
+    """
+    Raised when the framework fails to attach to the OpenXR runtime or when 
+    critical hardware extensions (like headless mode) are completely unavailable.
+    """
+    pass
+
+class SynchronizationError(VRTelemetryError):
+    """
+    Raised when the producer-consumer ring buffer experiences catastrophic desynchronization 
+    or queue exhaustion that cannot be mitigated by standard frame drops.
+    """
     pass

@@ -1,41 +1,46 @@
+# tests/conftest.py
+
 import pytest
-import time
+import os
+import shutil
 from pathlib import Path
-from src.core.interfaces import IVRBackend
-from src.core.datatypes import TelemetryFrame
 
-class MockVRBackend(IVRBackend):
-    """A simulated hardware backend that generates deterministic sine-wave telemetry."""
-    def __init__(self, target_hz: int = 90):
-        self.target_hz = target_hz
-        self.start_time = time.perf_counter()
-
-    def initialize(self) -> bool:
-        return True
-
-    def poll_frame(self, frame_index: int) -> TelemetryFrame:
-        frame = TelemetryFrame.create_empty(frame_index)
-        t = time.perf_counter() - self.start_time
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_environment():
+    """
+    Session-wide test fixture. Ensures a clean state for storage directories 
+    before and after the entire test suite runs, preventing Parquet/SQLite 
+    artifacts from polluting the developer workspace.
+    """
+    test_session_dir = Path("Tests/TempSessions")
+    test_log_dir = Path("Tests/TempLogs")
+    
+    # Pre-test cleanup (in case of previous aborted runs)
+    if test_session_dir.exists():
+        shutil.rmtree(test_session_dir)
+    if test_log_dir.exists():
+        shutil.rmtree(test_log_dir)
         
-        import math
-        # Simulate moving HMD
-        frame.hmd_pos_x = math.sin(t * 2.0)
-        frame.hmd_pos_y = 1.6 + math.cos(t * 1.5) * 0.1
-        frame.hmd_pos_z = math.cos(t * 2.0)
-        frame.hmd_tracking_valid = 1.0
-        
-        return frame
-
-    def shutdown(self) -> None:
-        pass
+    test_session_dir.mkdir(parents=True)
+    test_log_dir.mkdir(parents=True)
+    
+    # Inject environment variables to redirect standard paths during tests
+    os.environ["VRTELEMETRY_STORAGE_DIR"] = str(test_session_dir)
+    os.environ["VRTELEMETRY_LOG_DIR"] = str(test_log_dir)
+    
+    yield  # Yield control to PyTest execution phase
+    
+    # Post-test teardown
+    if test_session_dir.exists():
+        shutil.rmtree(test_session_dir, ignore_errors=True)
+    if test_log_dir.exists():
+        shutil.rmtree(test_log_dir, ignore_errors=True)
 
 @pytest.fixture
-def mock_backend():
-    return MockVRBackend(target_hz=90)
-
-@pytest.fixture
-def temp_session_dir(tmp_path):
-    """Provides a temporary, auto-cleaning directory for Parquet/SQL I/O tests."""
-    d = tmp_path / "Sessions"
-    d.mkdir()
-    return d
+def mock_telemetry_frame():
+    """
+    Provides a standardized, empty telemetry frame pre-allocated for 
+    1D Tensor injection testing.
+    """
+    from src.core.datatypes import TelemetryFrame
+    return TelemetryFrame.create_empty(frame_idx=0)
