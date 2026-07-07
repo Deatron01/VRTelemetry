@@ -1,5 +1,6 @@
 import threading
 import time
+import warnings
 import psutil
 import soundcard as sc
 import numpy as np
@@ -31,12 +32,17 @@ class HardwareMonitor:
 
     def _audio_loop(self) -> None:
         try:
-            # Binds default sound recording line descriptors safely
-            with sc.default_microphone().recorder(samplerate=44100, channels=1) as mic:
-                while self.is_running:
-                    data = mic.record(numframes=1024)
-                    rms = np.sqrt(np.mean(data**2)) if len(data) > 0 else 0.0
-                    self.voice_db = float(20 * np.log10(rms + 1e-6))
+            # Suppress non-critical buffer drop warnings 
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                
+                # Binds default sound recording line descriptors safely
+                with sc.default_microphone().recorder(samplerate=44100, channels=1) as mic:
+                    while self.is_running:
+                        # Increased from 1024 to 4096 to give the thread more breathing room
+                        data = mic.record(numframes=4096)
+                        rms = np.sqrt(np.mean(data**2)) if len(data) > 0 else 0.0
+                        self.voice_db = float(20 * np.log10(rms + 1e-6))
         except Exception:
             self.voice_db = -60.0 # Standard fallback if hardware configuration blocks access
 

@@ -9,6 +9,7 @@ if __name__ == "__main__":
     ensure_dependencies()
     from src.core.engine import TelemetryEngine
     
-    # Configure deployment settings directly
-    engine = TelemetryEngine(target_hz=90, output_dir="Sessions")
+    # Explicitly pass gdpr_consent=True to allow biometric 
+    # and hardware profiling data to write to disk safely.
+    engine = TelemetryEngine(target_hz=90, output_dir="Sessions", gdpr_consent=True)
     engine.start()

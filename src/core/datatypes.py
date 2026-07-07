@@ -42,6 +42,11 @@ class TelemetryFrame:
     gaze_focal_distance: float; voice_amplitude_db: float
     cpu_utilization: float; gpu_utilization: float
 
+    # Category 7: Virtuális Környezet Állapot (Added to fulfill specification sheet)
+    scene_id: float
+    target_obj_pos_x: float; target_obj_pos_y: float; target_obj_pos_z: float
+    dist_to_target_left: float; dist_to_target_right: float
+
     def to_tuple(self) -> tuple:
         """Converts internal parameters into a flat scalar tuple matching PyArrow memory tables."""
         return (
@@ -67,7 +72,10 @@ class TelemetryFrame:
             self.battery_hmd, self.battery_left, self.battery_right,
             self.haptic_left_intensity, self.haptic_right_intensity,
             self.gaze_focal_distance, self.voice_amplitude_db,
-            self.cpu_utilization, self.gpu_utilization
+            self.cpu_utilization, self.gpu_utilization,
+            self.scene_id,
+            self.target_obj_pos_x, self.target_obj_pos_y, self.target_obj_pos_z,
+            self.dist_to_target_left, self.dist_to_target_right
         )
 
     @classmethod
@@ -87,5 +95,8 @@ class TelemetryFrame:
             battery_hmd=1.0, battery_left=1.0, battery_right=1.0,
             haptic_left_intensity=0.0, haptic_right_intensity=0.0,
             gaze_focal_distance=0.0, voice_amplitude_db=-60.0,
-            cpu_utilization=0.0, gpu_utilization=0.0
+            cpu_utilization=0.0, gpu_utilization=0.0,
+            scene_id=1.0, # Default to Menu state
+            target_obj_pos_x=0.0, target_obj_pos_y=0.0, target_obj_pos_z=0.0,
+            dist_to_target_left=0.0, dist_to_target_right=0.0
         )
