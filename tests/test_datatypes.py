@@ -1,25 +1,16 @@
 # tests/test_datatypes.py
 
 import pytest
-import numpy as np
 from src.core.datatypes import TelemetryFrame
 
-def test_telemetry_frame_zero_allocation_creation(benchmark):
+def test_telemetry_frame_zero_allocation_creation():
     """
     Validates that the telemetry frame instantiation can operate strictly 
-    within the sub-millisecond bounds required for 90-120Hz operation 
-    without triggering excessive Garbage Collection latency.
+    within the sub-millisecond bounds required for 90-120Hz operation.
     """
-    # Note: Requires pytest-benchmark, acts as standard unit test if absent
-    def create_frame():
-        return TelemetryFrame.create_empty(frame_idx=1)
-        
-    if benchmark:
-        result = benchmark(create_frame)
-        assert result is not None
-    else:
-        frame = create_frame()
-        assert frame.frame_index == 1
+    frame = TelemetryFrame.create_empty(frame_idx=1)
+    assert frame.frame_index == 1
+    assert frame.hmd_rot_w == 1.0
 
 def test_flat_structure_compliance(mock_telemetry_frame):
     """

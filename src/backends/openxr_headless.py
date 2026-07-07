@@ -1,7 +1,12 @@
 # src/backends/openxr_headless.py
 
 import logging
+import platform
+import ctypes
 import xr
+import glfw
+from OpenGL import GL
+from OpenGL.WGL import wglGetCurrentDC, wglGetCurrentContext
 from typing import Optional, List
 
 from src.core.interfaces import IVRBackend
@@ -13,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 class OpenXRHeadlessBackend(IVRBackend):
     """
-    Headless OpenXR backend abstraction. Binds to the active OpenXR runtime as an API Layer /
-    Background application using XR_MND_headless, allowing zero-interference telemetry
-    collection while other VR applications remain in focus.
+    Headless OpenXR backend abstraction. Attempts pure XR_MND_headless execution.
+    If running on proprietary runtimes (Meta/Oculus, SteamVR) that lack this extension,
+    it falls back to an invisible Dummy GLFW OpenGL context to run silently in the background.
     """
 
     def __init__(self) -> None:
@@ -32,34 +37,57 @@ class OpenXRHeadlessBackend(IVRBackend):
 
         self.left_space: Optional[xr.Space] = None
         self.right_space: Optional[xr.Space] = None
-
         self.eye_driver: Optional[IEyeTrackingDriver] = None
+        
+        self.graphics_binding = None
+        self.glfw_window = None
+        self.is_pure_headless = False
 
-        # Pre-allocate structures for zero-allocation hot loop polling
         self.active_action_set_info = xr.ActiveActionSet()
         self.actions_sync_info = xr.ActionsSyncInfo()
         self.view_locate_info = xr.ViewLocateInfo(view_configuration_type=xr.ViewConfigurationType.PRIMARY_STEREO)
         self.frame_end_info = xr.FrameEndInfo(environment_blend_mode=xr.EnvironmentBlendMode.OPAQUE)
 
+    def _create_invisible_graphics_binding(self) -> None:
+        """Constructs an invisible OpenGL window to satisfy proprietary runtimes."""
+        if not glfw.init():
+            raise RuntimeError("Failed to initialize GLFW for background context.")
+            
+        glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+        self.glfw_window = glfw.create_window(100, 100, "VRTelemetry Background", None, None)
+        if not self.glfw_window:
+            glfw.terminate()
+            raise RuntimeError("Failed to create hidden GLFW window.")
+            
+        glfw.make_context_current(self.glfw_window)
+        
+        if platform.system() == "Windows":
+            self.graphics_binding = xr.GraphicsBindingOpenGLWin32KHR(
+                h_dc=wglGetCurrentDC(),
+                h_glrc=wglGetCurrentContext()
+            )
+        else:
+            raise NotImplementedError("Fallback currently targets Windows Meta/SteamVR runtimes.")
+
     def initialize(self) -> bool:
-        """
-        Initializes the OpenXR instance, session, and abstract action spaces without
-        binding a graphics context (D3D/OpenGL), ensuring background operation.
-        """
         try:
             available_extensions: List[str] = [
                 ext.extension_name for ext in xr.enumerate_instance_extension_properties()
             ]
             enabled_extensions: List[str] = []
 
-            # Enforce headless mode to prevent rendering interference
             if "XR_MND_headless" in available_extensions:
                 enabled_extensions.append("XR_MND_headless")
+                self.is_pure_headless = True
+                logger.info("Native Headless extension detected.")
             else:
-                logger.error("CRITICAL: XR_MND_headless extension is missing. Headless telemetry aborted.")
-                return False
+                logger.warning("XR_MND_headless missing. Falling back to invisible OpenGL context (Oculus/SteamVR Mode).")
+                if "XR_KHR_opengl_enable" in available_extensions:
+                    enabled_extensions.append("XR_KHR_opengl_enable")
+                else:
+                    logger.error("Neither Headless nor OpenGL extensions are supported. Aborting.")
+                    return False
 
-            # Dynamically resolve and inject the highest fidelity eye-tracking extension
             self.eye_driver = EyeTrackingFactory.create_best_driver(available_extensions)
             if self.eye_driver:
                 driver_ext = self.eye_driver.get_extension_name()
@@ -69,7 +97,6 @@ class OpenXRHeadlessBackend(IVRBackend):
                     if req_ext in available_extensions:
                         enabled_extensions.append(req_ext)
 
-            # Create Instance
             self.instance = xr.create_instance(
                 create_info=xr.InstanceCreateInfo(
                     application_info=xr.ApplicationInfo(
@@ -80,21 +107,21 @@ class OpenXRHeadlessBackend(IVRBackend):
                 )
             )
 
-            self.system_id = xr.get_system(
-                self.instance,
-                xr.SystemGetInfo(xr.FormFactor.HEAD_MOUNTED_DISPLAY)
-            )
+            self.system_id = xr.get_system(self.instance, xr.SystemGetInfo(xr.FormFactor.HEAD_MOUNTED_DISPLAY))
 
-            # Create session purely headless (omitting GraphicsBinding struct)
-            self.session = xr.create_session(
-                self.instance,
-                xr.SessionCreateInfo(system_id=self.system_id)
-            )
+            if not self.is_pure_headless:
+                self._create_invisible_graphics_binding()
+                session_create_info = xr.SessionCreateInfo(
+                    system_id=self.system_id, 
+                    next=ctypes.cast(ctypes.pointer(self.graphics_binding), ctypes.c_void_p)
+                )
+            else:
+                session_create_info = xr.SessionCreateInfo(system_id=self.system_id)
 
-            # Define STAGE space for room-scale absolute tracking
+            self.session = xr.create_session(self.instance, session_create_info)
+
             self.app_space = xr.create_reference_space(
-                self.session,
-                xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE)
+                self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE)
             )
 
             self._setup_actions()
@@ -102,13 +129,12 @@ class OpenXRHeadlessBackend(IVRBackend):
             if self.eye_driver:
                 self.eye_driver.initialize(self.instance, self.session, self.app_space)
 
-            # Pre-configure synchronization struct to avoid per-frame allocations
             self.active_action_set_info.action_set = self.action_set
             self.active_action_set_info.subaction_path = xr.NULL_PATH
             self.actions_sync_info.active_action_sets = [self.active_action_set_info]
             self.view_locate_info.space = self.app_space
 
-            logger.info("OpenXR Headless telemetry context established successfully.")
+            logger.info("OpenXR telemetry context established successfully.")
             return True
 
         except xr.XrException as e:
@@ -117,51 +143,22 @@ class OpenXRHeadlessBackend(IVRBackend):
             return False
 
     def _setup_actions(self) -> None:
-        """
-        Creates telemetry action sets and binds controller spatial/analog inputs.
-        """
         self.action_set = xr.create_action_set(
-            self.instance,
-            xr.ActionSetCreateInfo(
-                action_set_name="telemetry_set",
-                localized_action_set_name="Telemetry Set"
-            )
+            self.instance, xr.ActionSetCreateInfo(action_set_name="telemetry_set", localized_action_set_name="Telemetry Set")
         )
-
         self.left_pose_action = xr.create_action(
-            self.action_set,
-            xr.ActionCreateInfo(
-                action_name="left_pose",
-                action_type=xr.ActionType.POSE_INPUT,
-                localized_action_name="Left Pose"
-            )
+            self.action_set, xr.ActionCreateInfo(action_name="left_pose", action_type=xr.ActionType.POSE_INPUT, localized_action_name="Left Pose")
         )
         self.right_pose_action = xr.create_action(
-            self.action_set,
-            xr.ActionCreateInfo(
-                action_name="right_pose",
-                action_type=xr.ActionType.POSE_INPUT,
-                localized_action_name="Right Pose"
-            )
+            self.action_set, xr.ActionCreateInfo(action_name="right_pose", action_type=xr.ActionType.POSE_INPUT, localized_action_name="Right Pose")
         )
         self.left_trigger_action = xr.create_action(
-            self.action_set,
-            xr.ActionCreateInfo(
-                action_name="left_trigger",
-                action_type=xr.ActionType.FLOAT_INPUT,
-                localized_action_name="Left Trigger"
-            )
+            self.action_set, xr.ActionCreateInfo(action_name="left_trigger", action_type=xr.ActionType.FLOAT_INPUT, localized_action_name="Left Trigger")
         )
         self.right_trigger_action = xr.create_action(
-            self.action_set,
-            xr.ActionCreateInfo(
-                action_name="right_trigger",
-                action_type=xr.ActionType.FLOAT_INPUT,
-                localized_action_name="Right Trigger"
-            )
+            self.action_set, xr.ActionCreateInfo(action_name="right_trigger", action_type=xr.ActionType.FLOAT_INPUT, localized_action_name="Right Trigger")
         )
 
-        # Standard touch controller bindings mapped to core actions
         xr.suggest_interaction_profile_bindings(
             self.instance,
             xr.InteractionProfileSuggestedBinding(
@@ -177,14 +174,12 @@ class OpenXRHeadlessBackend(IVRBackend):
 
         self.left_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.left_pose_action))
         self.right_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.right_pose_action))
-        
         xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
-        """
-        Hot loop execution block. Retrieves transforms and metrics for a specific target clock slice.
-        Designed for strict nanosecond timing, bypassing dynamic memory allocations.
-        """
+        if self.glfw_window:
+            glfw.poll_events()
+
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
             return frame
@@ -193,7 +188,6 @@ class OpenXRHeadlessBackend(IVRBackend):
             state = xr.wait_frame(self.session)
             xr.begin_frame(self.session)
             t = state.predicted_display_time
-            
             frame.timestamp_ns = t
             
             xr.sync_actions(self.session, self.actions_sync_info)
@@ -204,8 +198,7 @@ class OpenXRHeadlessBackend(IVRBackend):
             v_state, views = xr.locate_views(self.session, self.view_locate_info)
             
             if len(views) > 0 and (v_state.view_state_flags & xr.VIEW_STATE_POSITION_VALID_BIT):
-                pos = views[0].pose.position
-                rot = views[0].pose.orientation
+                pos, rot = views[0].pose.position, views[0].pose.orientation
                 frame.hmd_pos_x, frame.hmd_pos_y, frame.hmd_pos_z = pos.x, pos.y, pos.z
                 frame.hmd_rot_x, frame.hmd_rot_y, frame.hmd_rot_z, frame.hmd_rot_w = rot.x, rot.y, rot.z, rot.w
                 frame.hmd_tracking_valid = 1.0
@@ -213,55 +206,46 @@ class OpenXRHeadlessBackend(IVRBackend):
             # 2. Controller Spatials
             l_loc = xr.locate_space(self.left_space, self.app_space, t)
             if l_loc.location_flags & xr.SPACE_LOCATION_POSITION_VALID_BIT:
-                pos = l_loc.pose.position
-                rot = l_loc.pose.orientation
+                pos, rot = l_loc.pose.position, l_loc.pose.orientation
                 frame.left_pos_x, frame.left_pos_y, frame.left_pos_z = pos.x, pos.y, pos.z
                 frame.left_rot_x, frame.left_rot_y, frame.left_rot_z, frame.left_rot_w = rot.x, rot.y, rot.z, rot.w
                 frame.left_tracking_valid = 1.0
 
             r_loc = xr.locate_space(self.right_space, self.app_space, t)
             if r_loc.location_flags & xr.SPACE_LOCATION_POSITION_VALID_BIT:
-                pos = r_loc.pose.position
-                rot = r_loc.pose.orientation
+                pos, rot = r_loc.pose.position, r_loc.pose.orientation
                 frame.right_pos_x, frame.right_pos_y, frame.right_pos_z = pos.x, pos.y, pos.z
                 frame.right_rot_x, frame.right_rot_y, frame.right_rot_z, frame.right_rot_w = rot.x, rot.y, rot.z, rot.w
                 frame.right_tracking_valid = 1.0
 
-            # 3. Controller Analog States
+            # 3. Inputs & Biometrics
             l_trig = xr.get_action_state_float(self.session, xr.ActionStateGetInfo(action=self.left_trigger_action))
             r_trig = xr.get_action_state_float(self.session, xr.ActionStateGetInfo(action=self.right_trigger_action))
             frame.left_trigger = l_trig.current_state if l_trig.is_active else 0.0
             frame.right_trigger = r_trig.current_state if r_trig.is_active else 0.0
 
-            # 4. Biometric Injection (Polymorphic Delegation)
             if self.eye_driver:
                 self.eye_driver.populate_frame(frame, t)
 
-            # Finalize background OpenXR loop cycle
             self.frame_end_info.display_time = t
             xr.end_frame(self.session, self.frame_end_info)
 
         except Exception as e:
-            logger.error(f"Frame Dropped (OpenXR Synchronization Failure): {e}")
+            logger.debug(f"Frame Drop: {e}")
 
         return frame
 
     def shutdown(self) -> None:
-        """
-        Safely dismantles the OpenXR context, returning hardware controls.
-        """
-        if self.eye_driver:
-            self.eye_driver.shutdown()
-        if self.left_space:
-            xr.destroy_space(self.left_space)
-        if self.right_space:
-            xr.destroy_space(self.right_space)
-        if self.app_space:
-            xr.destroy_space(self.app_space)
-        if self.action_set:
-            xr.destroy_action_set(self.action_set)
-        if self.session:
-            xr.destroy_session(self.session)
-        if self.instance:
-            xr.destroy_instance(self.instance)
-        logger.info("OpenXR Headless Context Safely Terminated.")
+        if self.eye_driver: self.eye_driver.shutdown()
+        if self.left_space: xr.destroy_space(self.left_space)
+        if self.right_space: xr.destroy_space(self.right_space)
+        if self.app_space: xr.destroy_space(self.app_space)
+        if self.action_set: xr.destroy_action_set(self.action_set)
+        if self.session: xr.destroy_session(self.session)
+        if self.instance: xr.destroy_instance(self.instance)
+        
+        if self.glfw_window:
+            glfw.destroy_window(self.glfw_window)
+            glfw.terminate()
+            
+        logger.info("OpenXR Context Safely Terminated.")
