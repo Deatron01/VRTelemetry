@@ -41,7 +41,11 @@ class AsyncParquetWriter:
             ('battery_hmd', pa.float32()), ('battery_left', pa.float32()), ('battery_right', pa.float32()),
             ('haptic_left_intensity', pa.float32()), ('haptic_right_intensity', pa.float32()),
             ('gaze_focal_distance', pa.float32()), ('voice_amplitude_db', pa.float32()),
-            ('cpu_utilization', pa.float32()), ('gpu_utilization', pa.float32())
+            ('cpu_utilization', pa.float32()), ('gpu_utilization', pa.float32()),
+            # Category 7 fields added
+            ('scene_id', pa.float32()),
+            ('target_obj_pos_x', pa.float32()), ('target_obj_pos_y', pa.float32()), ('target_obj_pos_z', pa.float32()),
+            ('dist_to_target_left', pa.float32()), ('dist_to_target_right', pa.float32())
         ])
 
     def start(self) -> None:
@@ -54,7 +58,7 @@ class AsyncParquetWriter:
         try:
             self.data_queue.put_nowait(frame.to_tuple())
         except queue.Full:
-            pass # Non-blocking behavior handles queue issues gracefully under severe storage stress
+            pass
 
     def _io_loop(self) -> None:
         batch = []
@@ -76,7 +80,6 @@ class AsyncParquetWriter:
             self._writer.close()
 
     def _flush(self, batch: list) -> None:
-        # Resolves internal tuples directly to memory-mapped columnar tables
         dict_batch = {name: [row[i] for row in batch] for i, name in enumerate(self.schema.names)}
         table = pa.Table.from_pydict(dict_batch, schema=self.schema)
         self._writer.write_table(table)
