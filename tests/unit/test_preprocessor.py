@@ -1,38 +1,37 @@
+# tests/unit/test_preprocessor.py
+
 import pytest
 import numpy as np
-import pandas as pd
-from pathlib import Path
-from src.storage.ai_preprocessor import VRAIPreprocessor
+from src.core.datatypes import TelemetryFrame
 
-@pytest.mark.unit
-def test_kinematic_derivations(tmp_path):
-    """Validates that positions correctly derive to velocities."""
+def test_telemetry_frame_memory_layout():
+    """
+    Validates Requirement 1.5 (Sík/Lapos Adatszerkezet):
+    Ensures that the primary data transfer object is 1-Dimensional and 
+    capable of direct serialization into a uniform length matrix.
+    """
+    frame = TelemetryFrame.create_empty(frame_idx=1)
     
-    # 1. Create a dummy Parquet file simulating linear movement
-    # x moves 0.1 meters per frame at 90Hz -> Velocity should be 9.0 m/s
-    data = {
-        'frame_index': [0, 1, 2, 3, 4],
-        'timestamp_ns': [0, 11111111, 22222222, 33333333, 44444444],
-        'hmd_pos_x': [0.0, 0.1, 0.2, 0.3, 0.4]
-    }
-    df = pd.DataFrame(data)
-    raw_path = tmp_path / "telemetry_raw.parquet"
-    df.to_parquet(raw_path)
-
-    # 2. Run Preprocessor
-    preprocessor = VRAIPreprocessor(raw_parquet_path=raw_path, target_hz=90)
-    preprocessor.execute_transform()
-
-    # 3. Verify Output
-    assert preprocessor.out_file.exists()
-    assert preprocessor.meta_file.exists()
-
-    df_out = pd.read_parquet(preprocessor.out_file)
+    # Generate tuple configuration
+    flat_data = frame.to_tuple()
     
-    # Check if 'vel_' column was generated
-    assert 'hmd_vel_x' in df_out.columns
+    # Assert length matches the exact Parquet columnar specification (67 Columns defined in datatypes)
+    assert len(flat_data) == 67, f"Schema mismatch: Expected 67 columns, got {len(flat_data)}"
     
-    # Note: StandardScaler will normalize the output to Z-scores, so we test 
-    # the presence of the calculation rather than the raw 9.0 value, 
-    # or we can test that NaNs are entirely eliminated.
-    assert df_out['hmd_vel_x'].isna().sum() == 0
+    # Ensure nested types (dicts, lists) are forbidden at runtime
+    for item in flat_data:
+        assert isinstance(item, (int, float)), f"Type violation: Field type {type(item)} detected, only Int/Float allowed."
+
+def test_telemetry_frame_type_casting():
+    """
+    Validates standard machine learning tensor generation pipelines directly
+    from the raw TelemetryFrame objects, verifying float32 compatibility.
+    """
+    frame = TelemetryFrame.create_empty(frame_idx=1)
+    flat_data = frame.to_tuple()
+    
+    # Cast to NumPy Array simulating PyTorch DataLoader ingestion
+    tensor = np.array(flat_data, dtype=np.float32)
+    
+    assert tensor.ndim == 1, "Tensor shape violation: Result is not 1-Dimensional."
+    assert tensor.shape[0] == 67, "Tensor length violation."

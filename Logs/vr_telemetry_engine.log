@@ -66,3 +66,9 @@
 2026-06-26 13:39:49.677 | INFO     | MainThread   | Legacy SteamVR fallback context initialized successfully.
 2026-06-26 13:40:30.519 | WARNING  | MainThread   | Execution loop interrupted manually.
 2026-06-26 13:40:30.774 | INFO     | MainThread   | Operational log finalized. Frames output safely to disk: 3674
+[2026-07-07 09:17:34] [INFO    ] [MainThread     ] [src.utils.auto_installer] - Executing environment compliance checks...
+[2026-07-07 09:17:34] [INFO    ] [MainThread     ] [src.utils.auto_installer] - Verifying Python site-packages with Pip tracking specifications...
+[2026-07-07 09:17:45] [INFO    ] [MainThread     ] [src.utils.auto_installer] - All prerequisite binary modules are linked and validated.
+[2026-07-07 09:17:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - Bootstrapping complete. Transferring thread handles to system main pipeline.
+[2026-07-07 09:17:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-07 09:17:45] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Launch aborted: Biometric tracking requires explicit --gdpr-consent flag.

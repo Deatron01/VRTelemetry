@@ -1,8 +1,18 @@
-pyopenxr>=1.1.5301
-openvr>=1.26.0
+# requirements.txt
+
+# Core OpenXR Bindings
+pyopenxr>=1.0.31
+
+# Data Storage & Machine Learning Integrations
 pyarrow>=15.0.0
-pandas>=2.2.0
-numpy>=1.26.0
+numpy>=1.26.4
+
+# System & Hardware Metrics
 psutil>=5.9.8
-scikit-learn>=1.4.0
-soundcard>=0.4.3
+
+# Testing Frameworks
+pytest>=8.0.0
+pytest-asyncio>=0.23.5
+
+# Database Drivers
+# SQLite3 is part of Python Standard Library, no external driver required.

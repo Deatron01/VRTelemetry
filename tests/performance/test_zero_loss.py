@@ -1,53 +1,81 @@
+# tests/performance/test_zero_loss.py
+
 import time
 import pytest
-import pandas as pd
-from src.core.engine import TelemetryEngine
+import threading
+from src.core.datatypes import TelemetryFrame
+from src.core.synchronizer import BiometricSynchronizer
+from src.storage.parquet_writer import AsyncParquetWriter
+from src.utils.hardware_monitor import HardwareMonitor
 
-@pytest.mark.stress
-def test_120hz_zero_loss_stability(mock_backend, temp_session_dir):
+@pytest.fixture
+def mock_writer(tmp_path):
+    # Overwrite async Parquet writer to write to a temporary disk location safely
+    parquet_path = tmp_path / "zero_loss_test.parquet"
+    writer = AsyncParquetWriter(output_path=parquet_path, target_hz=90, flush_interval_frames=50)
+    writer.start()
+    yield writer
+    writer.stop()
+
+@pytest.fixture
+def hardware_stub():
+    hw = HardwareMonitor(target_hz=10)
+    # Don't actually boot the thread to isolate variables, just pass the object
+    return hw
+
+@pytest.mark.asyncio
+async def test_synchronizer_queue_throughput(mock_writer, hardware_stub):
     """
-    Stress tests the core telemetry loop at 120Hz for a sustained burst.
-    Validates that the microsecond spin-lock maintains the target delta-T 
-    without dropping frames or triggering the OS garbage collector excessively.
+    Validates Requirement ARCH-1.1 (Zero-Loss Adatgyűjtés).
+    Pushes 10,000 frames (approx 110 seconds of 90Hz telemetry) into the 
+    lock-free ring buffer asynchronously while simultaneously consuming them,
+    asserting 0 frames are dropped due to thread starvation or I/O blocking.
     """
-    target_hz = 120
-    duration_seconds = 5 # 600 frames
-    ideal_dt = 1.0 / target_hz
-    tolerance = ideal_dt * 1.5 # 1.5x delay is considered a dropped frame
+    import asyncio
     
-    engine = TelemetryEngine(target_hz=target_hz, output_dir=str(temp_session_dir))
-    engine.backend = mock_backend
+    sync = BiometricSynchronizer(writer=mock_writer, hardware_monitor=hardware_stub)
     
-    start_time = time.perf_counter()
-    engine.is_running = True
-    engine.writer.start()
+    loop = asyncio.get_running_loop()
+    sync.start(loop)
     
-    # 1. Execute the hybrid spin-lock loop manually for testing assertions
-    for _ in range(target_hz * duration_seconds):
-        frame = engine.backend.poll_frame(engine.frames_recorded)
-        engine.writer.push(frame)
-        engine.frames_recorded += 1
-        
-        next_frame_time = start_time + (engine.frames_recorded * ideal_dt)
-        now = time.perf_counter()
-        
-        if next_frame_time - now > 0.002:
-            time.sleep((next_frame_time - now) - 0.002)
-        while time.perf_counter() < next_frame_time:
-            pass
+    total_frames_target = 10000
+    produced_frames = 0
+    
+    # Producer Simulation (Simulates the OpenXR strict hardware polling loop)
+    def fast_producer():
+        nonlocal produced_frames
+        for i in range(total_frames_target):
+            # Create a mock float32 telemetry state vector
+            frame = TelemetryFrame.create_empty(i)
+            sync.push_frame(frame)
+            produced_frames += 1
             
-    engine._teardown()
+            # Artificial sleep mimicking 90Hz interval to prevent unrealistic memory flood (11ms)
+            # Shortened to 0.1ms for test speed, vastly exceeding real-world pressure constraints
+            time.sleep(0.0001) 
+            
+    producer_thread = threading.Thread(target=fast_producer)
+    producer_thread.start()
     
-    # 2. Mathematical Validation of the resulting Parquet Tensor
-    assert engine.parquet_path.exists()
-    df = pd.read_parquet(engine.parquet_path)
+    producer_thread.join(timeout=5.0)
     
-    assert len(df) == 600, f"Expected 600 frames, got {len(df)}"
+    # Wait for the async consumer loop to drain the queue entirely
+    drain_timeout = time.time() + 3.0
+    while not sync.queue.empty():
+        if time.time() > drain_timeout:
+            pytest.fail("Synchronizer consumer thread failed to drain queue in time. Possible lock-contention detected.")
+        await asyncio.sleep(0.1)
+        
+    sync.stop()
     
-    # Calculate inter-frame timing delta
-    df['time_sec'] = df['timestamp_ns'] / 1e9
-    df['delta_time'] = df['time_sec'].diff().fillna(ideal_dt)
+    # Force parity checks
+    assert produced_frames == total_frames_target, f"Producer mismatch: {produced_frames} != {total_frames_target}"
+    assert sync.queue.empty(), "Memory leak: Frame queue is not empty after execution seal."
     
-    # Assert that no frame took longer than the 1.5x tolerance
-    dropped_frames = df[df['delta_time'] > tolerance]
-    assert len(dropped_frames) == 0, f"Engine dropped {len(dropped_frames)} frames at 120Hz."
+    # Writer validation (Wait for lock release during shutdown)
+    time.sleep(0.1)
+    # Using PyArrow to read and verify identical row count
+    import pyarrow.parquet as pq
+    table = pq.read_table(mock_writer.output_path)
+    
+    assert table.num_rows == total_frames_target, f"Disk I/O failure: Expected {total_frames_target} Parquet rows, got {table.num_rows}. Frame drop detected!"
