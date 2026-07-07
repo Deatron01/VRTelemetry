@@ -51,7 +51,7 @@ class RuntimeCapabilityDiscovery:
                 create_info=xr.InstanceCreateInfo(
                     application_info=xr.ApplicationInfo(
                         application_name="VRTelemetry_Prober",
-                        api_version=xr.XR_CURRENT_API_VERSION
+                        api_version=xr.Version(1, 0, 0)
                     )
                 )
             )
