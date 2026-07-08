@@ -144,3 +144,30 @@
 [2026-07-07 09:41:07] [WARNING ] [MainThread     ] [src.backends.openxr_headless] - XR_MND_headless missing. Falling back to invisible OpenGL context (Oculus/SteamVR Mode).
 [2026-07-07 09:41:07] [ERROR   ] [MainThread     ] [src.backends.openxr_headless] - Neither Headless nor OpenGL extensions are supported. Aborting.
 [2026-07-07 09:41:07] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Failed to bind OpenXR Headless session. Terminating execution.
+[2026-07-07 10:29:26] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-07 10:29:26] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-07 10:29:27] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'Oculus' 1.117.0
+[2026-07-07 10:29:27] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: b'Meta Quest Pro'
+[2026-07-07 10:29:27] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-07 10:29:27] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing background telemetry engine and OpenXR headless bindings...
+[2026-07-07 10:29:28] [WARNING ] [MainThread     ] [src.backends.openxr_headless] - XR_MND_headless missing. Falling back to invisible OpenGL context (Oculus/SteamVR Mode).
+[2026-07-07 10:29:28] [ERROR   ] [MainThread     ] [src.backends.openxr_headless] - Neither Headless nor OpenGL extensions are supported. Aborting.
+[2026-07-07 10:29:28] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Failed to bind OpenXR Headless session. Terminating execution.
+[2026-07-07 10:30:53] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-07 10:30:53] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-07 10:30:54] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'Oculus' 1.117.0
+[2026-07-07 10:30:54] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: b'Meta Quest Pro'
+[2026-07-07 10:30:54] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-07 10:30:54] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing background telemetry engine and OpenXR headless bindings...
+[2026-07-07 10:30:54] [WARNING ] [MainThread     ] [src.backends.openxr_headless] - XR_MND_headless missing. Falling back to invisible OpenGL context (Oculus/SteamVR Mode).
+[2026-07-07 10:30:54] [ERROR   ] [MainThread     ] [src.backends.openxr_headless] - Neither Headless nor OpenGL extensions are supported. Aborting.
+[2026-07-07 10:30:54] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Failed to bind OpenXR Headless session. Terminating execution.
+[2026-07-07 10:41:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-07 10:41:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-07 10:41:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'Oculus' 1.117.0
+[2026-07-07 10:41:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: b'Meta Quest Pro'
+[2026-07-07 10:41:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-07 10:41:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing background telemetry engine and OpenXR headless bindings...
+[2026-07-07 10:41:55] [WARNING ] [MainThread     ] [src.eye_tracking.factory] - No compatible biometric tracking hardware found. Defaulting to empty ocular structs.
+[2026-07-07 10:41:55] [ERROR   ] [MainThread     ] [src.backends.openxr_headless] - Init hiba: A requested extension is not supported.
+[2026-07-07 10:41:55] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Failed to bind OpenXR Headless session. Terminating execution.
