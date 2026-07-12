@@ -34,6 +34,19 @@ def parse_arguments() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+def sanitize_metadata(data: Any) -> Any:
+    """
+    Recursively decodes C-style byte strings into UTF-8 strings 
+    to prevent JSON serialization crashes in the database manager.
+    """
+    if isinstance(data, dict):
+        return {k: sanitize_metadata(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_metadata(v) for v in data]
+    elif isinstance(data, bytes):
+        return data.decode('utf-8', errors='ignore')
+    return data
+
 def execute_pipeline() -> None:
     """
     Main orchestration bootstrapper. Extracts runtime topology, constructs capability 
@@ -49,7 +62,10 @@ def execute_pipeline() -> None:
         sys.exit(1)
         
     logger.info("Evaluating OpenXR hardware topology and extension capabilities...")
-    hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+    raw_hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+    
+    # Sanitize the metadata to remove un-serializable byte strings
+    hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
     
     logger.info(f"Detected Runtime: {hardware_capabilities.get('openxr_runtime')}")
     logger.info(f"Detected HMD: {hardware_capabilities.get('hmd_model')}")
