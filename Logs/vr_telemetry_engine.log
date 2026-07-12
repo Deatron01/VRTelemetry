@@ -7653,3 +7653,110 @@ TypeError: Object of type bytes is not JSON serializable
 [2026-07-12 15:19:55] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
 [2026-07-12 15:19:55] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
 [2026-07-12 15:19:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete. Total frames archived: 529529
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-12 21:21:45] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine (Overlay Mode)...
+[2026-07-12 21:21:52] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-12 21:21:52] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260712_212145
+[2026-07-12 21:21:52] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-12 21:21:52] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260712_212145.parquet
+[2026-07-12 21:21:52] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-12 21:21:52] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260712_213249
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260712_213249.parquet
+[2026-07-12 21:32:49] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-12 21:32:49] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-12 21:32:51] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-12 21:32:51] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-12 21:33:12] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-12 21:33:12] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-12 21:33:12] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 3708 remaining frames to disk.
+[2026-07-12 21:33:12] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-12 21:33:12] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-12 21:33:12] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260712_213616
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260712_213616.parquet
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Bypassing OpenVR. Booting Native UDP Receiver on port 5005...
+[2026-07-12 21:36:16] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Critical runtime exception in main loop: 'NoneType' object has no attribute 'call_soon_threadsafe'
+[2026-07-12 21:36:16] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-12 21:36:16] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260712_213622
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260712_213622.parquet
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Bypassing OpenVR. Booting Native UDP Receiver on port 5005...
+[2026-07-12 21:36:22] [ERROR   ] [MainThread     ] [VRTelemetry         ] - Critical runtime exception in main loop: 'NoneType' object has no attribute 'call_soon_threadsafe'
+[2026-07-12 21:36:22] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-12 21:36:22] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260712_213818
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260712_213818.parquet
+[2026-07-12 21:38:18] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Bypassing OpenVR. Booting Native UDP Receiver on port 5005...
+[2026-07-12 21:38:18] [INFO    ] [TelemetryConsumerThread] [src.backends.udp_receiver] - Binding Native UDP Harvester on 0.0.0.0:5005
+[2026-07-12 21:38:18] [INFO    ] [TelemetryConsumerThread] [src.backends.udp_receiver] - Native Quest UDP socket bound. Awaiting biometric payloads...
+[2026-07-12 21:38:18] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for 120Hz UDP stream from Quest Pro...
+[2026-07-12 21:38:33] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-12 21:38:33] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-12 21:38:33] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
+[2026-07-12 21:38:33] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-12 21:38:33] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260712_214004
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260712_214004.parquet
+[2026-07-12 21:40:04] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Bypassing OpenVR. Booting Native UDP Receiver on port 5005...
+[2026-07-12 21:40:04] [INFO    ] [TelemetryConsumerThread] [src.backends.udp_receiver] - Binding Native UDP Harvester on 0.0.0.0:5005
+[2026-07-12 21:40:04] [INFO    ] [TelemetryConsumerThread] [src.backends.udp_receiver] - Native Quest UDP socket bound. Awaiting biometric payloads...
+[2026-07-12 21:40:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for 120Hz UDP stream from Quest Pro...
+[2026-07-12 21:40:13] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-12 21:40:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-12 21:40:13] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
+[2026-07-12 21:40:13] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-12 21:40:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.

@@ -32,6 +32,19 @@ def parse_arguments() -> argparse.Namespace:
         default="SUB_UNKN_01", 
         help="Anonymized UUID for the active test subject."
     )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["auto", "openxr", "oculus", "steamvr", "quest_udp"],
+        default="auto",
+        help="Enforce a specific runtime hardware backend wrapper or standalone network telemetry worker."
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=5005,
+        help="Incoming network port target when operating under 'quest_udp' stream backend mode."
+    )
     return parser.parse_args()
 
 def sanitize_metadata(data: Any) -> Any:
@@ -61,11 +74,22 @@ def execute_pipeline() -> None:
         logger.error("Launch aborted: Biometric tracking requires explicit --gdpr-consent flag.")
         sys.exit(1)
         
-    logger.info("Evaluating OpenXR hardware topology and extension capabilities...")
-    raw_hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+    logger.info(f"Selected execution pipeline mode: Enforced Backend -> [{args.backend.upper()}]")
     
-    # Sanitize the metadata to remove un-serializable byte strings
-    hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
+    # Extract native runtime metadata if standard PCVR hardware mode is active
+    if args.backend != "quest_udp":
+        logger.info("Evaluating OpenXR hardware topology and extension capabilities...")
+        raw_hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+        hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
+    else:
+        # Generate virtual network context payload mapping for Quest standalone stream
+        hardware_capabilities = {
+            "openxr_runtime": "Quest_OVRPlugin_Standalone",
+            "hmd_model": "Meta Quest Pro",
+            "has_eye_tracking": True,
+            "transport_protocol": "UDP_Network_Socket",
+            "binding_port": args.port
+        }
     
     logger.info(f"Detected Runtime: {hardware_capabilities.get('openxr_runtime')}")
     logger.info(f"Detected HMD: {hardware_capabilities.get('hmd_model')}")
@@ -78,9 +102,13 @@ def execute_pipeline() -> None:
         hardware_metadata=hardware_capabilities
     )
     
-    # Enforce static override for anonymity requirement if provided via CLI
+    # Inject runtime execution configurations into context maps before startup sequence
     engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = args.subject_id
     
+    # Inform backend engine context regarding specific protocol drivers
+    engine.configured_backend = args.backend
+    engine.network_port = args.port
+        
     try:
         engine.start()
     except GDPRConsentError as e:
