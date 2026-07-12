@@ -1,11 +1,11 @@
 # src/core/engine.py
-
 import time
 import asyncio
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from src.backends.udp_receiver import NativeQuestReceiver
 from src.backends.backend_steamvr import SteamVROverlayBackend
 from src.core.synchronizer import BiometricSynchronizer
 from src.storage.parquet_writer import AsyncParquetWriter
@@ -17,7 +17,7 @@ from src.core.exceptions import GDPRConsentError
 class TelemetryEngine:
     """
     Production telemetry orchestrator. Guarantees deterministic synchronization between
-    the OpenXR hardware pacing loop and the asynchronous I/O storage subsystems.
+    the OpenXR hardware pacing loop (or UDP sockets) and the asynchronous I/O storage subsystems.
     """
     
     def __init__(self, output_dir: str = "Sessions", gdpr_consent: bool = False, subject_metadata: Optional[Dict[str, Any]] = None, hardware_metadata: Optional[Dict[str, Any]] = None):
@@ -56,7 +56,6 @@ class TelemetryEngine:
 
     def _start_async_loop(self) -> None:
         """Isolated thread execution for non-blocking I/O operations."""
-        self._async_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._async_loop)
         
         self.synchronizer.start(self._async_loop)
@@ -75,41 +74,46 @@ class TelemetryEngine:
 
     def start(self) -> None:
         """
-        Executes deterministic multi-threaded boot sequence.
+        Executes deterministic multi-threaded boot sequence and branches 
+        to the appropriate hardware tracking backend.
         """
-        logger.info("Booting production telemetry engine (Overlay Mode)...")
+        logger.info("Booting production telemetry engine...")
         
-        if not self.backend.initialize():
-            logger.error("Failed to bind OpenXR session. Terminating execution.")
-            return
-            
+        # 1. Initialize persistent storage and monitoring regardless of backend
         self.db_manager.persist_experiment(self.subject_metadata)
-        
         self.hardware.start()
         self.writer.start()
         
+        # 2. Boot the AsyncIO thread (Required for Parquet Writer and UDP Listener)
         self._shutdown_event.clear()
+        self._async_loop = asyncio.new_event_loop() 
+        
         self._async_thread = threading.Thread(target=self._start_async_loop, daemon=True, name="TelemetryConsumerThread")
         self._async_thread.start()
         
         self.is_running = True
+        backend_mode = getattr(self, "configured_backend", "auto")
         
         try:
-            self._loop()
+            if backend_mode == "quest_udp":
+                self._run_quest_udp_mode()
+            else:
+                self._run_steamvr_mode()
         except KeyboardInterrupt:
             logger.warning("Telemetry capture sequence interrupted manually.")
         except Exception as e:
-            logger.error(f"Critical runtime exception in OpenXR loop: {e}")
+            logger.error(f"Critical runtime exception in main loop: {e}")
         finally:
             self._teardown()
 
-    def _loop(self) -> None:
-        """
-        The strictly hardware-synchronized main loop. 
-        Zero thread-sleeps; execution speed is entirely dictated by xrWaitFrame.
-        """
+    def _run_steamvr_mode(self) -> None:
+        """Standard PCVR hardware-synchronized loop via OpenVR."""
+        logger.info("Initializing Native OpenVR Overlay Context...")
+        if not self.backend.initialize():
+            logger.error("Failed to bind OpenXR session. Terminating execution.")
+            return
+
         logger.info("Main telemetry cycle active. Listening for HMD pacing.")
-        
         while self.is_running and not self._shutdown_event.is_set():
             if not self.gdpr_consent:
                 logger.error("Consent revoked during active sampling.")
@@ -118,15 +122,36 @@ class TelemetryEngine:
             # Poll hardware (blocks until headset requires a frame)
             frame_data = self.backend.poll_frame(self.frames_recorded)
             
-            # If tracking drops or session isn't ready, timestamp will be 0. Avoid spamming null frames.
             if frame_data.timestamp_ns > 0:
                 self.synchronizer.push_frame(frame_data)
                 self.frames_recorded += 1
 
+    def _run_quest_udp_mode(self) -> None:
+        """Headless network loop catching native Quest Pro biometric payloads."""
+        port = getattr(self, "network_port", 5005)
+        logger.info(f"Bypassing OpenVR. Booting Native UDP Receiver on port {port}...")
+        
+        receiver = NativeQuestReceiver(host="0.0.0.0", port=port)
+        
+        # Schedule the UDP receiver to start inside our existing AsyncIO thread
+        future = asyncio.run_coroutine_threadsafe(receiver.start(self.synchronizer), self._async_loop)
+        future.result() # Wait for socket to successfully bind
+        
+        logger.info("Main telemetry cycle active. Listening for 120Hz UDP stream from Quest Pro...")
+        
+        # Main thread simply waits while the AsyncIO thread handles incoming UDP packets
+        while self.is_running and not self._shutdown_event.is_set():
+            if not self.gdpr_consent:
+                logger.error("Consent revoked during active sampling.")
+                break
+            time.sleep(0.5) # Sleep to keep CPU footprint near 0%
+            
+        receiver.stop()
+
     def _teardown(self) -> None:
         """
         Guarantees flawless memory deallocation and prevents file corruption.
-        The order of operations is strictly enforced to prevent segmentation faults.
+        The order of operations is strictly enforced.
         """
         logger.info("Executing deterministic teardown sequence...")
         self.is_running = False
@@ -135,7 +160,7 @@ class TelemetryEngine:
         # 1. Stop feeding new frames into the queue
         self.synchronizer.stop()
         
-        # 2. Safely wind down the AsyncIO loop handling disk writes
+        # 2. Safely wind down the AsyncIO loop handling disk writes and UDP sockets
         if self._async_loop and self._async_loop.is_running():
             self._async_loop.call_soon_threadsafe(self._async_loop.stop)
             
@@ -146,7 +171,8 @@ class TelemetryEngine:
         self.hardware.stop()
         self.writer.stop()
         
-        # 4. Destroy OpenXR context LAST to prevent driver panic
-        self.backend.shutdown()
-        
-        logger.info(f"Telemetry engine shutdown complete. Total frames archived: {self.frames_recorded}")
+        # 4. Destroy OpenXR context LAST to prevent driver panic (only if initialized)
+        if getattr(self, "configured_backend", "auto") != "quest_udp":
+            self.backend.shutdown()
+            
+        logger.info(f"Telemetry engine shutdown complete.")
