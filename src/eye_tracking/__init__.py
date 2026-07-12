@@ -12,12 +12,12 @@ from .base_driver import IEyeTrackingDriver
 # Import drivers to trigger their auto-registration with the factory
 from .ext_eye_gaze import EXTEyeGazeDriver
 from .fb_social import FBEyeTrackingSocialDriver
-from .htc_tracker import HTCEyeGazeDriver
+from .htc_tracker import HTCEyeTrackingDriver
 
 __all__ = [
     "EyeTrackingFactory",
     "IEyeTrackingDriver",
     "EXTEyeGazeDriver",
     "FBEyeTrackingSocialDriver",
-    "HTCEyeGazeDriver"
+    "HTCEyeTrackingDriver"
 ]
