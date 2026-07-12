@@ -13,6 +13,7 @@ Features:
 - Detailed logging to both console and 'conversion.log'.
 - Cross-platform executable resolution via `npx`.
 - Multithreaded processing for high performance.
+- Automatically deletes previously generated diagrams before creating new ones.
 - PEP8 compliant and fully type-annotated.
 """
 
@@ -82,6 +83,27 @@ def get_mmdc_command() -> str:
     return "npx.cmd mmdc" if os.name == "nt" else "npx mmdc"
 
 
+def cleanup_previous_diagrams(md_path: Path, output_format: str) -> None:
+    """
+    Deletes previously generated diagrams for a given markdown file to prevent
+    stale/orphaned images from lingering if the number of diagrams decreases.
+    
+    Args:
+        md_path (Path): The path to the Markdown file.
+        output_format (str): The desired output extension.
+    """
+    # Regex to match exact filename or filename_NUMBER
+    pattern = re.compile(rf"^{re.escape(md_path.stem)}(?:_\d+)?\.{output_format}$")
+    
+    for existing_file in md_path.parent.iterdir():
+        if existing_file.is_file() and pattern.match(existing_file.name):
+            try:
+                existing_file.unlink()
+                LOGGER.info(f"Deleted previous diagram: {existing_file.name}")
+            except Exception as e:
+                LOGGER.warning(f"Could not delete {existing_file.name}: {e}")
+
+
 def process_single_diagram(mermaid_code: str, output_path: Path) -> bool:
     """
     Writes a single Mermaid code block to a temporary file, renders it via mmdc,
@@ -132,8 +154,8 @@ def process_single_diagram(mermaid_code: str, output_path: Path) -> bool:
 
 def process_markdown_file(md_path: Path, output_format: str) -> int:
     """
-    Parses a Markdown file, extracts all Mermaid blocks, and dispatches them 
-    for rendering. Handles dynamic naming if multiple blocks exist.
+    Parses a Markdown file, extracts all Mermaid blocks, cleans up previous outputs,
+    and dispatches them for rendering. Handles dynamic naming if multiple blocks exist.
     
     Args:
         md_path (Path): The path to the Markdown file.
@@ -149,7 +171,11 @@ def process_markdown_file(md_path: Path, output_format: str) -> int:
         return 0
         
     blocks = MERMAID_REGEX.findall(content)
-    if not blocks:
+    
+    # If blocks are found, clean up any previous generations first
+    if blocks:
+        cleanup_previous_diagrams(md_path, output_format)
+    else:
         return 0
         
     success_count = 0

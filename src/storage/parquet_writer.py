@@ -36,32 +36,54 @@ class AsyncParquetWriter:
         """
         Defines the strict memory layout for the PyArrow matrix. Enforces 32-bit floating 
         point types to halve VRAM requirements during downstream PyTorch training.
+        Fields are strictly ordered according to the REQ Specification (Cat 2 & 7).
         """
         return pa.schema([
             ("frame_index", pa.int64()),
             ("timestamp_ns", pa.int64()),
+            
+            # 1. HMD Kinematics (2.3 - 2.9)
             ("hmd_pos_x", pa.float32()), ("hmd_pos_y", pa.float32()), ("hmd_pos_z", pa.float32()),
             ("hmd_rot_x", pa.float32()), ("hmd_rot_y", pa.float32()), ("hmd_rot_z", pa.float32()), ("hmd_rot_w", pa.float32()),
-            ("hmd_tracking_valid", pa.float32()),
+            
+            # 2. Left Controller (2.10 - 2.20)
             ("left_pos_x", pa.float32()), ("left_pos_y", pa.float32()), ("left_pos_z", pa.float32()),
             ("left_rot_x", pa.float32()), ("left_rot_y", pa.float32()), ("left_rot_z", pa.float32()), ("left_rot_w", pa.float32()),
             ("left_trigger", pa.float32()), ("left_grip", pa.float32()), ("left_joy_x", pa.float32()), ("left_joy_y", pa.float32()),
-            ("left_tracking_valid", pa.float32()),
+            
+            # 3. Right Controller (2.21 - 2.31)
             ("right_pos_x", pa.float32()), ("right_pos_y", pa.float32()), ("right_pos_z", pa.float32()),
             ("right_rot_x", pa.float32()), ("right_rot_y", pa.float32()), ("right_rot_z", pa.float32()), ("right_rot_w", pa.float32()),
             ("right_trigger", pa.float32()), ("right_grip", pa.float32()), ("right_joy_x", pa.float32()), ("right_joy_y", pa.float32()),
-            ("right_tracking_valid", pa.float32()),
+            
+            # 4. Eye Tracking Left (2.32 - 2.38)
             ("left_eye_pos_x", pa.float32()), ("left_eye_pos_y", pa.float32()), ("left_eye_pos_z", pa.float32()),
             ("left_eye_rot_x", pa.float32()), ("left_eye_rot_y", pa.float32()), ("left_eye_rot_z", pa.float32()), ("left_eye_rot_w", pa.float32()),
+            
+            # 5. Eye Tracking Right (2.39 - 2.45)
             ("right_eye_pos_x", pa.float32()), ("right_eye_pos_y", pa.float32()), ("right_eye_pos_z", pa.float32()),
             ("right_eye_rot_x", pa.float32()), ("right_eye_rot_y", pa.float32()), ("right_eye_rot_z", pa.float32()), ("right_eye_rot_w", pa.float32()),
+            
+            # 6. Validity Flags (2.46 - 2.49)
+            ("hmd_tracking_valid", pa.float32()),
+            ("left_tracking_valid", pa.float32()),
+            ("right_tracking_valid", pa.float32()),
             ("eye_tracking_valid", pa.float32()),
+            
+            # 7. Biometrics (2.50 - 2.52)
             ("left_pupil_size", pa.float32()), ("right_pupil_size", pa.float32()), ("heart_rate_bpm", pa.float32()),
-            ("distance_to_boundary", pa.float32()), ("app_fps", pa.float32()), ("event_marker", pa.float32()),
+            
+            # 8. Environment & System State (2.53 - 2.64)
+            ("distance_to_boundary", pa.float32()), 
+            ("app_fps", pa.float32()), 
+            ("event_marker", pa.float32()),
             ("battery_hmd", pa.float32()), ("battery_left", pa.float32()), ("battery_right", pa.float32()),
             ("haptic_left_intensity", pa.float32()), ("haptic_right_intensity", pa.float32()),
-            ("gaze_focal_distance", pa.float32()), ("voice_amplitude_db", pa.float32()),
+            ("gaze_focal_distance", pa.float32()), 
+            ("voice_amplitude_db", pa.float32()),
             ("cpu_utilization", pa.float32()), ("gpu_utilization", pa.float32()),
+            
+            # 9. Virtual Environment State (7.1 - 7.6)
             ("scene_id", pa.float32()),
             ("target_obj_pos_x", pa.float32()), ("target_obj_pos_y", pa.float32()), ("target_obj_pos_z", pa.float32()),
             ("dist_to_target_left", pa.float32()), ("dist_to_target_right", pa.float32())

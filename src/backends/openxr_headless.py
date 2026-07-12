@@ -4,9 +4,6 @@ import logging
 import platform
 import ctypes
 import xr
-import glfw
-from OpenGL import GL
-from OpenGL.WGL import wglGetCurrentDC, wglGetCurrentContext
 from typing import Optional, List
 
 from src.core.interfaces import IVRBackend
@@ -20,7 +17,8 @@ class OpenXRHeadlessBackend(IVRBackend):
     """
     Headless OpenXR backend abstraction. Attempts pure XR_MND_headless execution.
     If running on proprietary runtimes (Meta/Oculus, SteamVR) that lack this extension,
-    it falls back to an invisible Dummy GLFW OpenGL context to run silently in the background.
+    it falls back to an invisible Direct3D 11 device context to run silently in the background
+    without requiring an active window (resolves Oculus OpenGL compatibility drops).
     """
 
     def __init__(self) -> None:
@@ -40,7 +38,8 @@ class OpenXRHeadlessBackend(IVRBackend):
         self.eye_driver: Optional[IEyeTrackingDriver] = None
         
         self.graphics_binding = None
-        self.glfw_window = None
+        self.d3d_device = None
+        self.d3d_context = None
         self.is_pure_headless = False
 
         self.active_action_set_info = xr.ActiveActionSet()
@@ -48,26 +47,53 @@ class OpenXRHeadlessBackend(IVRBackend):
         self.view_locate_info = xr.ViewLocateInfo(view_configuration_type=xr.ViewConfigurationType.PRIMARY_STEREO)
         self.frame_end_info = xr.FrameEndInfo(environment_blend_mode=xr.EnvironmentBlendMode.OPAQUE)
 
-    def _create_invisible_graphics_binding(self) -> None:
-        """Constructs an invisible OpenGL window to satisfy proprietary runtimes."""
-        if not glfw.init():
-            raise RuntimeError("Failed to initialize GLFW for background context.")
+    def _create_d3d11_binding(self) -> None:
+        """Constructs an invisible D3D11 graphics device to satisfy Windows XR runtimes."""
+        if platform.system() != "Windows":
+            raise NotImplementedError("D3D11 fallback is only supported on Windows.")
             
-        glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
-        self.glfw_window = glfw.create_window(100, 100, "VRTelemetry Background", None, None)
-        if not self.glfw_window:
-            glfw.terminate()
-            raise RuntimeError("Failed to create hidden GLFW window.")
-            
-        glfw.make_context_current(self.glfw_window)
-        
-        if platform.system() == "Windows":
-            self.graphics_binding = xr.GraphicsBindingOpenGLWin32KHR(
-                h_dc=wglGetCurrentDC(),
-                h_glrc=wglGetCurrentContext()
+        try:
+            # OpenXR requires querying graphics requirements before session creation
+            reqs = xr.get_d3d11_graphics_requirements_khr(self.instance, self.system_id)
+            logger.debug(f"D3D11 Graphics Requirements: min_feature_level={reqs.min_feature_level}")
+
+            # Load the D3D11 DLL via ctypes
+            d3d11 = ctypes.windll.d3d11
+
+            D3D_DRIVER_TYPE_HARDWARE = 1
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT = 0x20
+            D3D11_SDK_VERSION = 7
+
+            self.d3d_device = ctypes.c_void_p()
+            self.d3d_context = ctypes.c_void_p()
+            feature_level = ctypes.c_uint()
+
+            # HRESULT WINAPI D3D11CreateDevice(...)
+            res = d3d11.D3D11CreateDevice(
+                None,                                 # pAdapter (Use default)
+                D3D_DRIVER_TYPE_HARDWARE,             # DriverType
+                None,                                 # Software
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,     # Flags
+                None,                                 # pFeatureLevels
+                0,                                    # FeatureLevels count
+                D3D11_SDK_VERSION,                    # SDKVersion
+                ctypes.byref(self.d3d_device),
+                ctypes.byref(feature_level),
+                ctypes.byref(self.d3d_context)
             )
-        else:
-            raise NotImplementedError("Fallback currently targets Windows Meta/SteamVR runtimes.")
+
+            if res != 0:
+                raise RuntimeError(f"D3D11CreateDevice failed with HRESULT: {hex(res & 0xFFFFFFFF)}")
+
+            # Bind the raw device pointer to OpenXR
+            self.graphics_binding = xr.GraphicsBindingD3D11KHR(
+                device=ctypes.cast(self.d3d_device, ctypes.c_void_p)
+            )
+            logger.info("D3D11 dummy graphics binding created successfully.")
+            
+        except Exception as e:
+            logger.error(f"Failed to create D3D11 graphics binding: {e}")
+            raise
 
     def initialize(self) -> bool:
         try:
@@ -81,11 +107,11 @@ class OpenXRHeadlessBackend(IVRBackend):
                 self.is_pure_headless = True
                 logger.info("Native Headless extension detected.")
             else:
-                logger.warning("XR_MND_headless missing. Falling back to invisible OpenGL context (Oculus/SteamVR Mode).")
-                if "XR_KHR_opengl_enable" in available_extensions:
-                    enabled_extensions.append("XR_KHR_opengl_enable")
+                logger.warning("XR_MND_headless missing. Falling back to D3D11 dummy context (Oculus/SteamVR Mode).")
+                if "XR_KHR_D3D11_enable" in available_extensions:
+                    enabled_extensions.append("XR_KHR_D3D11_enable")
                 else:
-                    logger.error("Neither Headless nor OpenGL extensions are supported. Aborting.")
+                    logger.error("Neither Headless nor D3D11 extensions are supported. Aborting.")
                     return False
 
             self.eye_driver = EyeTrackingFactory.create_best_driver(available_extensions)
@@ -110,7 +136,7 @@ class OpenXRHeadlessBackend(IVRBackend):
             self.system_id = xr.get_system(self.instance, xr.SystemGetInfo(xr.FormFactor.HEAD_MOUNTED_DISPLAY))
 
             if not self.is_pure_headless:
-                self._create_invisible_graphics_binding()
+                self._create_d3d11_binding()
                 session_create_info = xr.SessionCreateInfo(
                     system_id=self.system_id, 
                     next=ctypes.cast(ctypes.pointer(self.graphics_binding), ctypes.c_void_p)
@@ -177,9 +203,6 @@ class OpenXRHeadlessBackend(IVRBackend):
         xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
-        if self.glfw_window:
-            glfw.poll_events()
-
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
             return frame
@@ -244,8 +267,9 @@ class OpenXRHeadlessBackend(IVRBackend):
         if self.session: xr.destroy_session(self.session)
         if self.instance: xr.destroy_instance(self.instance)
         
-        if self.glfw_window:
-            glfw.destroy_window(self.glfw_window)
-            glfw.terminate()
+        # Tisztítjuk a D3D11 erőforrásokat a memóriából
+        if self.d3d_device:
+            self.d3d_device = None
+            self.d3d_context = None
             
         logger.info("OpenXR Context Safely Terminated.")
