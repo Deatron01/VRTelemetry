@@ -367,3 +367,163 @@ Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/
 2026-07-08 16:41:40 [INFO] ThreadPoolExecutor-0_0: Successfully generated: eye_tracking_driver_hierarchy.svg
 2026-07-08 16:41:40 [INFO] MainThread: Batch conversion completed! Generated 33 diagrams in total.
 2026-07-08 16:41:40 [INFO] MainThread: Detailed logs saved to: C:\Users\nipit\Desktop\VRTelemetry\conversion.log
+2026-07-09 11:05:17 [INFO] MainThread: Found 33 markdown files in 'doc'. Starting batch conversion...
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_3: Deleted previous diagram: component_architecture.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_1: Deleted previous diagram: cli_argument_flow.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_0: Deleted previous diagram: main_hardware_pacing_loop.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_2: Deleted previous diagram: call_graph_bootstrapper.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_4: Deleted previous diagram: error_handling_flow.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_7: Deleted previous diagram: module_dependencies.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_5: Deleted previous diagram: hardware_monitor_subsystem.svg
+2026-07-09 11:05:17 [INFO] ThreadPoolExecutor-0_6: Deleted previous diagram: logging_architecture.svg
+2026-07-09 11:05:43 [ERROR] ThreadPoolExecutor-0_4: Failed to render error_handling_flow.svg:
+ERROR: The process "9972" not found.
+^C
+2026-07-09 11:05:43 [INFO] ThreadPoolExecutor-0_4: Deleted previous diagram: thread_synchronization.svg
+2026-07-09 11:05:43 [ERROR] ThreadPoolExecutor-0_2: Failed to render call_graph_bootstrapper.svg:
+ERROR: The process with PID 26464 (child process of PID 17672) could not be terminated.
+Reason: There is no running instance of the task.
+
+^C^C
+2026-07-09 11:05:43 [INFO] ThreadPoolExecutor-0_2: Deleted previous diagram: c4_component_engine.svg
+2026-07-09 11:05:45 [ERROR] ThreadPoolExecutor-0_1: Failed to render cli_argument_flow.svg:
+ERROR: The process with PID 2784 (child process of PID 23040) could not be terminated.
+Reason: There is no running instance of the task.
+
+^C^C^C
+2026-07-09 11:05:45 [INFO] ThreadPoolExecutor-0_1: Deleted previous diagram: c4_context_container.svg
+2026-07-09 11:05:45 [ERROR] ThreadPoolExecutor-0_5: Failed to render hardware_monitor_subsystem.svg:
+ERROR: The process "8024" not found.
+^C^C^C
+2026-07-09 11:05:45 [INFO] ThreadPoolExecutor-0_5: Deleted previous diagram: metadata_hierarchy.svg
+2026-07-09 11:05:45 [ERROR] ThreadPoolExecutor-0_3: Failed to render component_architecture.svg:
+ERROR: The process with PID 21968 (child process of PID 21104) could not be terminated.
+Reason: There is no running instance of the task.
+
+^C^C^C^C
+2026-07-09 11:05:46 [ERROR] ThreadPoolExecutor-0_0: Failed to render main_hardware_pacing_loop.svg:
+ERROR: The process with PID 26488 (child process of PID 19732) could not be terminated.
+Reason: There is no running instance of the task.
+
+ERROR: The process with PID 19732 (child process of PID 22276) could not be terminated.
+Reason: There is no running instance of the task.
+
+^C^C^C^C^C
+2026-07-09 11:05:46 [INFO] ThreadPoolExecutor-0_0: Deleted previous diagram: level1_telemetry_pipeline.svg
+2026-07-09 11:05:46 [ERROR] ThreadPoolExecutor-0_6: Failed to render logging_architecture.svg:
+ERROR: The process "25656" not found.
+^C^C^C^C^C^C^C
+2026-07-09 11:05:46 [INFO] ThreadPoolExecutor-0_6: Deleted previous diagram: parquet_schema_dictionary.svg
+2026-07-09 11:05:46 [ERROR] ThreadPoolExecutor-0_7: Failed to render module_dependencies.svg:
+ERROR: The process with PID 5488 (child process of PID 16936) could not be terminated.
+Reason: There is no running instance of the task.
+
+ERROR: The process with PID 16936 (child process of PID 14920) could not be terminated.
+Reason: There is no running instance of the task.
+
+^C^C^C^C^C^C^C
+2026-07-09 11:05:46 [INFO] ThreadPoolExecutor-0_7: Deleted previous diagram: file_structure.svg
+2026-07-09 11:05:46 [ERROR] ThreadPoolExecutor-0_4: Failed to render thread_synchronization.svg:
+^C^C^C^C^C^C^C^CThe syntax of the command is incorrect.
+2026-07-09 11:05:46 [INFO] ThreadPoolExecutor-0_4: Deleted previous diagram: physical_environment.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_2: Failed to render c4_component_engine.svg:
+ERROR: The process "24916" not found.
+^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_2: Deleted previous diagram: ci_cd_execution_matrix.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_1: Failed to render c4_context_container.svg:
+^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_1: Deleted previous diagram: contribution_workflow.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_3: Failed to render erd_metadata_schema.svg:
+^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_3: Deleted previous diagram: quick_reference_mindmap.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_5: Failed to render metadata_hierarchy.svg:
+^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_5: Deleted previous diagram: critical_path_90hz.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_0: Failed to render level1_telemetry_pipeline.svg:
+^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_0: Deleted previous diagram: ai_post_processor_flow.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_6: Failed to render parquet_schema_dictionary.svg:
+^C^C^C^C^C^C^C^CThe system cannot open the device or file specified.
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_6: Deleted previous diagram: data_synchronization_pipeline.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_7: Failed to render file_structure.svg:
+^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_7: Deleted previous diagram: startup_and_acquisition_loop.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_4: Failed to render physical_environment.svg:
+^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_4: Deleted previous diagram: teardown_activity.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_6: Failed to render data_synchronization_pipeline.svg:
+^C^C^C^C^C^C^C^C^C^C^CThe syntax of the command is incorrect.
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_6: Deleted previous diagram: engine_lifecycle.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_1: Failed to render contribution_workflow.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_1: Deleted previous diagram: openxr_session_lifecycle.svg
+2026-07-09 11:05:47 [ERROR] ThreadPoolExecutor-0_2: Failed to render ci_cd_execution_matrix.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:47 [INFO] ThreadPoolExecutor-0_2: Deleted previous diagram: biometric_vector_assembly.svg
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_4: Failed to render teardown_activity.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^CThe syntax of the command is incorrect.
+2026-07-09 11:05:48 [INFO] ThreadPoolExecutor-0_4: Deleted previous diagram: openxr_headless_initialization.svg
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_3: Failed to render quick_reference_mindmap.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:48 [INFO] ThreadPoolExecutor-0_3: Deleted previous diagram: time_synchronization_pipeline.svg
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_7: Failed to render startup_and_acquisition_loop.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:48 [INFO] ThreadPoolExecutor-0_7: Deleted previous diagram: testing_architecture.svg
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_0: Failed to render ai_post_processor_flow.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:48 [INFO] ThreadPoolExecutor-0_0: Deleted previous diagram: core_class_diagram.svg
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_1: Failed to render openxr_session_lifecycle.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:48 [INFO] ThreadPoolExecutor-0_1: Deleted previous diagram: eye_tracking_driver_hierarchy.svg
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_5: Failed to render critical_path_90hz.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_7: Failed to render testing_architecture.svg:
+^C^C^C^C^C^C^C^CThe system cannot open the device or file specified.
+2026-07-09 11:05:48 [ERROR] ThreadPoolExecutor-0_6: Failed to render engine_lifecycle.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:49 [ERROR] ThreadPoolExecutor-0_2: Failed to render biometric_vector_assembly.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:49 [ERROR] ThreadPoolExecutor-0_4: Failed to render openxr_headless_initialization.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^CThe syntax of the command is incorrect.
+2026-07-09 11:05:49 [ERROR] ThreadPoolExecutor-0_3: Failed to render time_synchronization_pipeline.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:49 [ERROR] ThreadPoolExecutor-0_1: Failed to render eye_tracking_driver_hierarchy.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:49 [ERROR] ThreadPoolExecutor-0_0: Failed to render core_class_diagram.svg:
+^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C^C
+2026-07-09 11:05:53 [INFO] MainThread: Found 33 markdown files in 'doc'. Starting batch conversion...
+2026-07-09 11:05:56 [INFO] ThreadPoolExecutor-0_2: Successfully generated: call_graph_bootstrapper.svg
+2026-07-09 11:05:56 [INFO] ThreadPoolExecutor-0_0: Successfully generated: main_hardware_pacing_loop.svg
+2026-07-09 11:05:56 [INFO] ThreadPoolExecutor-0_3: Successfully generated: component_architecture.svg
+2026-07-09 11:05:56 [INFO] ThreadPoolExecutor-0_1: Successfully generated: cli_argument_flow.svg
+2026-07-09 11:05:59 [INFO] ThreadPoolExecutor-0_3: Successfully generated: logging_architecture.svg
+2026-07-09 11:05:59 [INFO] ThreadPoolExecutor-0_0: Successfully generated: hardware_monitor_subsystem.svg
+2026-07-09 11:05:59 [INFO] ThreadPoolExecutor-0_2: Successfully generated: error_handling_flow.svg
+2026-07-09 11:05:59 [INFO] ThreadPoolExecutor-0_1: Successfully generated: module_dependencies.svg
+2026-07-09 11:06:01 [INFO] ThreadPoolExecutor-0_0: Successfully generated: c4_component_engine.svg
+2026-07-09 11:06:02 [INFO] ThreadPoolExecutor-0_3: Successfully generated: thread_synchronization.svg
+2026-07-09 11:06:02 [INFO] ThreadPoolExecutor-0_2: Successfully generated: c4_context_container.svg
+2026-07-09 11:06:02 [INFO] ThreadPoolExecutor-0_1: Successfully generated: metadata_hierarchy.svg
+2026-07-09 11:06:04 [INFO] ThreadPoolExecutor-0_2: Successfully generated: parquet_schema_dictionary.svg
+2026-07-09 11:06:04 [INFO] ThreadPoolExecutor-0_3: Successfully generated: level1_telemetry_pipeline.svg
+2026-07-09 11:06:05 [INFO] ThreadPoolExecutor-0_0: Successfully generated: erd_metadata_schema.svg
+2026-07-09 11:06:05 [INFO] ThreadPoolExecutor-0_1: Successfully generated: file_structure.svg
+2026-07-09 11:06:07 [INFO] ThreadPoolExecutor-0_3: Successfully generated: physical_environment.svg
+2026-07-09 11:06:07 [INFO] ThreadPoolExecutor-0_2: Successfully generated: ci_cd_execution_matrix.svg
+2026-07-09 11:06:07 [INFO] ThreadPoolExecutor-0_0: Successfully generated: contribution_workflow.svg
+2026-07-09 11:06:08 [INFO] ThreadPoolExecutor-0_1: Successfully generated: quick_reference_mindmap.svg
+2026-07-09 11:06:10 [INFO] ThreadPoolExecutor-0_0: Successfully generated: data_synchronization_pipeline.svg
+2026-07-09 11:06:10 [INFO] ThreadPoolExecutor-0_2: Successfully generated: ai_post_processor_flow.svg
+2026-07-09 11:06:10 [INFO] ThreadPoolExecutor-0_3: Successfully generated: critical_path_90hz.svg
+2026-07-09 11:06:11 [INFO] ThreadPoolExecutor-0_1: Successfully generated: startup_and_acquisition_loop.svg
+2026-07-09 11:06:13 [INFO] ThreadPoolExecutor-0_0: Successfully generated: teardown_activity.svg
+2026-07-09 11:06:13 [INFO] ThreadPoolExecutor-0_2: Successfully generated: engine_lifecycle.svg
+2026-07-09 11:06:13 [INFO] ThreadPoolExecutor-0_3: Successfully generated: openxr_session_lifecycle.svg
+2026-07-09 11:06:14 [INFO] ThreadPoolExecutor-0_1: Successfully generated: biometric_vector_assembly.svg
+2026-07-09 11:06:16 [INFO] ThreadPoolExecutor-0_0: Successfully generated: openxr_headless_initialization.svg
+2026-07-09 11:06:16 [INFO] ThreadPoolExecutor-0_3: Successfully generated: testing_architecture.svg
+2026-07-09 11:06:16 [INFO] ThreadPoolExecutor-0_2: Successfully generated: time_synchronization_pipeline.svg
+2026-07-09 11:06:17 [INFO] ThreadPoolExecutor-0_1: Successfully generated: core_class_diagram.svg
+2026-07-09 11:06:18 [INFO] ThreadPoolExecutor-0_0: Successfully generated: eye_tracking_driver_hierarchy.svg
+2026-07-09 11:06:18 [INFO] MainThread: Batch conversion completed! Generated 33 diagrams in total.
+2026-07-09 11:06:18 [INFO] MainThread: Detailed logs saved to: C:\Users\nipit\Desktop\VRTelemetry\conversion.log
