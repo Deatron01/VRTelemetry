@@ -12,12 +12,6 @@ from src.core.datatypes import TelemetryFrame
 logger = logging.getLogger(__name__)
 
 class HTCEyeTrackingDriver(IEyeTrackingDriver):
-    """
-    Priority 50 Biometric Driver for HTC Vive Pro Eye / Focus hardware.
-    Leverages XR_HTC_eye_tracker / XR_HTC_facial_tracking extensions to extract
-    highly accurate stereoscopic gaze vectors and pupil dilations natively.
-    """
-
     def __init__(self) -> None:
         self.instance: Optional[xr.Instance] = None
         self.session: Optional[xr.Session] = None
@@ -25,12 +19,18 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
         
         self._xrCreateFacialTrackerHTC = None
         self._xrGetFacialExpressionsHTC = None
+        
+        # Action handles for standard gaze vectors
+        self.gaze_action_set: Optional[xr.ActionSet] = None
+        self.gaze_pose_action: Optional[xr.Action] = None
+        self.gaze_space: Optional[xr.Space] = None
 
     def get_extension_name(self) -> str:
         return "XR_HTC_facial_tracking"
 
     def get_additional_extensions(self) -> List[str]:
-        return ["XR_HTC_eye_tracker"]
+        # Require standard eye gaze interaction to get spatial vectors
+        return ["XR_EXT_eye_gaze_interaction"]
 
     def get_priority(self) -> int:
         return 50
@@ -40,56 +40,82 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
         self.session = session
         
         try:
+            # 1. Initialize HTC Facial Tracker (for blinks/pupil)
             self._xrCreateFacialTrackerHTC = xr.get_instance_proc_addr(self.instance, "xrCreateFacialTrackerHTC")
             self._xrGetFacialExpressionsHTC = xr.get_instance_proc_addr(self.instance, "xrGetFacialExpressionsHTC")
 
-            if not self._xrCreateFacialTrackerHTC:
-                return False
-
-            # Create the HTC Tracker Handle
-            create_info = xr.FacialTrackerCreateInfoHTC(facial_tracking_type=xr.FacialTrackingTypeHTC.EYE_DEFAULT)
-            self.facial_tracker = ctypes.c_void_p()
+            if self._xrCreateFacialTrackerHTC:
+                create_info = xr.FacialTrackerCreateInfoHTC(facial_tracking_type=xr.FacialTrackingTypeHTC.EYE_DEFAULT)
+                self.facial_tracker = ctypes.c_void_p()
+                func = ctypes.CFUNCTYPE(xr.Result, xr.Session, ctypes.POINTER(xr.FacialTrackerCreateInfoHTC), ctypes.POINTER(ctypes.c_void_p))(self._xrCreateFacialTrackerHTC)
+                func(self.session, ctypes.byref(create_info), ctypes.byref(self.facial_tracker))
             
-            func = ctypes.CFUNCTYPE(xr.Result, xr.Session, ctypes.POINTER(xr.FacialTrackerCreateInfoHTC), ctypes.POINTER(ctypes.c_void_p))(self._xrCreateFacialTrackerHTC)
-            res = func(self.session, ctypes.byref(create_info), ctypes.byref(self.facial_tracker))
+            # 2. Initialize Standard Gaze Interaction (for X/Y/Z vectors)
+            self.gaze_action_set = xr.create_action_set(
+                self.instance, xr.ActionSetCreateInfo(action_set_name="gaze_set", localized_action_set_name="Gaze Set")
+            )
+            self.gaze_pose_action = xr.create_action(
+                self.gaze_action_set, xr.ActionCreateInfo(action_name="eye_gaze", action_type=xr.ActionType.POSE_INPUT, localized_action_name="Eye Gaze")
+            )
             
-            if res == xr.Result.SUCCESS:
-                logger.info("HTC Facial/Eye Tracker explicitly initialized.")
-                return True
-            return False
+            xr.suggest_interaction_profile_bindings(
+                self.instance,
+                xr.InteractionProfileSuggestedBinding(
+                    interaction_profile=xr.string_to_path(self.instance, "/interaction_profiles/ext/eye_gaze_interaction"),
+                    suggested_bindings=[
+                        xr.ActionSuggestedBinding(self.gaze_pose_action, xr.string_to_path(self.instance, "/user/eyes_ext/input/gaze_ext/pose")),
+                    ]
+                )
+            )
+            
+            self.gaze_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.gaze_pose_action))
+            xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.gaze_action_set]))
+            
+            logger.info("HTC Facial and Eye Gaze Trackers explicitly initialized.")
+            return True
             
         except Exception as e:
             logger.error(f"HTC Eye Tracker init failed: {e}")
             return False
 
     def populate_frame(self, frame: TelemetryFrame, timestamp_ns: int) -> None:
-        if not self.facial_tracker:
-            return
+        frame.eye_tracking_valid = 0.0
 
-        try:
-            # Struct containing weightings for HTC's facial blendshapes
-            expressions = xr.FacialExpressionsHTC()
-            func = ctypes.CFUNCTYPE(xr.Result, ctypes.c_void_p, ctypes.POINTER(xr.FacialExpressionsHTC))(self._xrGetFacialExpressionsHTC)
-            res = func(self.facial_tracker, ctypes.byref(expressions))
+        # 1. Harvest Blendshapes (Blinks/Pupil via HTC extension)
+        if self.facial_tracker:
+            try:
+                expressions = xr.FacialExpressionsHTC()
+                func = ctypes.CFUNCTYPE(xr.Result, ctypes.c_void_p, ctypes.POINTER(xr.FacialExpressionsHTC))(self._xrGetFacialExpressionsHTC)
+                res = func(self.facial_tracker, ctypes.byref(expressions))
 
-            if res == xr.Result.SUCCESS and expressions.is_active:
-                # Map HTC blendshape weights (0.0 -> 1.0) to frame metrics
-                # Note: Exact index maps depend on the xr.FacialExpressionHTC enum
-                frame.eye_tracking_valid = 1.0
-                
-                # Extract blink states
-                frame.left_pupil_size = 1.0 - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_LEFT]
-                frame.right_pupil_size = 1.0 - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_RIGHT]
-            else:
-                frame.eye_tracking_valid = 0.0
+                if res == xr.Result.SUCCESS and expressions.is_active:
+                    frame.left_pupil_size = 1.0 - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_LEFT]
+                    frame.right_pupil_size = 1.0 - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_RIGHT]
+                    frame.eye_tracking_valid = 1.0
+            except Exception as e:
+                logger.debug(f"HTC Facial fault: {e}")
 
-        except Exception as e:
-            logger.debug(f"HTC Tracking fault: {e}")
+        # 2. Harvest Spatial Vectors (Where the user is looking)
+        if self.gaze_space and self.gaze_action_set:
+            try:
+                # Note: Actions must be synced in the backend's main poll loop for this to populate
+                gaze_loc = xr.locate_space(self.gaze_space, self.app_space, timestamp_ns)
+                if gaze_loc.location_flags & xr.SPACE_LOCATION_POSITION_VALID_BIT:
+                    pos = gaze_loc.pose.position
+                    rot = gaze_loc.pose.orientation
+                    # Assign the extracted vectors to your TelemetryFrame structure
+                    frame.gaze_pos_x, frame.gaze_pos_y, frame.gaze_pos_z = pos.x, pos.y, pos.z
+                    frame.gaze_rot_x, frame.gaze_rot_y, frame.gaze_rot_z, frame.gaze_rot_w = rot.x, rot.y, rot.z, rot.w
+                    frame.eye_tracking_valid = 1.0
+            except Exception as e:
+                logger.debug(f"Eye Gaze spatial fault: {e}")
 
     def shutdown(self) -> None:
         if self.facial_tracker and self.instance:
             destroy = xr.get_instance_proc_addr(self.instance, "xrDestroyFacialTrackerHTC")
             if destroy:
                 ctypes.CFUNCTYPE(xr.Result, ctypes.c_void_p)(destroy)(self.facial_tracker)
+        if self.gaze_space: xr.destroy_space(self.gaze_space)
+        if self.gaze_action_set: xr.destroy_action_set(self.gaze_action_set)
 
 EyeTrackingFactory.register_driver(HTCEyeTrackingDriver)
