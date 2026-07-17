@@ -88,6 +88,7 @@ class SteamVROverlayBackend(IVRBackend):
                 openvr.k_unTrackedDeviceIndex_Hmd, 
                 openvr.Prop_SecondsFromVsyncToPhotons_Float
             ) * 1e9)
+            
 
         except Exception as e:
             logger.debug(f"OpenVR Sync Exception: {e}")

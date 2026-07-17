@@ -15,6 +15,7 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
     def __init__(self) -> None:
         self.instance: Optional[xr.Instance] = None
         self.session: Optional[xr.Session] = None
+        self.app_space: Optional[xr.Space] = None
         self.facial_tracker = None
         
         self._xrCreateFacialTrackerHTC = None
@@ -38,6 +39,7 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
     def initialize(self, instance: xr.Instance, session: xr.Session, app_space: xr.Space) -> bool:
         self.instance = instance
         self.session = session
+        self.app_space = app_space
         
         try:
             # 1. Initialize HTC Facial Tracker (for blinks/pupil)
@@ -69,7 +71,9 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
             )
             
             self.gaze_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.gaze_pose_action))
-            xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.gaze_action_set]))
+            
+            # NOTE: We do NOT attach action sets here anymore. 
+            # The backend aggregates and registers them safely in a single call.
             
             logger.info("HTC Facial and Eye Gaze Trackers explicitly initialized.")
             return True
@@ -98,14 +102,12 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
         # 2. Harvest Spatial Vectors (Where the user is looking)
         if self.gaze_space and self.gaze_action_set:
             try:
-                # Note: Actions must be synced in the backend's main poll loop for this to populate
                 gaze_loc = xr.locate_space(self.gaze_space, self.app_space, timestamp_ns)
                 if gaze_loc.location_flags & xr.SPACE_LOCATION_POSITION_VALID_BIT:
                     pos = gaze_loc.pose.position
                     rot = gaze_loc.pose.orientation
-                    # Assign the extracted vectors to your TelemetryFrame structure
-                    frame.gaze_pos_x, frame.gaze_pos_y, frame.gaze_pos_z = pos.x, pos.y, pos.z
-                    frame.gaze_rot_x, frame.gaze_rot_y, frame.gaze_rot_z, frame.gaze_rot_w = rot.x, rot.y, rot.z, rot.w
+                    frame.left_eye_pos_x, frame.left_eye_pos_y, frame.left_eye_pos_z = pos.x, pos.y, pos.z
+                    frame.right_eye_pos_x, frame.right_eye_pos_y, frame.right_eye_pos_z = pos.x, pos.y, pos.z
                     frame.eye_tracking_valid = 1.0
             except Exception as e:
                 logger.debug(f"Eye Gaze spatial fault: {e}")
