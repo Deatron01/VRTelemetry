@@ -155,9 +155,28 @@ class OpenXRHeadlessBackend(IVRBackend):
             if self.eye_driver:
                 self.eye_driver.initialize(self.instance, self.session, self.app_space)
 
+            # --- AGGREGATE ACTION SETS FOR SINGLE-PASS ATTACHMENT ---
+            action_sets_to_attach = [self.action_set]
+            
             self.active_action_set_info.action_set = self.action_set
             self.active_action_set_info.subaction_path = xr.NULL_PATH
-            self.actions_sync_info.active_action_sets = [self.active_action_set_info]
+            active_sets_for_sync = [self.active_action_set_info]
+
+            # Bind eye driver's action set if valid
+            if self.eye_driver and getattr(self.eye_driver, "gaze_action_set", None):
+                action_sets_to_attach.append(self.eye_driver.gaze_action_set)
+                
+                gaze_set_info = xr.ActiveActionSet()
+                gaze_set_info.action_set = self.eye_driver.gaze_action_set
+                gaze_set_info.subaction_path = xr.NULL_PATH
+                active_sets_for_sync.append(gaze_set_info)
+
+            # Attach combined array to fulfill spec requirements
+            xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=action_sets_to_attach))
+            
+            # Map aggregated set data back to the core frame sync state
+            self.actions_sync_info.active_action_sets = active_sets_for_sync
+
             self.view_locate_info.space = self.app_space
 
             logger.info("OpenXR telemetry context established successfully.")
@@ -200,7 +219,6 @@ class OpenXRHeadlessBackend(IVRBackend):
 
         self.left_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.left_pose_action))
         self.right_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.right_pose_action))
-        xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
         frame = TelemetryFrame.create_empty(frame_index)
@@ -215,7 +233,7 @@ class OpenXRHeadlessBackend(IVRBackend):
             
             xr.sync_actions(self.session, self.actions_sync_info)
 
-            # 1. HMD Spatial Transforms
+            # 1. HMD Spatial Transforms (Gives you real head positions)
             self.view_locate_info.view_configuration_type = xr.ViewConfigurationType.PRIMARY_STEREO
             self.view_locate_info.display_time = t
             v_state, views = xr.locate_views(self.session, self.view_locate_info)
@@ -267,7 +285,7 @@ class OpenXRHeadlessBackend(IVRBackend):
         if self.session: xr.destroy_session(self.session)
         if self.instance: xr.destroy_instance(self.instance)
         
-        # Tisztítjuk a D3D11 erőforrásokat a memóriából
+        # Clean D3D11 resources from memory
         if self.d3d_device:
             self.d3d_device = None
             self.d3d_context = None

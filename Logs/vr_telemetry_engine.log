@@ -7920,3 +7920,149 @@ TypeError: Object of type bytes is not JSON serializable
 [2026-07-13 08:52:50] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
 [2026-07-13 08:52:50] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
 [2026-07-13 08:52:50] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [QUEST_UDP]
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: Quest_OVRPlugin_Standalone
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Meta Quest Pro
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Available
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_111903
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_111903.parquet
+[2026-07-17 11:19:03] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Bypassing OpenVR. Booting Native UDP Receiver on port 5005...
+[2026-07-17 11:19:03] [INFO    ] [TelemetryConsumerThread] [src.backends.udp_receiver] - Binding Native UDP Harvester on 0.0.0.0:5005
+[2026-07-17 11:19:03] [INFO    ] [TelemetryConsumerThread] [src.backends.udp_receiver] - Native Quest UDP socket bound. Awaiting biometric payloads...
+[2026-07-17 11:19:03] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for 120Hz UDP stream from Quest Pro...
+[2026-07-17 11:19:07] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:19:07] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:19:07] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
+[2026-07-17 11:19:07] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:19:07] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:19:46] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:19:46] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [AUTO]
+[2026-07-17 11:19:46] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'SteamVR/OpenXR in Meta compatibility mode' 2.16.7
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Vive OpenXR: Vive SRanipal
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_111947
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_111947.parquet
+[2026-07-17 11:19:47] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-17 11:19:47] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-17 11:19:55] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:19:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:19:55] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 1954 remaining frames to disk.
+[2026-07-17 11:19:55] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:19:55] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-17 11:19:55] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [AUTO]
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'SteamVR/OpenXR' 2.16.7
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Vive OpenXR: Vive SRanipal
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_112158
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_112158.parquet
+[2026-07-17 11:21:58] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-17 11:21:58] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-17 11:22:08] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:22:08] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:22:08] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 702 remaining frames to disk.
+[2026-07-17 11:22:08] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:22:08] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-17 11:22:08] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [AUTO]
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'SteamVR/OpenXR' 2.16.7
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Vive OpenXR: Vive SRanipal
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_112557
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_112557.parquet
+[2026-07-17 11:25:57] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-17 11:25:57] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-17 11:26:12] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:26:12] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:26:12] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 1679 remaining frames to disk.
+[2026-07-17 11:26:13] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:26:13] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-17 11:26:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [AUTO]
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'SteamVR/OpenXR' 2.16.7
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Vive OpenXR: Vive SRanipal
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_112813
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_112813.parquet
+[2026-07-17 11:28:13] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-17 11:28:13] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-17 11:28:20] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:28:20] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:28:20] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 622 remaining frames to disk.
+[2026-07-17 11:28:20] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:28:20] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-17 11:28:20] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [AUTO]
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'SteamVR/OpenXR' 2.16.7
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Vive OpenXR: Vive SRanipal
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_113642
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_113642.parquet
+[2026-07-17 11:36:42] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-17 11:36:42] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-17 11:36:53] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:36:53] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:36:53] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 310 remaining frames to disk.
+[2026-07-17 11:36:53] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:36:53] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-17 11:36:53] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
+[2026-07-17 11:37:38] [INFO    ] [MainThread     ] [VRTelemetry         ] - === VRTelemetry Pro Background Session ===
+[2026-07-17 11:37:38] [INFO    ] [MainThread     ] [VRTelemetry         ] - Selected execution pipeline mode: Enforced Backend -> [OPENXR]
+[2026-07-17 11:37:38] [INFO    ] [MainThread     ] [VRTelemetry         ] - Evaluating OpenXR hardware topology and extension capabilities...
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected Runtime: b'SteamVR/OpenXR' 2.16.7
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [VRTelemetry         ] - Detected HMD: Vive OpenXR: Vive SRanipal
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [VRTelemetry         ] - Eye Tracking Capability: Unavailable
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [src.storage.database_manager] - SQLite Schema Initialization Successful with full specification mapping.
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [VRTelemetry         ] - Booting production telemetry engine...
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [src.storage.database_manager] - Static experiment metadata committed for session: 20260717_113739
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [src.utils.hardware_monitor] - Hardware subsystem monitor booted at 10 Hz.
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline opened: vr_telemetry_20260717_113739.parquet
+[2026-07-17 11:37:39] [INFO    ] [TelemetryConsumerThread] [src.core.synchronizer] - Lock-free biometric synchronization buffer activated.
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [VRTelemetry         ] - Initializing Native OpenVR Overlay Context...
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - Native OpenVR Overlay Context established successfully.
+[2026-07-17 11:37:39] [INFO    ] [MainThread     ] [VRTelemetry         ] - Main telemetry cycle active. Listening for HMD pacing.
+[2026-07-17 11:38:04] [WARNING ] [MainThread     ] [VRTelemetry         ] - Telemetry capture sequence interrupted manually.
+[2026-07-17 11:38:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Executing deterministic teardown sequence...
+[2026-07-17 11:38:04] [INFO    ] [MainThread     ] [src.core.synchronizer] - Synchronizer shutting down. Flushing 0 remaining frames to disk.
+[2026-07-17 11:38:04] [INFO    ] [MainThread     ] [src.storage.parquet_writer] - Parquet storage pipeline sealed successfully.
+[2026-07-17 11:38:04] [INFO    ] [MainThread     ] [src.backends.backend_steamvr] - OpenVR Overlay Context Terminated.
+[2026-07-17 11:38:04] [INFO    ] [MainThread     ] [VRTelemetry         ] - Telemetry engine shutdown complete.
