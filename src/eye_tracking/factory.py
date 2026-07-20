@@ -31,6 +31,8 @@ class EyeTrackingFactory:
         Evaluates the runtime topology against the driver priority matrix, returning
         an initialized instance of the best available tracker.
         """
+        print(f"DEBUG: Runtime reports extensions: {available_extensions}")
+        logger.info(f"DEBUG: Available extensions: {available_extensions}")
         for driver_class in cls._registry:
             driver_instance = driver_class()
             ext_name = driver_instance.get_extension_name()

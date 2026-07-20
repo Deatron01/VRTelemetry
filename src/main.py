@@ -9,6 +9,7 @@ from src.utils.logger import setup_logging, logger
 from src.core.engine import TelemetryEngine
 from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.core.exceptions import GDPRConsentError
+from src.eye_tracking.factory import EyeTrackingFactory
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -75,7 +76,7 @@ def execute_pipeline() -> None:
         sys.exit(1)
         
     logger.info(f"Selected execution pipeline mode: Enforced Backend -> [{args.backend.upper()}]")
-    
+    print(f"DEBUG: Factory Registry contains: {EyeTrackingFactory._registry}")
     # Extract native runtime metadata if standard PCVR hardware mode is active
     if args.backend != "quest_udp":
         logger.info("Evaluating OpenXR hardware topology and extension capabilities...")
@@ -83,7 +84,7 @@ def execute_pipeline() -> None:
         hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
     else:
         # Generate virtual network context payload mapping for Quest standalone stream
-        hardware_capabilities = {
+        hardware_capabilities = { 
             "openxr_runtime": "Quest_OVRPlugin_Standalone",
             "hmd_model": "Meta Quest Pro",
             "has_eye_tracking": True,

@@ -29,7 +29,8 @@ class RuntimeCapabilityDiscovery:
 
         try:
             available_extensions: List[str] = [
-                ext.extension_name for ext in xr.enumerate_instance_extension_properties()
+                ext.extension_name.decode('utf-8') if isinstance(ext.extension_name, bytes) else ext.extension_name
+                for ext in xr.enumerate_instance_extension_properties()
             ]
 
             # Biometric Support Evaluation
