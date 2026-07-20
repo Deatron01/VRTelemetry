@@ -7,6 +7,10 @@ from typing import Dict, Any, Optional
 
 from src.backends.udp_receiver import NativeQuestReceiver
 from src.backends.backend_steamvr import SteamVROverlayBackend
+from src.backends.backend_openxr import OpenXRBackend
+from src.backends.backend_ocolus import OculusBackend
+from src.backends.openxr_headless import OpenXRHeadlessBackend
+
 from src.core.synchronizer import BiometricSynchronizer
 from src.storage.parquet_writer import AsyncParquetWriter
 from src.storage.database_manager import DatabaseManager
@@ -36,7 +40,8 @@ class TelemetryEngine:
         
         self.db_manager = DatabaseManager()
         self.hardware = HardwareMonitor()
-        self.backend = SteamVROverlayBackend()
+        
+        self.backend = None
         
         # Target 120Hz capacity for modern headsets, AsyncParquetWriter will batch accordingly
         self.writer = AsyncParquetWriter(output_path=self.parquet_path, target_hz=120)
@@ -65,7 +70,6 @@ class TelemetryEngine:
         except Exception as e:
             logger.error(f"AsyncIO Loop Exception: {e}")
         finally:
-            # Ensure pending tasks are flushed to disk before destroying the loop
             pending = asyncio.all_tasks(loop=self._async_loop)
             for task in pending:
                 task.cancel()
@@ -79,12 +83,10 @@ class TelemetryEngine:
         """
         logger.info("Booting production telemetry engine...")
         
-        # 1. Initialize persistent storage and monitoring regardless of backend
         self.db_manager.persist_experiment(self.subject_metadata)
         self.hardware.start()
         self.writer.start()
         
-        # 2. Boot the AsyncIO thread (Required for Parquet Writer and UDP Listener)
         self._shutdown_event.clear()
         self._async_loop = asyncio.new_event_loop() 
         
@@ -98,7 +100,15 @@ class TelemetryEngine:
             if backend_mode == "quest_udp":
                 self._run_quest_udp_mode()
             else:
-                self._run_steamvr_mode()
+                if backend_mode == "openxr":
+                    self.backend = OpenXRBackend()
+                elif backend_mode == "oculus":
+                    self.backend = OculusBackend()
+                else: # "auto" vagy "steamvr" esetén
+                    self.backend = SteamVROverlayBackend()
+                    
+                self._run_pcvr_mode()
+                
         except KeyboardInterrupt:
             logger.warning("Telemetry capture sequence interrupted manually.")
         except Exception as e:
@@ -106,11 +116,12 @@ class TelemetryEngine:
         finally:
             self._teardown()
 
-    def _run_steamvr_mode(self) -> None:
-        """Standard PCVR hardware-synchronized loop via OpenVR."""
-        logger.info("Initializing Native OpenVR Overlay Context...")
+    def _run_pcvr_mode(self) -> None:
+        """Standard PCVR hardware-synchronized loop via dynamically selected API."""
+        # Frissített log szöveg, hogy alkalmazkodjon az aktív backendhez
+        logger.info(f"Initializing Native Context via {self.backend.__class__.__name__}...")
         if not self.backend.initialize():
-            logger.error("Failed to bind OpenXR session. Terminating execution.")
+            logger.error("Failed to bind PCVR session. Terminating execution.")
             return
 
         logger.info("Main telemetry cycle active. Listening for HMD pacing.")
@@ -129,22 +140,20 @@ class TelemetryEngine:
     def _run_quest_udp_mode(self) -> None:
         """Headless network loop catching native Quest Pro biometric payloads."""
         port = getattr(self, "network_port", 5005)
-        logger.info(f"Bypassing OpenVR. Booting Native UDP Receiver on port {port}...")
+        logger.info(f"Bypassing PCVR Runtimes. Booting Native UDP Receiver on port {port}...")
         
         receiver = NativeQuestReceiver(host="0.0.0.0", port=port)
         
-        # Schedule the UDP receiver to start inside our existing AsyncIO thread
         future = asyncio.run_coroutine_threadsafe(receiver.start(self.synchronizer), self._async_loop)
-        future.result() # Wait for socket to successfully bind
+        future.result()
         
         logger.info("Main telemetry cycle active. Listening for 120Hz UDP stream from Quest Pro...")
         
-        # Main thread simply waits while the AsyncIO thread handles incoming UDP packets
         while self.is_running and not self._shutdown_event.is_set():
             if not self.gdpr_consent:
                 logger.error("Consent revoked during active sampling.")
                 break
-            time.sleep(0.5) # Sleep to keep CPU footprint near 0%
+            time.sleep(0.5)
             
         receiver.stop()
 
@@ -157,22 +166,18 @@ class TelemetryEngine:
         self.is_running = False
         self._shutdown_event.set()
         
-        # 1. Stop feeding new frames into the queue
         self.synchronizer.stop()
         
-        # 2. Safely wind down the AsyncIO loop handling disk writes and UDP sockets
         if self._async_loop and self._async_loop.is_running():
             self._async_loop.call_soon_threadsafe(self._async_loop.stop)
             
         if self._async_thread and self._async_thread.is_alive():
             self._async_thread.join(timeout=5.0)
             
-        # 3. Terminate auxiliary monitors
         self.hardware.stop()
         self.writer.stop()
         
-        # 4. Destroy OpenXR context LAST to prevent driver panic (only if initialized)
-        if getattr(self, "configured_backend", "auto") != "quest_udp":
+        if getattr(self, "configured_backend", "auto") != "quest_udp" and self.backend:
             self.backend.shutdown()
             
         logger.info(f"Telemetry engine shutdown complete.")

@@ -48,9 +48,15 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
 
             if self._xrCreateFacialTrackerHTC:
                 create_info = xr.FacialTrackerCreateInfoHTC(facial_tracking_type=xr.FacialTrackingTypeHTC.EYE_DEFAULT)
-                self.facial_tracker = ctypes.c_void_p()
-                func = ctypes.CFUNCTYPE(xr.Result, xr.Session, ctypes.POINTER(xr.FacialTrackerCreateInfoHTC), ctypes.POINTER(ctypes.c_void_p))(self._xrCreateFacialTrackerHTC)
-                func(self.session, ctypes.byref(create_info), ctypes.byref(self.facial_tracker))
+                # OpenXR handles are 64-bit unsigned integers
+                self.facial_tracker = ctypes.c_uint64()
+                
+                # Direct pointer execution
+                self._xrCreateFacialTrackerHTC.restype = ctypes.c_int
+                res = self._xrCreateFacialTrackerHTC(self.session, ctypes.byref(create_info), ctypes.byref(self.facial_tracker))
+                
+                if res != 0: # 0 means xr.Result.SUCCESS
+                    logger.warning(f"Failed to initialize HTC Facial Tracker runtime structure. Code: {res}")
             
             # 2. Initialize Standard Gaze Interaction (for X/Y/Z vectors)
             self.gaze_action_set = xr.create_action_set(
@@ -72,9 +78,6 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
             
             self.gaze_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.gaze_pose_action))
             
-            # NOTE: We do NOT attach action sets here anymore. 
-            # The backend aggregates and registers them safely in a single call.
-            
             logger.info("HTC Facial and Eye Gaze Trackers explicitly initialized.")
             return True
             
@@ -86,13 +89,13 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
         frame.eye_tracking_valid = 0.0
 
         # 1. Harvest Blendshapes (Blinks/Pupil via HTC extension)
-        if self.facial_tracker:
+        if self.facial_tracker and self._xrGetFacialExpressionsHTC:
             try:
                 expressions = xr.FacialExpressionsHTC()
-                func = ctypes.CFUNCTYPE(xr.Result, ctypes.c_void_p, ctypes.POINTER(xr.FacialExpressionsHTC))(self._xrGetFacialExpressionsHTC)
-                res = func(self.facial_tracker, ctypes.byref(expressions))
+                self._xrGetFacialExpressionsHTC.restype = ctypes.c_int
+                res = self._xrGetFacialExpressionsHTC(self.facial_tracker, ctypes.byref(expressions))
 
-                if res == xr.Result.SUCCESS and expressions.is_active:
+                if res == 0 and expressions.is_active:
                     frame.left_pupil_size = 1.0 - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_LEFT]
                     frame.right_pupil_size = 1.0 - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_RIGHT]
                     frame.eye_tracking_valid = 1.0
@@ -116,7 +119,8 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
         if self.facial_tracker and self.instance:
             destroy = xr.get_instance_proc_addr(self.instance, "xrDestroyFacialTrackerHTC")
             if destroy:
-                ctypes.CFUNCTYPE(xr.Result, ctypes.c_void_p)(destroy)(self.facial_tracker)
+                destroy.restype = ctypes.c_int
+                destroy(self.facial_tracker)
         if self.gaze_space: xr.destroy_space(self.gaze_space)
         if self.gaze_action_set: xr.destroy_action_set(self.gaze_action_set)
 

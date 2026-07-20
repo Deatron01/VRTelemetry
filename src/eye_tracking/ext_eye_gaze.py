@@ -67,7 +67,7 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
             )
             
             self.eye_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.eye_gaze_action))
-            xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
+            xr.attach_session_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
             
             logger.info("XR_EXT_eye_gaze_interaction initialized successfully.")
             return True

@@ -41,6 +41,7 @@ class OpenXRHeadlessBackend(IVRBackend):
         self.d3d_device = None
         self.d3d_context = None
         self.is_pure_headless = False
+        self.session_state = xr.SessionState.UNKNOWN
 
         self.active_action_set_info = xr.ActiveActionSet()
         self.actions_sync_info = xr.ActionsSyncInfo()
@@ -98,7 +99,8 @@ class OpenXRHeadlessBackend(IVRBackend):
     def initialize(self) -> bool:
         try:
             available_extensions: List[str] = [
-                ext.extension_name for ext in xr.enumerate_instance_extension_properties()
+                ext.extension_name.decode('utf-8') if isinstance(ext.extension_name, bytes) else ext.extension_name
+                for ext in xr.enumerate_instance_extension_properties()
             ]
             enabled_extensions: List[str] = []
 
@@ -127,7 +129,7 @@ class OpenXRHeadlessBackend(IVRBackend):
                 create_info=xr.InstanceCreateInfo(
                     application_info=xr.ApplicationInfo(
                         application_name="VRTelemetry_Background",
-                        api_version=xr.XR_CURRENT_API_VERSION
+                        api_version=xr.Version(1, 0, 0)
                     ),
                     enabled_extension_names=enabled_extensions
                 )
@@ -172,7 +174,7 @@ class OpenXRHeadlessBackend(IVRBackend):
                 active_sets_for_sync.append(gaze_set_info)
 
             # Attach combined array to fulfill spec requirements
-            xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=action_sets_to_attach))
+            xr.attach_session_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=action_sets_to_attach))
             
             # Map aggregated set data back to the core frame sync state
             self.actions_sync_info.active_action_sets = active_sets_for_sync
@@ -220,9 +222,28 @@ class OpenXRHeadlessBackend(IVRBackend):
         self.left_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.left_pose_action))
         self.right_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.right_pose_action))
 
+    def _pump_events(self) -> None:
+        while True:
+            event = xr.poll_event(self.instance)
+            if event is None:
+                break
+            if isinstance(event, xr.EventDataSessionStateChanged):
+                self.session_state = event.state
+                logger.info(f"OpenXR Headless Session State Transitioned to: {self.session_state}")
+                if self.session_state == xr.SessionState.READY:
+                    xr.begin_session(self.session, xr.SessionBeginInfo(xr.ViewConfigurationType.PRIMARY_STEREO))
+                elif self.session_state == xr.SessionState.STOPPING:
+                    xr.end_session(self.session)
+
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
+            return frame
+
+        self._pump_events()
+        
+        # Ensure the session has started tracking before waiting for frames
+        if self.session_state not in (xr.SessionState.VISIBLE, xr.SessionState.FOCUSED, xr.SessionState.SYNCHRONIZED):
             return frame
 
         try:
@@ -272,7 +293,8 @@ class OpenXRHeadlessBackend(IVRBackend):
             xr.end_frame(self.session, self.frame_end_info)
 
         except Exception as e:
-            logger.debug(f"Frame Drop: {e}")
+            # Replaced logger.debug with logger.error to ensure exceptions are visible
+            logger.error(f"Frame Drop: {e}")
 
         return frame
 

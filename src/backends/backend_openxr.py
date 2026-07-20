@@ -1,5 +1,6 @@
 # src/backends/backend_openxr.py
 
+import time # <-- JAVÍTÁS: Szükséges a CPU pihentetéséhez
 import logging
 import ctypes
 import platform
@@ -46,7 +47,10 @@ class OpenXRBackend(IVRBackend):
 
     def initialize(self) -> bool:
         try:
-            available_extensions = [ext.extension_name for ext in xr.enumerate_instance_extension_properties()]
+            available_extensions = [
+                ext.extension_name.decode('utf-8') if isinstance(ext.extension_name, bytes) else ext.extension_name
+                for ext in xr.enumerate_instance_extension_properties()
+            ]
             enabled_extensions = []
 
             # Overlay > Headless > Standard
@@ -73,7 +77,7 @@ class OpenXRBackend(IVRBackend):
                 create_info=xr.InstanceCreateInfo(
                     application_info=xr.ApplicationInfo(
                         application_name="VRTelemetry_Overlay",
-                        api_version=xr.XR_CURRENT_API_VERSION
+                        api_version=xr.Version(1, 0, 0)
                     ),
                     enabled_extension_names=enabled_extensions
                 )
@@ -132,30 +136,43 @@ class OpenXRBackend(IVRBackend):
 
         self.left_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.left_pose_action))
         self.right_space = xr.create_action_space(self.session, xr.ActionSpaceCreateInfo(action=self.right_pose_action))
-        xr.attach_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
+        xr.attach_session_action_sets(self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set]))
 
     def _pump_events(self) -> None:
         while True:
-            event = xr.poll_event(self.instance)
-            if event is None:
+            try:
+                event = xr.poll_event(self.instance)
+                
+                # JAVÍTÁS: Robusztusabb típus-ellenőrzés
+                event_type = getattr(event, "type", None)
+                
+                if event_type == xr.StructureType.EVENT_DATA_SESSION_STATE_CHANGED or isinstance(event, xr.EventDataSessionStateChanged):
+                    
+                    # Biztonsági típuskonverzió, ha a pyopenxr nyers eseményt küldene
+                    if not isinstance(event, xr.EventDataSessionStateChanged):
+                        event = ctypes.cast(ctypes.byref(event), ctypes.POINTER(xr.EventDataSessionStateChanged)).contents
+                        
+                    self.session_state = event.state
+                    logger.info(f"OpenXR Session State Transitioned to: {self.session_state}")
+                    
+                    if self.session_state == xr.SessionState.READY:
+                        xr.begin_session(self.session, xr.SessionBeginInfo(xr.ViewConfigurationType.PRIMARY_STEREO))
+                    elif self.session_state == xr.SessionState.STOPPING:
+                        xr.end_session(self.session)
+            except xr.EventUnavailable:
                 break
-            if isinstance(event, xr.EventDataSessionStateChanged):
-                self.session_state = event.state
-                logger.info(f"OpenXR Session State Transitioned to: {self.session_state}")
-                if self.session_state == xr.SessionState.READY:
-                    xr.begin_session(self.session, xr.SessionBeginInfo(xr.ViewConfigurationType.PRIMARY_STEREO))
-                elif self.session_state == xr.SessionState.STOPPING:
-                    xr.end_session(self.session)
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
+            time.sleep(0.01) # JAVÍTÁS: Főszál tehermentesítése
             return frame
 
         self._pump_events()
         
-        # If the session isn't tracking, avoid querying hardware to prevent blocking errors
-        if self.session_state not in (xr.SessionState.VISIBLE, xr.SessionState.FOCUSED):
+        # JAVÍTÁS: Ha a HMD még nem áll készen, pihentetjük a szálat, hogy a SteamVR dolgozhasson
+        if self.session_state not in (xr.SessionState.VISIBLE, xr.SessionState.FOCUSED, xr.SessionState.SYNCHRONIZED):
+            time.sleep(0.02) 
             return frame
 
         try:
@@ -170,6 +187,9 @@ class OpenXRBackend(IVRBackend):
             # HMD Evaluation
             self.view_locate_info.display_time = t
             v_state, views = xr.locate_views(self.session, self.view_locate_info)
+            
+            logger.info(f"DEBUG View State Flags: {v_state.view_state_flags}, Views count: {len(views)}")
+            
             if len(views) > 0 and (v_state.view_state_flags & xr.VIEW_STATE_POSITION_VALID_BIT):
                 frame.hmd_pos_x, frame.hmd_pos_y, frame.hmd_pos_z = views[0].pose.position.x, views[0].pose.position.y, views[0].pose.position.z
                 frame.hmd_rot_x, frame.hmd_rot_y, frame.hmd_rot_z, frame.hmd_rot_w = views[0].pose.orientation.x, views[0].pose.orientation.y, views[0].pose.orientation.z, views[0].pose.orientation.w
