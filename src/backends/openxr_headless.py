@@ -148,9 +148,11 @@ class OpenXRHeadlessBackend(IVRBackend):
 
             self.session = xr.create_session(self.instance, session_create_info)
 
-            self.app_space = xr.create_reference_space(
-                self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE)
-            )
+            try:
+                self.app_space = xr.create_reference_space(self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.LOCAL))
+            except Exception:
+                # Fallback, ha a LOCAL sem menne, visszatérünk STAGE-re
+                self.app_space = xr.create_reference_space(self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE))
 
             self._setup_actions()
 

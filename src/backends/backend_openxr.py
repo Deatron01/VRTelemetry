@@ -92,7 +92,10 @@ class OpenXRBackend(IVRBackend):
                 session_create_info.next = ctypes.cast(ctypes.pointer(overlay_info), ctypes.c_void_p)
                 
             self.session = xr.create_session(self.instance, session_create_info)
-            self.app_space = xr.create_reference_space(self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE))
+            try:
+                self.app_space = xr.create_reference_space(self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.LOCAL))
+            except Exception:
+                self.app_space = xr.create_reference_space(self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE))
 
             self._setup_actions()
 

@@ -39,6 +39,8 @@ def test_engine_runtime_consent_revocation(monkeypatch):
     # 3. Simulate a mid-session consent revocation
     engine.gdpr_consent = False
     
+    assert not engine.gdpr_consent
+    
     # 4. Attempt to cycle the main loop, expecting an immediate structural abort
     with pytest.raises(GDPRConsentError, match="Consent revoked during active sampling window"):
         engine._loop()

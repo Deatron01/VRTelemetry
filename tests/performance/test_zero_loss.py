@@ -69,6 +69,7 @@ async def test_synchronizer_queue_throughput(mock_writer, hardware_stub):
     assert sync.queue.empty()
     
     import pyarrow.parquet as pq
+    time.sleep(2.0)
     table = pq.read_table(mock_writer.output_path)
     
     assert table.num_rows == total_frames_target, "Disk I/O dropped frames."

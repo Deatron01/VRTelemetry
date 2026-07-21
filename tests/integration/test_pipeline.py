@@ -9,6 +9,7 @@ from pathlib import Path
 from src.core.engine import TelemetryEngine
 from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.core.exceptions import GDPRConsentError
+from src.backends.openxr_headless import OpenXRHeadlessBackend
 
 @pytest.fixture
 def temp_session_dir(tmp_path: Path) -> str:
