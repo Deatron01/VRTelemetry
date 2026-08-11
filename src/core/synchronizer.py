@@ -30,7 +30,8 @@ class BiometricSynchronizer:
 
     def push_frame(self, frame: TelemetryFrame) -> None:
         """Called directly by the OpenXR hardware thread. Must be non-blocking."""
-        self._buffer.append(frame)
+        # Convert to tuple immediately to snapshot the values before the main loop clears them.
+        self._buffer.append(frame.to_tuple())
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Boots the consumer task onto the isolated AsyncIO thread."""
@@ -48,9 +49,9 @@ class BiometricSynchronizer:
                     batch.append(self._buffer.popleft())
 
                 if batch:
-                    for frame in batch:
+                    for frame_tuple in batch:
                         # Call the native push method defined in AsyncParquetWriter
-                        self.writer.push(frame)
+                        self.writer.push(frame_tuple)
                 else:
                     # Yield execution briefly if buffer is empty (1ms sleep)
                     await asyncio.sleep(0.001)

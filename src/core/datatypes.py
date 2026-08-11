@@ -51,28 +51,46 @@ class TelemetryFrame:
         """Converts internal parameters into a flat scalar tuple matching PyArrow memory tables."""
         return (
             self.frame_index, self.timestamp_ns,
+            
+            # 1. HMD Kinematics
             self.hmd_pos_x, self.hmd_pos_y, self.hmd_pos_z,
             self.hmd_rot_x, self.hmd_rot_y, self.hmd_rot_z, self.hmd_rot_w,
-            self.hmd_tracking_valid,
+            
+            # 2. Left Controller
             self.left_pos_x, self.left_pos_y, self.left_pos_z,
             self.left_rot_x, self.left_rot_y, self.left_rot_z, self.left_rot_w,
             self.left_trigger, self.left_grip, self.left_joy_x, self.left_joy_y,
-            self.left_tracking_valid,
+            
+            # 3. Right Controller
             self.right_pos_x, self.right_pos_y, self.right_pos_z,
             self.right_rot_x, self.right_rot_y, self.right_rot_z, self.right_rot_w,
             self.right_trigger, self.right_grip, self.right_joy_x, self.right_joy_y,
-            self.right_tracking_valid,
+            
+            # 4. Eye Tracking Left
             self.left_eye_pos_x, self.left_eye_pos_y, self.left_eye_pos_z,
             self.left_eye_rot_x, self.left_eye_rot_y, self.left_eye_rot_z, self.left_eye_rot_w,
+            
+            # 5. Eye Tracking Right
             self.right_eye_pos_x, self.right_eye_pos_y, self.right_eye_pos_z,
             self.right_eye_rot_x, self.right_eye_rot_y, self.right_eye_rot_z, self.right_eye_rot_w,
+            
+            # 6. Validity Flags (Moved down to match schema definition exactly)
+            self.hmd_tracking_valid,
+            self.left_tracking_valid,
+            self.right_tracking_valid,
             self.eye_tracking_valid,
+            
+            # 7. Biometrics
             self.left_pupil_size, self.right_pupil_size, self.heart_rate_bpm,
+            
+            # 8. Environment & System State
             self.distance_to_boundary, self.app_fps, self.event_marker,
             self.battery_hmd, self.battery_left, self.battery_right,
             self.haptic_left_intensity, self.haptic_right_intensity,
             self.gaze_focal_distance, self.voice_amplitude_db,
             self.cpu_utilization, self.gpu_utilization,
+            
+            # 9. Virtual Environment State
             self.scene_id,
             self.target_obj_pos_x, self.target_obj_pos_y, self.target_obj_pos_z,
             self.dist_to_target_left, self.dist_to_target_right

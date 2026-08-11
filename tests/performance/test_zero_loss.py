@@ -1,9 +1,9 @@
 # tests/performance/test_zero_loss.py
 
 import time
-import queue
 import pytest
 import asyncio
+from collections import deque
 from src.core.datatypes import TelemetryFrame
 from src.core.synchronizer import BiometricSynchronizer
 from src.storage.parquet_writer import AsyncParquetWriter
@@ -30,16 +30,16 @@ async def test_synchronizer_queue_throughput(mock_writer, hardware_stub):
     """
     sync = BiometricSynchronizer(writer=mock_writer, hardware_monitor=hardware_stub)
     
-    # Overwrite the safety limit of 1024 for the stress test.
-    # This allows the artificial CPU-speed producer to dump all 10k frames instantly 
+    total_frames_target = 10000
+    produced_frames = 0
+    
+    # Overwrite the safety limit for the stress test.
+    # We switch to a deque with a maxlen large enough to hold all frames instantly 
     # to test the Parquet writer's maximum batch throughput.
-    sync.queue = queue.Queue(maxsize=0) 
+    sync._buffer = deque(maxlen=total_frames_target + 1000) 
     
     loop = asyncio.get_running_loop()
     sync.start(loop)
-    
-    total_frames_target = 10000
-    produced_frames = 0
     
     # Non-blocking producer task utilizing the async thread pool
     def fast_producer():
@@ -54,7 +54,7 @@ async def test_synchronizer_queue_throughput(mock_writer, hardware_stub):
     
     # Wait for the async consumer loop to drain the massive queue
     drain_timeout = time.time() + 5.0
-    while not sync.queue.empty():
+    while len(sync._buffer) > 0:
         if time.time() > drain_timeout:
             pytest.fail("Synchronizer consumer thread failed to drain queue in time.")
         await asyncio.sleep(0.1)
@@ -66,7 +66,7 @@ async def test_synchronizer_queue_throughput(mock_writer, hardware_stub):
     time.sleep(0.2)
     
     assert produced_frames == total_frames_target
-    assert sync.queue.empty()
+    assert len(sync._buffer) == 0
     
     import pyarrow.parquet as pq
     time.sleep(2.0)

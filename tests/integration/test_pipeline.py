@@ -43,6 +43,10 @@ def test_headless_pipeline_execution(temp_session_dir: str, monkeypatch):
     # Overwrite the parquet writer's flush interval to force an immediate disk write
     engine.writer.flush_interval = 10 
     
+    # Fallback to headless backend if hardware discovery returned None
+    if engine.backend is None:
+        engine.backend = OpenXRHeadlessBackend()
+        
     # Mock the OpenXR backend hardware binding step so the software pipeline can run without a headset
     monkeypatch.setattr(engine.backend, "initialize", lambda: True)
     
