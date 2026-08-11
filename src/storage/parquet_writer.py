@@ -3,7 +3,7 @@
 import os
 import threading
 import logging
-from typing import List
+from typing import List, Tuple
 from pathlib import Path
 
 import pyarrow as pa
@@ -104,7 +104,7 @@ class AsyncParquetWriter:
             logger.error(f"Failed to initialize Parquet writer: {e}")
             raise
 
-    def push(self, frame: TelemetryFrame) -> None:
+    def push(self, frame_tuple: tuple) -> None:
         """
         Receives isolated frames from the Synchronizer queue. When the batch size
         threshold is reached, the buffer is rotated and flushed to disk.
@@ -113,7 +113,8 @@ class AsyncParquetWriter:
             return
 
         with self._lock:
-            self.buffer.append(frame.to_tuple())
+            # We directly append the pre-rendered tuple passed from the queue
+            self.buffer.append(frame_tuple)
             
             if len(self.buffer) >= self.flush_interval:
                 self._flush_buffer_to_disk()
