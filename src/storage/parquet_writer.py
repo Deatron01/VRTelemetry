@@ -9,8 +9,6 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.core.datatypes import TelemetryFrame
-
 logger = logging.getLogger(__name__)
 
 class AsyncParquetWriter:

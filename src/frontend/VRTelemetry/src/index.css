@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .glass-panel {
+    @apply bg-research-card backdrop-blur-xl border border-research-border shadow-glass rounded-2xl;
+  }
+  
+  .glass-button {
+    @apply flex items-center justify-center gap-2 px-4 py-2 bg-white/60 hover:bg-white/90 backdrop-blur-md border border-research-border rounded-lg text-sm font-medium text-research-text transition-all duration-200 shadow-sm active:scale-95;
+  }
+
+  .metric-label {
+    @apply text-xs font-medium text-research-muted tracking-wide uppercase;
+  }
+
+  .metric-value {
+    @apply text-2xl font-semibold text-research-text;
+  }
+}
+
+body {
+  @apply bg-[#f1f5f9] text-research-text antialiased overflow-hidden;
+  background-image: radial-gradient(circle at 50% 0%, #ffffff 0%, transparent 70%);
+}

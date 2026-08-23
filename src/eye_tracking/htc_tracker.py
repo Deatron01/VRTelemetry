@@ -55,7 +55,7 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
                 self._xrCreateFacialTrackerHTC.restype = ctypes.c_int
                 res = self._xrCreateFacialTrackerHTC(self.session, ctypes.byref(create_info), ctypes.byref(self.facial_tracker))
                 
-                if res != 0: # 0 means xr.Result.SUCCESS
+                if res != 0: 
                     logger.warning(f"Failed to initialize HTC Facial Tracker runtime structure. Code: {res}")
             
             # 2. Initialize Standard Gaze Interaction (for X/Y/Z vectors)
@@ -109,8 +109,13 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
                 if gaze_loc.location_flags & xr.SPACE_LOCATION_POSITION_VALID_BIT:
                     pos = gaze_loc.pose.position
                     rot = gaze_loc.pose.orientation
+                    
                     frame.left_eye_pos_x, frame.left_eye_pos_y, frame.left_eye_pos_z = pos.x, pos.y, pos.z
                     frame.right_eye_pos_x, frame.right_eye_pos_y, frame.right_eye_pos_z = pos.x, pos.y, pos.z
+                    
+                    frame.left_eye_rot_x, frame.left_eye_rot_y, frame.left_eye_rot_z, frame.left_eye_rot_w = rot.x, rot.y, rot.z, rot.w
+                    frame.right_eye_rot_x, frame.right_eye_rot_y, frame.right_eye_rot_z, frame.right_eye_rot_w = rot.x, rot.y, rot.z, rot.w
+                    
                     frame.eye_tracking_valid = 1.0
             except Exception as e:
                 logger.debug(f"Eye Gaze spatial fault: {e}")
