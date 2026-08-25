@@ -18,16 +18,25 @@ from src.utils.hardware_monitor import HardwareMonitor
 from src.utils.logger import logger
 from src.core.exceptions import GDPRConsentError
 
+from src.storage.session_uploader import SessionUploader
+from src.license_service.local_cache import LocalLicenseCache
+
 class TelemetryEngine:
     """
     Production telemetry orchestrator. Guarantees deterministic synchronization between
     the OpenXR hardware pacing loop (or UDP sockets) and the asynchronous I/O storage subsystems.
     """
     
-    def __init__(self, output_dir: str = "Sessions", gdpr_consent: bool = False, subject_metadata: Optional[Dict[str, Any]] = None, hardware_metadata: Optional[Dict[str, Any]] = None):
+    def __init__(self, output_dir: str = "Sessions", gdpr_consent: bool = False,
+                 subject_metadata: Optional[Dict[str, Any]] = None,
+                 hardware_metadata: Optional[Dict[str, Any]] = None,
+                 central_server_url: str = "http://192.168.1.X:9000"):
         self.is_running = False
         self.frames_recorded = 0
         self.gdpr_consent = gdpr_consent
+        
+        self.local_license_cache = LocalLicenseCache()
+        self.uploader = SessionUploader(central_server_url, self.local_license_cache)
         
         if not self.gdpr_consent:
             raise GDPRConsentError("CRITICAL: Biometric tracking initialization aborted. Explicit user GDPR consent missing.")
@@ -87,6 +96,17 @@ class TelemetryEngine:
         self.hardware.start()
         self.writer.start()
         
+        # Sweep anything left over from a prior offline session before starting new work.
+        # Non-blocking in spirit — a slow/unreachable server here just logs and moves on,
+        # it must never delay the actual telemetry loop from starting.
+        try:
+            retry_result = self.uploader.retry_pending()
+            if retry_result["attempted"]:
+                logger.info(f"Retried {retry_result['attempted']} pending upload(s) from previous sessions, "
+                            f"{retry_result['succeeded']} succeeded.")
+        except Exception as e:
+            logger.warning(f"Pending upload retry sweep failed (will retry next start): {e}")
+            
         self._shutdown_event.clear()
         self._async_loop = asyncio.new_event_loop() 
         
@@ -158,26 +178,50 @@ class TelemetryEngine:
         receiver.stop()
 
     def _teardown(self) -> None:
-        """
-        Guarantees flawless memory deallocation and prevents file corruption.
-        The order of operations is strictly enforced.
-        """
         logger.info("Executing deterministic teardown sequence...")
         self.is_running = False
         self._shutdown_event.set()
-        
+
         self.synchronizer.stop()
-        
+
         if self._async_loop and self._async_loop.is_running():
             self._async_loop.call_soon_threadsafe(self._async_loop.stop)
-            
+
         if self._async_thread and self._async_thread.is_alive():
             self._async_thread.join(timeout=5.0)
-            
+
         self.hardware.stop()
-        self.writer.stop()
-        
+        self.writer.stop()  # Parquet file is fully flushed and closed after this line
+
         if getattr(self, "configured_backend", "auto") != "quest_udp" and self.backend:
             self.backend.shutdown()
-            
+
+        # Upload only after the writer has confirmed the file is sealed —
+        # uploading a still-open/partially-flushed Parquet file would ship
+        # corrupt or truncated data to the central server.
+        self._upload_completed_session()
+
         logger.info(f"Telemetry engine shutdown complete.")
+
+    def _upload_completed_session(self) -> None:
+        try:
+            static_meta = self.subject_metadata.get("M-IV_Static_Metadata", {})
+            session_id = static_meta.get("session_id", self.session_id)
+
+            summary_metadata = {
+                "session_id": session_id,
+                "subject_id": static_meta.get("subject_id"),
+                "total_frames": self.frames_recorded,
+                "duration_sec": None,  # left for the central server to derive from the Parquet file itself if needed
+            }
+
+            result = self.uploader.upload(self.parquet_path, session_id, summary_metadata)
+            if result.get("ok"):
+                logger.info(f"Session {session_id} synced to central server.")
+            else:
+                logger.warning(f"Session {session_id} could not be synced now "
+                                f"(reason: {result.get('reason')}) — queued for retry.")
+        except Exception as e:
+            # Upload failure must never mask/replace the "recording completed successfully"
+            # outcome — the researcher's data is already safe on local disk regardless.
+            logger.error(f"Unexpected error during post-session upload: {e}")
