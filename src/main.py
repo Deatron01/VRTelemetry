@@ -155,6 +155,7 @@ class SessionStartConfig(BaseModel):
     port: int = 5005
     gdpr_consent: bool
     output_dir: str = "Sessions"
+    central_server_url: str = "http://192.168.1.X:9000"
 
 class SessionUpdate(BaseModel):
     subject_id: Optional[str] = None
@@ -295,7 +296,8 @@ def start_recording(config: SessionStartConfig):
     active_engine = TelemetryEngine(
         output_dir=config.output_dir,
         gdpr_consent=config.gdpr_consent,
-        hardware_metadata=hardware_capabilities
+        hardware_metadata=hardware_capabilities,
+        central_server_url=config.central_server_url
     )
     
     active_engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = config.subject_id
@@ -324,6 +326,32 @@ def stop_recording():
         active_engine.is_running = False
 
     return {"status": "recording_stopped"}
+
+from src.license_service.local_cache import LocalLicenseCache
+from src.storage.session_uploader import SessionUploader
+
+_local_cache = LocalLicenseCache()
+
+@app.get("/api/sync/status")
+def sync_status():
+    pending = _local_cache.list_pending_uploads()
+    return {
+        "pending_count": len(pending),
+        "pending": [
+            {
+                "session_id": p["session_id"],
+                "attempts": p["attempts"],
+                "last_error": p["last_error"],
+                "created_at": p["created_at"],
+            }
+            for p in pending
+        ],
+    }
+
+@app.post("/api/sync/retry")
+def sync_retry(central_server_url: str = "http://192.168.1.X:9000"):
+    uploader = SessionUploader(central_server_url, _local_cache)
+    return uploader.retry_pending()
 
 # =====================================================================
 # --- ORIGINAL CLI EXECUTION BLOCK ---

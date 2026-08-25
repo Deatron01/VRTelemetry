@@ -40,12 +40,16 @@ export const DataQuality = () => {
     const jitterWeight = Math.max(0, 20 - (avgJitterMs * 2)); // Penalize high jitter
     const totalScore = hmdWeight + eyeWeight + jitterWeight;
 
+    const completeFrames = frames.filter(f => f.hmd_tracking_valid > 0 && f.eye_tracking_valid > 0).length;
+    const dataCompletenessPct = (completeFrames / frames.length) * 100;
+
     return {
       hmdDropouts,
       eyeDropouts,
       avgJitterMs,
       maxJitterMs,
-      totalScore
+      totalScore,
+      dataCompletenessPct,
     };
   }, [frames, metadata]);
 
@@ -101,8 +105,12 @@ export const DataQuality = () => {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-research-graphite">Data Completeness</span>
-              <span className="font-mono text-sm text-research-green flex items-center gap-1">
-                <CheckCircle2 className="w-4 h-4" /> 100%
+              <span className={`font-mono text-sm flex items-center gap-1 ${
+                qualityStats.dataCompletenessPct > 90 ? 'text-research-green'
+                : qualityStats.dataCompletenessPct > 70 ? 'text-amber-500'
+                : 'text-red-500'
+              }`}>
+                <CheckCircle2 className="w-4 h-4" /> {qualityStats.dataCompletenessPct.toFixed(1)}%
               </span>
             </div>
           </div>

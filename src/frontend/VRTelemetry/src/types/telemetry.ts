@@ -20,9 +20,11 @@ export interface TelemetryFrame {
 
   left_pos_x?: number; left_pos_y?: number; left_pos_z?: number;
   left_rot_x?: number; left_rot_y?: number; left_rot_z?: number; left_rot_w?: number;
+  left_tracking_valid?: number;
   
   right_pos_x?: number; right_pos_y?: number; right_pos_z?: number;
   right_rot_x?: number; right_rot_y?: number; right_rot_z?: number; right_rot_w?: number;
+  right_tracking_valid?: number;
 }
 
 export interface SessionMetadata {
@@ -33,6 +35,17 @@ export interface SessionMetadata {
   hmd_validity_pct: number;
   eye_validity_pct: number;
   avg_sampling_hz: number;
+
+  // Previously referenced in Overview.tsx but never populated — now computed by TelemetryParser
+  subject_id?: string;
+  hmd_model?: string;
+  subject_ipd_mm?: number;
+  total_dropped_frames?: number;
+
+  // Genuinely subjective/self-reported values — not derivable from telemetry.
+  // Left optional; populate via a post-session survey form when one exists.
+  nasa_tlx_mental?: number;
+  ssq_nausea_score?: number;
 }
 
 export interface DerivedMetrics {
@@ -41,4 +54,8 @@ export interface DerivedMetrics {
   fixation_count: number;
   mean_pupil_diameter: number;
   hr_mean: number;
+
+  // Previously referenced in Overview.tsx but never populated — now computed by TelemetryParser
+  peak_saccade?: number;
+  avg_hand_speed?: number;
 }
