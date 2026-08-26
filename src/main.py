@@ -23,6 +23,8 @@ from src.core.engine import TelemetryEngine
 from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.core.exceptions import GDPRConsentError
 from src.eye_tracking.factory import EyeTrackingFactory
+from src.storage.usage_tracker import UsageTracker
+_usage = UsageTracker()
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -311,6 +313,7 @@ def start_recording(config: SessionStartConfig):
     try:
         engine_thread = threading.Thread(target=run_engine_thread, args=(active_engine,), daemon=True)
         engine_thread.start()
+        _usage.log_event("recording_start", detail=f"backend={config.backend}")
         return {"status": "recording_started", "subject_id": config.subject_id, "backend": config.backend}
     except GDPRConsentError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -326,6 +329,7 @@ def stop_recording():
     # Safely signal the engine to shutdown
     if hasattr(active_engine, 'stop'):
         active_engine.stop() 
+        _usage.log_event("recording_stop")
     elif hasattr(active_engine, 'is_running'):
         active_engine.is_running = False
 

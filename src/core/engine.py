@@ -21,6 +21,8 @@ from src.core.exceptions import GDPRConsentError
 from src.storage.session_uploader import SessionUploader
 from src.license_service.local_cache import LocalLicenseCache
 
+from src.utils.system_profiler import collect_system_profile
+
 class TelemetryEngine:
     """
     Production telemetry orchestrator. Guarantees deterministic synchronization between
