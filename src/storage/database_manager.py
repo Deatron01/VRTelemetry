@@ -92,6 +92,22 @@ class DatabaseManager:
             
             raw_json TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            
+            -- System & Environment Profile (Cat 9)
+            os_name TEXT,
+            os_version TEXT,
+            os_release TEXT,
+            architecture TEXT,
+            hostname TEXT,
+            os_user TEXT,
+            cpu_name TEXT,
+            cpu_cores_logical INTEGER,
+            cpu_cores_physical INTEGER,
+            total_ram_gb REAL,
+            disk_total_gb REAL,
+            disk_free_gb REAL,
+            gpu_info TEXT,
+            app_version TEXT,
         );
         """
         try:
@@ -112,7 +128,8 @@ class DatabaseManager:
         subj_labels = metadata.get("Q-VI_Subjective_Labels", {})
         hw_meta = metadata.get("H-VII_Hardware_Capabilities", {})
         proc_meta = metadata.get("P-VIII_Processing_Metadata", {})
-
+        sys_profile = metadata.get("S-IX_System_Profile", {})
+        
         session_id = static_meta.get("session_id", "UNKNOWN")
 
         query = """
@@ -135,6 +152,10 @@ class DatabaseManager:
             
             preprocessor_version, smoothing_algorithm, scaling_method,
             velocity_deriv_method, outlier_removal, total_dropped_frames,
+            
+            os_name, os_version, os_release, architecture, hostname, os_user,
+            cpu_name, cpu_cores_logical, cpu_cores_physical, total_ram_gb,
+            disk_total_gb, disk_free_gb, gpu_info, app_version,
             
             raw_json
         ) VALUES (
@@ -203,6 +224,21 @@ class DatabaseManager:
             proc_meta.get("velocity_deriv_method", "None"),
             proc_meta.get("outlier_removal", "None"),
             proc_meta.get("total_dropped_frames", 0),
+            
+            sys_profile.get("os_name", "Unknown"),
+            sys_profile.get("os_version", "Unknown"),
+            sys_profile.get("os_release", "Unknown"),
+            sys_profile.get("architecture", "Unknown"),
+            sys_profile.get("hostname", "Unknown"),
+            sys_profile.get("os_user", "Unknown"),
+            sys_profile.get("cpu_name", "Unknown"),
+            sys_profile.get("cpu_cores_logical", 0),
+            sys_profile.get("cpu_cores_physical", 0),
+            sys_profile.get("total_ram_gb", 0.0),
+            sys_profile.get("disk_total_gb", 0.0),
+            sys_profile.get("disk_free_gb", 0.0),
+            sys_profile.get("gpu_info", "Unknown"),
+            "1.0.0",
             
             json.dumps(metadata)
         )
