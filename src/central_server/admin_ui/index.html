@@ -1,0 +1,256 @@
+<!-- src/central_server/admin_ui/index.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>VRTelemetry — Admin Console</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 32px; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .sub { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin: 0 0 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #334155; }
+    th { color: #94a3b8; font-weight: 500; }
+    .badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+    .badge.active { background: #064e3b; color: #6ee7b7; }
+    .badge.revoked { background: #450a0a; color: #fca5a5; }
+    .badge.admin { background: #1e3a8a; color: #93c5fd; }
+    .badge.researcher { background: #334155; color: #cbd5e1; }
+    input, select { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 8px; border-radius: 6px; font-size: 13px; margin-right: 8px; }
+    button { background: #2563eb; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    .login-box { max-width: 360px; margin: 80px auto; }
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .error { color: #fca5a5; font-size: 13px; margin-top: 8px; }
+    input::placeholder { color: #64748b; opacity: 1; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const API = window.location.origin;
+    let sessionToken = localStorage.getItem('admin_session_token') || null;
+    let currentUser = null;
+
+    async function api(path, opts = {}) {
+      const headers = opts.headers || {};
+      if (sessionToken && path.startsWith('/admin')) headers['X-Session-Token'] = sessionToken;
+      const res = await fetch(API + path, { ...opts, headers });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || res.statusText);
+      }
+      return res.json();
+    }
+
+    function render() {
+      const el = document.getElementById('app');
+      if (!sessionToken || !currentUser) {
+        el.innerHTML = `
+          <div class="login-box">
+            <h1>Admin Console</h1>
+            <p class="sub">Sign in with an admin account</p>
+            <div class="card">
+              <div class="row"><input id="email" placeholder="Email" style="flex:1" /></div>
+              <div class="row"><input id="password" type="password" placeholder="Password" style="flex:1" /></div>
+              <button onclick="doLogin()">Sign In</button>
+              <div id="login-error" class="error"></div>
+            </div>
+          </div>`;
+        return;
+      }
+
+      el.innerHTML = `
+        <h1>VRTelemetry Admin Console</h1>
+        <p class="sub">Signed in as ${currentUser.email} · <a href="#" onclick="doLogout()" style="color:#93c5fd">Sign out</a></p>
+
+        <div class="card">
+          <h2>Issue New License</h2>
+            <div class="row" style="align-items:flex-end;">
+            <div class="field">
+                <label>Researcher Email</label>
+                <input id="lic-email" placeholder="researcher@lab.edu" />
+            </div>
+            <div class="field">
+                <label>Organization</label>
+                <input id="lic-org" placeholder="Lab name" />
+            </div>
+            <div class="field">
+                <label>Seats</label>
+                <input id="lic-seats" type="number" value="1" style="width:70px" />
+            </div>
+            <div class="field">
+                <label>Days Valid</label>
+                <input id="lic-days" type="number" value="365" style="width:90px" />
+            </div>
+            <button onclick="createLicense()">Issue License</button>
+            </div>
+            <div id="issue-result"></div>
+        </div>
+
+        <div class="card">
+          <h2>Licenses</h2>
+          <table id="licenses-table"><thead><tr>
+            <th>Key</th><th>Owner</th><th>Org</th><th>Seats</th><th>Status</th><th>Expires</th><th></th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+
+        <div class="card">
+          <h2>Users</h2>
+          <table id="users-table"><thead><tr>
+            <th>Email</th><th>Name</th><th>Org</th><th>Role</th><th>Joined</th><th></th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+
+        <div class="card">
+          <h2>Uploaded Sessions</h2>
+          <table id="sessions-table"><thead><tr>
+            <th>Session ID</th><th>Subject</th><th>Machine</th><th>Frames</th><th>Received</th><th></th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      `;
+      loadLicenses();
+      loadUsers();
+      loadSessions();
+    }
+
+    async function doLogin() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      try {
+        const data = await api('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ email, password }),
+        });
+        if (data.role !== 'admin') {
+          document.getElementById('login-error').textContent = 'This account does not have admin privileges.';
+          return;
+        }
+        sessionToken = data.session_token;
+        currentUser = data;
+        localStorage.setItem('admin_session_token', sessionToken);
+        render();
+      } catch (e) {
+        document.getElementById('login-error').textContent = e.message;
+      }
+    }
+
+    function doLogout() {
+      sessionToken = null;
+      currentUser = null;
+      localStorage.removeItem('admin_session_token');
+      render();
+    }
+
+    async function createLicense() {
+      const email = document.getElementById('lic-email').value;
+      const org_name = document.getElementById('lic-org').value;
+      const max_seats = document.getElementById('lic-seats').value;
+      const expires_in_days = document.getElementById('lic-days').value;
+      try {
+        const data = await api('/admin/license/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ email, org_name, max_seats, expires_in_days }),
+        });
+        document.getElementById('issue-result').innerHTML =
+          `<p style="color:#6ee7b7">Issued: <code>${data.license_key}</code></p>`;
+        loadLicenses();
+      } catch (e) {
+        document.getElementById('issue-result').innerHTML = `<p class="error">${e.message}</p>`;
+      }
+    }
+
+    async function loadLicenses() {
+      const rows = await api('/admin/licenses');
+      document.querySelector('#licenses-table tbody').innerHTML = rows.map(l => `
+        <tr>
+          <td><code>${l.license_key}</code></td>
+          <td>${l.owner_email || '—'}</td>
+          <td>${l.org_name || '—'}</td>
+          <td>${l.active_seats}/${l.max_seats}</td>
+          <td><span class="badge ${l.status === 'active' ? 'active' : 'revoked'}">${l.status}</span></td>
+          <td>${l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never'}</td>
+          <td>${l.status === 'active' ? `<button class="danger" onclick="revokeLicense('${l.license_key}')">Revoke</button>` : ''}<button onclick="extendLicense('${l.license_key}')" style="margin-left:6px;background:#334155">Extend</button></td>
+        </tr>`).join('');
+    }
+
+    async function revokeLicense(key) {
+      const reason = prompt('Reason for revoking this license?') || '';
+      await api('/admin/license/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ license_key: key, reason }),
+      });
+      loadLicenses();
+    }
+    async function extendLicense(key) {
+        const days = prompt('How many days to add to this license?', '30');
+        if (!days || isNaN(parseInt(days))) return;
+        try {
+            await api('/admin/license/extend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ license_key: key, additional_days: days }),
+            });
+            loadLicenses();
+        } catch (e) {
+            alert('Failed to extend license: ' + e.message);
+        }
+    }
+
+    async function loadUsers() {
+      const rows = await api('/admin/users');
+      document.querySelector('#users-table tbody').innerHTML = rows.map(u => `
+        <tr>
+          <td>${u.email}</td>
+          <td>${u.display_name || '—'}</td>
+          <td>${u.org_name || '—'}</td>
+          <td><span class="badge ${u.role}">${u.role}</span></td>
+          <td>${new Date(u.created_at).toLocaleDateString()}</td>
+          <td>${u.role === 'admin'
+            ? `<button onclick="setRole('${u.user_id}','researcher')">Demote</button>`
+            : `<button onclick="setRole('${u.user_id}','admin')">Promote to Admin</button>`}</td>
+        </tr>`).join('');
+    }
+
+    async function setRole(userId, role) {
+      await api('/admin/users/set-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ target_user_id: userId, role }),
+      });
+      loadUsers();
+    }
+
+    async function loadSessions() {
+      const rows = await api('/admin/sessions');
+      document.querySelector('#sessions-table tbody').innerHTML = rows.map(s => `
+        <tr>
+          <td><code>${s.session_id}</code></td>
+          <td>${s.subject_id || '—'}</td>
+          <td>${s.machine_label || '—'}</td>
+          <td>${s.total_frames ?? '—'}</td>
+          <td>${new Date(s.received_at).toLocaleString()}</td>
+          <td><a href="${API}/admin/sessions/${s.upload_id}/download" style="color:#93c5fd">Download</a></td>
+        </tr>`).join('');
+    }
+
+    if (sessionToken) {
+      api('/auth/session?session_token=' + sessionToken)
+        .then(u => { currentUser = u; render(); })
+        .catch(() => { sessionToken = null; render(); });
+    } else {
+      render();
+    }
+  </script>
+</body>
+</html>

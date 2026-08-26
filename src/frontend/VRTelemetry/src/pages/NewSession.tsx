@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlayCircle, ShieldAlert, Cpu, Network, User, StopCircle } from 'lucide-react';
+import { PlayCircle, ShieldAlert, Cpu, Network, User, StopCircle, Server } from 'lucide-react';
 
 export const NewSession = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -10,7 +10,8 @@ export const NewSession = () => {
     subject_id: `SUB_${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
     backend: 'auto',
     port: 5005,
-    gdpr_consent: false
+    gdpr_consent: false,
+    central_server_url: 'http://192.168.1.X:9000'
   });
 
   const handleStart = async () => {
@@ -114,6 +115,18 @@ export const NewSession = () => {
                 />
               </div>
             )}
+
+            <div>
+              <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1"><Server className="w-3 h-3"/> Central Server Address</label>
+              <input 
+                type="text" 
+                value={form.central_server_url}
+                onChange={e => setForm({...form, central_server_url: e.target.value})}
+                placeholder="http://192.168.1.X:9000"
+                className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors font-mono"
+              />
+              <p className="text-[11px] text-research-muted mt-1">Where completed sessions are synced after recording stops.</p>
+            </div>
           </div>
 
           <div className="mt-auto pt-6 border-t border-research-border">
@@ -172,6 +185,10 @@ export const NewSession = () => {
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-research-muted">Active Pipeline</span>
                   <span className="font-mono text-research-graphite">{form.backend.toUpperCase()}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-research-muted">Sync Target</span>
+                  <span className="font-mono text-research-graphite truncate max-w-[160px]">{form.central_server_url}</span>
                 </div>
               </div>
             )}

@@ -1,3 +1,5 @@
+// src/frontend/VRTelemetry/src/pages/Export.tsx
+
 import React, { useEffect, useState } from 'react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import { Download, FileJson, FileSpreadsheet, FileText, Check, Upload } from 'lucide-react';
@@ -182,21 +184,22 @@ const handleSyncNow = async () => {
               </div>
             </div>
           </div>
-        </div>
-        <div className="glass-panel p-5 cursor-pointer hover:border-research-blue transition-colors group" onClick={handleSyncNow}>
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-50 text-research-blue rounded-lg group-hover:bg-blue-100 transition-colors">
-              <Upload className="w-6 h-6" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-medium text-research-graphite">Sync to Central Server</h3>
-              <p className="text-xs text-research-muted mt-1">
-                {isSyncing
-                  ? 'Syncing pending sessions...'
-                  : syncStatus && syncStatus.pending_count > 0
-                    ? `${syncStatus.pending_count} session(s) awaiting upload`
-                    : 'All sessions synced'}
-              </p>
+
+          <div className="glass-panel p-5 cursor-pointer hover:border-research-blue transition-colors group" onClick={handleSyncNow}>
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-blue-50 text-research-blue rounded-lg group-hover:bg-blue-100 transition-colors">
+                <Upload className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-medium text-research-graphite">Sync to Central Server</h3>
+                <p className="text-xs text-research-muted mt-1">
+                  {isSyncing
+                    ? 'Syncing pending sessions...'
+                    : syncStatus && syncStatus.pending_count > 0
+                      ? `${syncStatus.pending_count} session(s) awaiting upload`
+                      : 'All sessions synced'}
+                </p>
+              </div>
             </div>
           </div>
         </div>

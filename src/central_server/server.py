@@ -1,13 +1,14 @@
-# src/central_server/server.py
+# src/central_server/server.py — full updated file
 
 import logging
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request, Depends
 from fastapi.responses import FileResponse
 from typing import Optional
 import json
 
 from src.license_service.manager import LicenseManager
 from src.license_service.db_schema import initialize_license_schema
+from src.license_service.auth_manager import AuthManager
 from src.central_server.data_manager import CentralDataManager
 from src.central_server.data_schema import initialize_data_schema
 from src.utils.logger import setup_logging, logger
@@ -18,28 +19,80 @@ initialize_data_schema()
 
 app = FastAPI(title="VRTelemetry Central Hub Server")
 
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+
+_admin_ui_dir = Path(__file__).parent / "admin_ui"
+if _admin_ui_dir.exists():
+    app.mount("/admin-ui", StaticFiles(directory=_admin_ui_dir, html=True), name="admin_ui")
+
+    
 license_mgr = LicenseManager()
 data_mgr = CentralDataManager()
+auth_mgr = AuthManager()
 
 
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+def require_admin(x_session_token: str = Header(...)) -> dict:
+    """
+    FastAPI dependency — every admin route declares this and gets a 403
+    automatically if the caller's session isn't a valid admin session.
+    Session token travels as a header here (not a form field) since these
+    are the routes an admin dashboard will call repeatedly, not one-off forms.
+    """
+    session = auth_mgr.validate_session(x_session_token)
+    if not session or session["role"] != "admin":
+        raise HTTPException(status_code=403, detail="admin_privileges_required")
+    return session
+
+
 def _authorize_activation(activation_id: str, ip_address: str) -> dict:
-    """
-    Shared gate for any endpoint that requires a live, non-revoked seat.
-    Reuses the same heartbeat validation logic — an upload IS effectively
-    a heartbeat, so this keeps 'is this machine still allowed to talk to us'
-    consistent across every kind of traffic from the desktop app.
-    """
     result = license_mgr.heartbeat(activation_id, ip_address)
     if not result["ok"]:
         raise HTTPException(status_code=403, detail=f"Unauthorized activation: {result['reason']}")
     return result
 
 
-# --- License routes ---
+# --- Auth routes (unchanged from before) ---
+
+@app.post("/auth/register")
+def register(email: str = Form(...), password: str = Form(...),
+             org_name: str = Form(...), display_name: str = Form("")):
+    # Public registration always creates a 'researcher' — role escalation only
+    # happens through /admin/users/set-role, never through self-registration.
+    result = auth_mgr.register(email, password, org_name, display_name, role="researcher")
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["reason"])
+    return result
+
+
+@app.post("/auth/login")
+def login(email: str = Form(...), password: str = Form(...)):
+    result = auth_mgr.login(email, password)
+    if not result["ok"]:
+        raise HTTPException(status_code=401, detail=result["reason"])
+    return result
+
+
+@app.post("/auth/logout")
+def logout(session_token: str = Form(...)):
+    auth_mgr.logout(session_token)
+    return {"ok": True}
+
+
+@app.get("/auth/session")
+def check_session(session_token: str):
+    user = auth_mgr.validate_session(session_token)
+    if not user:
+        raise HTTPException(status_code=401, detail="invalid_or_expired_session")
+    return user
+
+
+# --- License routes (existing, used by the desktop app) ---
 
 @app.post("/license/activate")
 def activate_license(
@@ -71,7 +124,7 @@ def heartbeat(request: Request, activation_id: str = Form(...)):
     return result
 
 
-# --- Data intake routes ---
+# --- Data intake (existing) ---
 
 @app.post("/data/upload-session")
 async def upload_session(
@@ -83,11 +136,6 @@ async def upload_session(
     metadata_json: str = Form(...),
     file: UploadFile = File(...),
 ):
-    """
-    Called by the researcher's local backend once a recording session is
-    complete. Requires a live activation — a revoked researcher cannot
-    push new data even if their local app is still technically running.
-    """
     ip = _client_ip(request)
     _authorize_activation(activation_id, ip)
 
@@ -115,19 +163,27 @@ async def upload_session(
     return result
 
 
-# --- Admin routes (you, reviewing collected data) ---
+# ============================================================
+# --- ADMIN ROUTES — all gated behind require_admin ---
+# ============================================================
 
-@app.get("/admin/sessions")
-def list_all_sessions(license_id: Optional[str] = None):
-    return data_mgr.list_sessions(license_id)
+@app.get("/admin/users")
+def admin_list_users(admin=Depends(require_admin)):
+    return auth_mgr.list_users()
 
 
-@app.get("/admin/sessions/{upload_id}/download")
-def download_session(upload_id: str):
-    path = data_mgr.get_file_path(upload_id)
-    if not path or not path.exists():
-        raise HTTPException(status_code=404, detail="Session file not found")
-    return FileResponse(path, filename=path.name, media_type="application/octet-stream")
+@app.post("/admin/users/set-role")
+def admin_set_role(target_user_id: str = Form(...), role: str = Form(...), admin=Depends(require_admin)):
+    ok = auth_mgr.set_role(target_user_id, role)
+    if not ok:
+        raise HTTPException(status_code=404, detail="user_not_found")
+    logger.warning(f"Admin {admin['email']} set role of {target_user_id} to {role}")
+    return {"ok": True}
+
+
+@app.get("/admin/licenses")
+def admin_list_licenses(admin=Depends(require_admin)):
+    return license_mgr.list_licenses()
 
 
 @app.post("/admin/license/create")
@@ -137,21 +193,46 @@ def admin_create_license(
     plan: str = Form("standard"),
     max_seats: int = Form(1),
     expires_in_days: Optional[int] = Form(365),
+    admin=Depends(require_admin),
 ):
-    return license_mgr.create_license(email, org_name, plan, max_seats, expires_in_days)
+    result = license_mgr.create_license(email, org_name, plan, max_seats, expires_in_days)
+    logger.warning(f"Admin {admin['email']} issued license {result['license_key']} to {email}")
+    return result
 
 
 @app.post("/admin/license/revoke")
-def admin_revoke_license(license_key: str = Form(...), reason: str = Form("")):
+def admin_revoke_license(license_key: str = Form(...), reason: str = Form(""), admin=Depends(require_admin)):
     ok = license_mgr.revoke_license(license_key, reason)
     if not ok:
         raise HTTPException(status_code=404, detail="License key not found")
+    logger.warning(f"Admin {admin['email']} revoked license {license_key}: {reason}")
     return {"ok": True}
 
 
 @app.post("/admin/machine/revoke")
-def admin_revoke_machine(activation_id: str = Form(...), reason: str = Form("")):
+def admin_revoke_machine(activation_id: str = Form(...), reason: str = Form(""), admin=Depends(require_admin)):
     ok = license_mgr.revoke_machine(activation_id, reason)
     if not ok:
         raise HTTPException(status_code=404, detail="Activation not found")
+    logger.warning(f"Admin {admin['email']} revoked machine activation {activation_id}: {reason}")
     return {"ok": True}
+
+
+@app.get("/admin/sessions")
+def admin_list_all_sessions(license_id: Optional[str] = None, admin=Depends(require_admin)):
+    return data_mgr.list_sessions(license_id)
+
+@app.post("/admin/license/extend")
+def admin_extend_license(license_key: str = Form(...), additional_days: int = Form(...), admin=Depends(require_admin)):
+    result = license_mgr.extend_license(license_key, additional_days)
+    if not result["ok"]:
+        raise HTTPException(status_code=404, detail=result["reason"])
+    logger.warning(f"Admin {admin['email']} extended license {license_key} by {additional_days} days")
+    return result
+
+@app.get("/admin/sessions/{upload_id}/download")
+def admin_download_session(upload_id: str, admin=Depends(require_admin)):
+    path = data_mgr.get_file_path(upload_id)
+    if not path or not path.exists():
+        raise HTTPException(status_code=404, detail="Session file not found")
+    return FileResponse(path, filename=path.name, media_type="application/octet-stream")

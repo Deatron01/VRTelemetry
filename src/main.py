@@ -7,7 +7,11 @@ import threading
 import sqlite3
 import io
 import pandas as pd
+import requests as http_requests
 from typing import Dict, Any, Optional, List
+from src.license_service.manager import LicenseManager
+import platform
+import uuid as uuid_lib
 
 # --- New API Imports ---
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -297,7 +301,7 @@ def start_recording(config: SessionStartConfig):
         output_dir=config.output_dir,
         gdpr_consent=config.gdpr_consent,
         hardware_metadata=hardware_capabilities,
-        central_server_url=config.central_server_url
+        central_server_url=config.central_server_url,  # new
     )
     
     active_engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = config.subject_id
@@ -331,6 +335,99 @@ from src.license_service.local_cache import LocalLicenseCache
 from src.storage.session_uploader import SessionUploader
 
 _local_cache = LocalLicenseCache()
+DEFAULT_CENTRAL_URL = "http://127.0.0.1:9000"
+
+def _central_url() -> str:
+    return _local_cache.get_config("central_server_url", DEFAULT_CENTRAL_URL)
+
+
+class AuthRegisterRequest(BaseModel):
+    email: str
+    password: str
+    org_name: str
+    display_name: str = ""
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class CentralUrlConfig(BaseModel):
+    central_server_url: str
+
+
+@app.post("/api/auth/register")
+def api_register(payload: AuthRegisterRequest):
+    try:
+        r = http_requests.post(f"{_central_url()}/auth/register", data=payload.dict(), timeout=10)
+    except http_requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "registration_failed"))
+    return r.json()
+
+
+@app.post("/api/auth/login")
+def api_login(payload: AuthLoginRequest):
+    try:
+        r = http_requests.post(f"{_central_url()}/auth/login", data=payload.dict(), timeout=10)
+    except http_requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "login_failed"))
+
+    data = r.json()
+    _local_cache.save_session(data["session_token"], data["user_id"], data["email"], data.get("display_name", ""))
+    return data
+
+
+@app.post("/api/auth/logout")
+def api_logout():
+    session = _local_cache.get_session()
+    if session and session.get("session_token"):
+        try:
+            http_requests.post(f"{_central_url()}/auth/logout",
+                                data={"session_token": session["session_token"]}, timeout=5)
+        except http_requests.RequestException:
+            pass  # best-effort — clear local state regardless
+    _local_cache.clear_session()
+    return {"ok": True}
+
+
+@app.get("/api/auth/session")
+def api_session():
+    """
+    Called on app boot to decide whether to show the login screen or the app shell.
+    Validates against the central server when reachable; falls back to trusting
+    the local cache if the server is unreachable, so a LAN blip mid-recording
+    doesn't boot the researcher out mid-session.
+    """
+    session = _local_cache.get_session()
+    if not session or not session.get("session_token"):
+        return {"authenticated": False}
+
+    try:
+        r = http_requests.get(f"{_central_url()}/auth/session",
+                               params={"session_token": session["session_token"]}, timeout=5)
+        if r.status_code == 200:
+            return {"authenticated": True, **r.json()}
+        else:
+            _local_cache.clear_session()
+            return {"authenticated": False}
+    except http_requests.RequestException:
+        # Central server unreachable — trust the local cache rather than lock the researcher out
+        return {"authenticated": True, "email": session["email"], "display_name": session["display_name"],
+                "offline": True}
+
+
+@app.get("/api/config/central-server")
+def get_central_config():
+    return {"central_server_url": _central_url()}
+
+
+@app.post("/api/config/central-server")
+def set_central_config(payload: CentralUrlConfig):
+    _local_cache.set_config("central_server_url", payload.central_server_url)
+    return {"ok": True, "central_server_url": payload.central_server_url}
 
 @app.get("/api/sync/status")
 def sync_status():
@@ -349,9 +446,96 @@ def sync_status():
     }
 
 @app.post("/api/sync/retry")
-def sync_retry(central_server_url: str = "http://192.168.1.X:9000"):
+def sync_retry(central_server_url: str = "http://127.0.0.1:9000"):
     uploader = SessionUploader(central_server_url, _local_cache)
     return uploader.retry_pending()
+
+
+_license_mgr_client = None  # not used directly here — activation goes through the central server, not local
+
+def _get_hardware_fingerprint() -> str:
+    """
+    Stable-ish per-machine identifier. Not cryptographically bulletproof (MAC-based
+    fingerprints can be spoofed), but sufficient for seat-counting against casual
+    reuse rather than determined circumvention — matches the LAN-trust-level of
+    everything else right now.
+    """
+    node = uuid_lib.getnode()
+    return hashlib.sha256(f"{platform.system()}-{platform.node()}-{node}".encode()).hexdigest()
+
+import hashlib  # add near top imports
+
+
+class LicenseActivateRequest(BaseModel):
+    license_key: str
+    machine_label: str = platform.node()
+
+
+@app.get("/api/license/status")
+def license_status():
+    state = _local_cache.get_state()
+    if not state:
+        return {"activated": False}
+
+    valid_offline = _local_cache.is_valid_offline()
+
+    # Try a live heartbeat if reachable; falls back to cached offline validity if not.
+    try:
+        r = http_requests.post(f"{_central_url()}/license/heartbeat",
+                                data={"activation_id": state["activation_id"]}, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            _local_cache.save(
+                activation_id=state["activation_id"],
+                license_key=state.get("license_key"),
+                hardware_fingerprint=state.get("hardware_fingerprint"),
+                license_id=state.get("license_id"),
+                machine_label=state.get("machine_label"),
+                server_expires_at=data.get("expires_at"),
+            )
+            return {"activated": True, "status": "active", "offline": False}
+        else:
+            _local_cache.mark_revoked()
+            return {"activated": True, "status": "revoked", "offline": False}
+    except http_requests.RequestException:
+        if valid_offline:
+            return {"activated": True, "status": "active", "offline": True}
+        return {"activated": True, "status": "expired_offline_grace", "offline": True}
+
+
+@app.post("/api/license/activate")
+def license_activate(payload: LicenseActivateRequest):
+    fingerprint = _get_hardware_fingerprint()
+    try:
+        r = http_requests.post(
+            f"{_central_url()}/license/activate",
+            data={
+                "license_key": payload.license_key,
+                "hardware_fingerprint": fingerprint,
+                "machine_label": payload.machine_label,
+                "os_platform": platform.system(),
+                "app_version": "1.0.0",
+            },
+            timeout=10,
+        )
+    except http_requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
+
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "activation_failed"))
+
+    data = r.json()
+    # Central server's /license/activate doesn't currently return license_id in its response body
+    # (see LicenseManager.activate) — worth adding license_id to that return dict server-side so
+    # it can be cached here for the uploader's license_id field. Flagging rather than papering over.
+    _local_cache.save(
+        activation_id=data["activation_id"],
+        license_key=payload.license_key,
+        hardware_fingerprint=fingerprint,
+        machine_label=payload.machine_label,
+        server_expires_at=data.get("expires_at"),
+    )
+    return {"ok": True}
 
 # =====================================================================
 # --- ORIGINAL CLI EXECUTION BLOCK ---
