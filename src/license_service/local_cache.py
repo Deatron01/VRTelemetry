@@ -12,7 +12,8 @@ class LocalLicenseCache:
     """
     Lives on the researcher's machine, separate from vr_metadata.db by design —
     this file's only job is 'is this install currently authorized to run' plus
-    tracking uploads that couldn't reach the central server yet.
+    tracking uploads that couldn't reach the central server yet, and now the
+    logged-in account session for this machine.
     """
 
     def __init__(self, db_path: str = "AppData/license_cache.db"):
@@ -45,6 +46,22 @@ class LocalLicenseCache:
                     last_attempt_at TIMESTAMP,
                     last_error TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS account_session (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    session_token TEXT,
+                    user_id TEXT,
+                    email TEXT,
+                    display_name TEXT,
+                    logged_in_at TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
                 )
             """)
             conn.commit()
@@ -90,9 +107,6 @@ class LocalLicenseCache:
             return dict(row) if row else None
 
     # --- Pending upload queue ---
-    # A session lands here whenever an upload attempt fails (offline, server down,
-    # transient LAN hiccup). Nothing is ever silently dropped — it's retried on
-    # the next engine start and can also be retried on demand via the Export page.
 
     def queue_pending_upload(self, session_id: str, parquet_path: str, metadata_json: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -124,3 +138,47 @@ class LocalLicenseCache:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT * FROM pending_uploads ORDER BY created_at ASC").fetchall()
             return [dict(r) for r in rows]
+
+    # --- Account session (login state) ---
+    # Single-row table, same pattern as license_state — one desktop install,
+    # one logged-in account at a time.
+
+    def save_session(self, session_token: str, user_id: str, email: str, display_name: str = "") -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO account_session (id, session_token, user_id, email, display_name, logged_in_at)
+                VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    session_token=excluded.session_token,
+                    user_id=excluded.user_id,
+                    email=excluded.email,
+                    display_name=excluded.display_name,
+                    logged_in_at=CURRENT_TIMESTAMP
+            """, (session_token, user_id, email, display_name))
+            conn.commit()
+
+    def get_session(self) -> Optional[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM account_session WHERE id = 1").fetchone()
+            return dict(row) if row else None
+
+    def clear_session(self) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM account_session WHERE id = 1")
+            conn.commit()
+
+    # --- Generic app config (e.g. central server address, set once at first login) ---
+
+    def set_config(self, key: str, value: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO app_config (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """, (key, value))
+            conn.commit()
+
+    def get_config(self, key: str, default: str = None) -> Optional[str]:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+            return row[0] if row else default

@@ -1,9 +1,17 @@
 import React, { useEffect, useRef } from 'react';
-import { Upload, Play, Pause, Activity, Eye, Compass, Info, LayoutDashboard, Database, ShieldAlert, Download, FileText, FolderSearch, Video } from 'lucide-react';
+import { Upload, Play, Pause, Activity, Eye, Compass, Info, LayoutDashboard, Database, ShieldAlert, Download, FileText, FolderSearch, Video, LogOut } from 'lucide-react';
 import { useTelemetryStore } from '../../store/useTelemetryStore';
 import { TelemetryParser } from '../../services/TelemetryParser';
 
-export const AppShell: React.FC<{ children: React.ReactNode; currentRoute: string; onRouteChange: (r: string) => void }> = ({ children, currentRoute, onRouteChange }) => {
+interface AppShellProps {
+  children: React.ReactNode;
+  currentRoute: string;
+  onRouteChange: (r: string) => void;
+  user?: { email: string; display_name: string };
+  onLogout?: () => void;
+}
+
+export const AppShell: React.FC<AppShellProps> = ({ children, currentRoute, onRouteChange, user, onLogout }) => {
   const { frames, currentFrameIdx, isPlaying, setFrameIdx, togglePlayback, setPlaybackSpeed, loadSession } = useTelemetryStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef<number>();
@@ -85,6 +93,18 @@ export const AppShell: React.FC<{ children: React.ReactNode; currentRoute: strin
           <button className="glass-button bg-research-blue/10 text-research-blue border-research-blue/20" onClick={() => fileInputRef.current?.click()}>
             <Upload className="w-4 h-4" /> Load Parquet
           </button>
+          {user && (
+            <div className="flex items-center gap-3 pl-4 border-l border-research-border">
+              <span className="text-xs text-research-muted truncate max-w-[160px]">{user.display_name || user.email}</span>
+              <button
+                className="glass-button py-1.5 px-3 bg-slate-50 text-research-graphite border-slate-200"
+                onClick={onLogout}
+                title="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" /> Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 

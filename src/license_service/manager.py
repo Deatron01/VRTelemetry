@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class LicenseManager:
                     (existing["activation_id"],)
                 )
                 conn.commit()
-                return {"ok": True, "activation_id": existing["activation_id"], "expires_at": lic["expires_at"]}
+                return {"ok": True, "activation_id": existing["activation_id"], "expires_at": lic["expires_at"], "license_id": lic["license_id"]}
 
             active_seats = conn.execute(
                 """SELECT COUNT(*) FROM machine_activations
@@ -107,7 +107,7 @@ class LicenseManager:
             self._log_event(conn, lic["license_id"], activation_id, "activate", machine_label, ip_address)
             conn.commit()
 
-            return {"ok": True, "activation_id": activation_id, "expires_at": lic["expires_at"]}
+            return {"ok": True, "activation_id": activation_id, "expires_at": lic["expires_at"], "license_id": lic["license_id"]}
 
     def heartbeat(self, activation_id: str, ip_address: str = "") -> Dict[str, Any]:
         """
@@ -192,6 +192,52 @@ class LicenseManager:
             (license_id, activation_id, event_type, detail, ip_address)
         )
 
+    def list_licenses(self) -> List[Dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT l.*, u.email AS owner_email, o.name AS org_name,
+                          (SELECT COUNT(*) FROM machine_activations ma
+                           WHERE ma.license_id = l.license_id AND ma.deactivated_at IS NULL AND ma.is_revoked = 0
+                          ) AS active_seats
+                   FROM licenses l
+                   LEFT JOIN users u ON l.user_id = u.user_id
+                   LEFT JOIN organizations o ON l.org_id = o.org_id
+                   ORDER BY l.issued_at DESC"""
+            ).fetchall()
+            return [dict(r) for r in rows]
+        
+    def extend_license(self, license_key: str, additional_days: int) -> Dict[str, Any]:
+        """
+        Admin action: pushes a license's expiry further out. If the license currently
+        has no expiry (perpetual), this sets one starting from now — deliberate, since
+        extending a "never expires" license doesn't make sense; that's a separate toggle.
+        If it's already expired, extends from now rather than from the old expiry date,
+        so re-activating a lapsed license doesn't require guessing math.
+        """
+        with self._conn() as conn:
+            lic = conn.execute("SELECT * FROM licenses WHERE license_key = ?", (license_key,)).fetchone()
+            if not lic:
+                return {"ok": False, "reason": "license_not_found"}
+
+            current_expiry = (
+                datetime.fromisoformat(lic["expires_at"]) if lic["expires_at"] else None
+            )
+            base = current_expiry if (current_expiry and current_expiry > datetime.utcnow()) else datetime.utcnow()
+            new_expiry = base + timedelta(days=additional_days)
+
+            conn.execute(
+                "UPDATE licenses SET expires_at = ?, status = CASE WHEN status = 'expired' THEN 'active' ELSE status END WHERE license_key = ?",
+                (new_expiry.isoformat(), license_key)
+            )
+            conn.commit()
+
+            self._log_event(conn, lic["license_id"], None, "extend",
+                             f"+{additional_days} days, new expiry {new_expiry.isoformat()}", "")
+            conn.commit()
+
+        logger.info(f"License {license_key} extended by {additional_days} days, new expiry {new_expiry.isoformat()}")
+        return {"ok": True, "new_expires_at": new_expiry.isoformat()}
+    
     @staticmethod
     def _generate_license_key() -> str:
         import secrets

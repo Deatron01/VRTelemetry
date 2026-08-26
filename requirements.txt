@@ -13,6 +13,6 @@ psutil>=5.9.8
 # Testing Frameworks
 pytest>=8.0.0
 pytest-asyncio>=0.23.5
-
+requests
 # Database Drivers
 # SQLite3 is part of Python Standard Library, no external driver required.
