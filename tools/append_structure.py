@@ -9,7 +9,6 @@ TARGET_DIRS = [
     PROJECT_ROOT / "src",
     PROJECT_ROOT / "CentralServer",
     PROJECT_ROOT / "LicenseServer",
-    PROJECT_ROOT / "doc"
 ]
 
 IGNORE_DIRS = {
