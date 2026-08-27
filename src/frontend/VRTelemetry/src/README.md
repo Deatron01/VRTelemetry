@@ -31,3 +31,49 @@ This module integrates directly with the HTML DOM via the `document.getElementBy
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+src/
+├── assets/
+│   ├── hero.png
+│   ├── react.svg
+│   └── vite.svg
+├── components/
+│   ├── layout/
+│   │   ├── AppShell.tsx
+│   │   └── README.md
+│   └── visualizations/
+│       ├── README.md
+│       └── SpatialViewer.tsx
+├── pages/
+│   ├── Activation.tsx
+│   ├── DataQuality.tsx
+│   ├── Export.tsx
+│   ├── EyeTracking.tsx
+│   ├── Login.tsx
+│   ├── Metadata.tsx
+│   ├── NewSession.tsx
+│   ├── Overview.tsx
+│   ├── Physiology.tsx
+│   ├── README.md
+│   ├── RawDataExplorer.tsx
+│   └── SessionExplorer.tsx
+├── services/
+│   ├── README.md
+│   └── TelemetryParser.ts
+├── store/
+│   ├── README.md
+│   └── useTelemetryStore.ts
+├── types/
+│   ├── README.md
+│   └── telemetry.ts
+├── App.css
+├── App.tsx
+├── README.md
+├── index.css
+└── main.tsx
+```

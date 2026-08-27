@@ -76,3 +76,18 @@ Interfaces directly with `AsyncParquetWriter` for disk persistence, `HardwareMon
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+core/
+├── README.md
+├── __init__.py
+├── datatypes.py
+├── engine.py
+├── exceptions.py
+├── interfaces.py
+└── synchronizer.py
+```

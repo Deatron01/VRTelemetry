@@ -17,6 +17,32 @@ IGNORE_DIRS = {
     "__pycache__", ".pytest_cache", "venv", ".git"
 }
 
+def generate_directory_tree(start_path: Path) -> str:
+    """Generates a text-based tree representation of files and folders."""
+    tree_lines = ["```text", f"{start_path.name}/"]
+    
+    def _walk_tree(current_path: Path, prefix: str = ""):
+        try:
+            items = sorted(list(current_path.iterdir()), key=lambda x: (not x.is_dir(), x.name))
+        except PermissionError:
+            return
+        
+        # Filter out ignored directories or redundant hidden files
+        items = [item for item in items if item.name not in IGNORE_DIRS and not item.name.startswith(".")]
+        
+        pointers = ["├── "] * (len(items) - 1) + ["└── "] if items else []
+        for pointer, item in zip(pointers, items):
+            if item.is_dir():
+                tree_lines.append(f"{prefix}{pointer}{item.name}/")
+                extension = "│   " if pointer == "├── " else "    "
+                _walk_tree(item, prefix + extension)
+            else:
+                tree_lines.append(f"{prefix}{pointer}{item.name}")
+
+    _walk_tree(start_path)
+    tree_lines.append("```")
+    return "\n".join(tree_lines)
+
 def merge_and_clean():
     for target_dir in TARGET_DIRS:
         if not target_dir.exists():
@@ -50,6 +76,11 @@ def merge_and_clean():
                     merged_sections.append(f"# {title}\n\n{content}\n\n---\n")
                 else:
                     merged_sections.append(f"{content}\n\n---\n")
+
+            # Append the directory & file structure tree at the end
+            merged_sections.append("## Folder & File Structure\n")
+            merged_sections.append("Here is the layout of files and subfolders contained within this path:\n")
+            merged_sections.append(generate_directory_tree(current_dir))
 
             # 1. Write the new README.md
             combined_file_path.write_text("\n".join(merged_sections), encoding="utf-8")

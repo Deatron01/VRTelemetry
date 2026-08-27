@@ -241,3 +241,15 @@ classDiagram
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+uml/
+├── README.md
+├── core_class_diagram-1.svg
+├── core_class_diagram.svg
+└── eye_tracking_driver_hierarchy.svg
+```

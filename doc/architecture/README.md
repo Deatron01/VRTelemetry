@@ -509,3 +509,19 @@ graph TD
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+architecture/
+├── README.md
+├── call_graph_bootstrapper.svg
+├── component_architecture.svg
+├── error_handling_flow.svg
+├── hardware_monitor_subsystem.svg
+├── logging_architecture.svg
+├── module_dependencies.svg
+└── thread_synchronization.svg
+```

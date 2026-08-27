@@ -128,3 +128,13 @@ graph TD
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+configuration/
+├── README.md
+└── metadata_hierarchy.svg
+```

@@ -14,3 +14,13 @@ This module parses and processes raw Virtual Reality (VR) telemetry files on the
 Interfaces directly with the backend server via HTTP POST requests (`http://localhost:8000/api/upload-telemetry`) to parse raw files, and consumes shared TypeScript types (`TelemetryFrame`, `SessionMetadata`, `DerivedMetrics`) from the frontend telemetry type definitions.
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+services/
+├── README.md
+└── TelemetryParser.ts
+```

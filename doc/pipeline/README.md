@@ -73,3 +73,13 @@ pipeline
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+pipeline/
+├── README.md
+└── ai_post_processor_flow.svg
+```

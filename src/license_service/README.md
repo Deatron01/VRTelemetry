@@ -67,3 +67,17 @@ Interacts directly with a SQLite database (specified via `db_path`) containing t
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+license_service/
+├── README.md
+├── auth_manager.py
+├── bootstrap_admin.py
+├── db_schema.py
+├── local_cache.py
+└── manager.py
+```

@@ -12,3 +12,13 @@ This module defines the TypeScript data structures and interfaces used across th
 This module integrates directly with the telemetry parser services, frontend visualization components, and overview dashboards that consume typed structures to render graphs, statistical summaries, and session analytics.
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+types/
+├── README.md
+└── telemetry.ts
+```

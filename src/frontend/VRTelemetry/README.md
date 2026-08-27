@@ -82,3 +82,63 @@ This configuration integrates directly with the Vite build system and Node.js ex
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+VRTelemetry/
+├── public/
+│   ├── favicon.svg
+│   └── icons.svg
+├── src/
+│   ├── assets/
+│   │   ├── hero.png
+│   │   ├── react.svg
+│   │   └── vite.svg
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── AppShell.tsx
+│   │   │   └── README.md
+│   │   └── visualizations/
+│   │       ├── README.md
+│   │       └── SpatialViewer.tsx
+│   ├── pages/
+│   │   ├── Activation.tsx
+│   │   ├── DataQuality.tsx
+│   │   ├── Export.tsx
+│   │   ├── EyeTracking.tsx
+│   │   ├── Login.tsx
+│   │   ├── Metadata.tsx
+│   │   ├── NewSession.tsx
+│   │   ├── Overview.tsx
+│   │   ├── Physiology.tsx
+│   │   ├── README.md
+│   │   ├── RawDataExplorer.tsx
+│   │   └── SessionExplorer.tsx
+│   ├── services/
+│   │   ├── README.md
+│   │   └── TelemetryParser.ts
+│   ├── store/
+│   │   ├── README.md
+│   │   └── useTelemetryStore.ts
+│   ├── types/
+│   │   ├── README.md
+│   │   └── telemetry.ts
+│   ├── App.css
+│   ├── App.tsx
+│   ├── README.md
+│   ├── index.css
+│   └── main.tsx
+├── README.md
+├── index.html
+├── package-lock.json
+├── package.json
+├── postcss.config.js
+├── tailwind.config.js
+├── tsconfig.app.json
+├── tsconfig.json
+├── tsconfig.node.json
+└── vite.config.ts
+```

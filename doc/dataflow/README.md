@@ -547,3 +547,15 @@ graph TD
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+dataflow/
+├── README.md
+├── erd_metadata_schema.svg
+├── level1_telemetry_pipeline.svg
+└── parquet_schema_dictionary.svg
+```

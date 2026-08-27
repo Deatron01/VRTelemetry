@@ -15,3 +15,13 @@ This module provides a centralized state management store built with Zustand for
 This store is consumed directly by React components in the VR telemetry frontend to render live or recorded session data, control playback timelines, and synchronize UI state with underlying metrics.
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+store/
+├── README.md
+└── useTelemetryStore.ts
+```

@@ -68,3 +68,14 @@ C4Context
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+c4/
+├── README.md
+├── c4_component_engine.svg
+└── c4_context_container.svg
+```

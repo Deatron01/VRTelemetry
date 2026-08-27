@@ -24,3 +24,13 @@ gantt
 ```
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+performance/
+├── README.md
+└── critical_path_90hz.svg
+```

@@ -100,3 +100,20 @@ It integrates directly with Python's `asyncio` loop for non-blocking network I/O
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+backends/
+├── extensions/
+├── README.md
+├── __init__.py
+├── backend_ocolus.py
+├── backend_openxr.py
+├── backend_steamvr.py
+├── discovery.py
+├── openxr_headless.py
+└── udp_receiver.py
+```
