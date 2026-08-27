@@ -1,5 +1,3 @@
-# Auth Manager Doc Bootstrap Admin Doc Db Schema Doc Local Cache Doc Manager Doc
-
 # Auth Manager Doc
 
 ### Purpose
