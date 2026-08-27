@@ -32,7 +32,9 @@ class RuntimeCapabilityDiscovery:
                 ext.extension_name.decode('utf-8') if isinstance(ext.extension_name, bytes) else ext.extension_name
                 for ext in xr.enumerate_instance_extension_properties()
             ]
-
+            
+            metadata["available_extensions"] = available_extensions
+            
             # Biometric Support Evaluation
             if any(ext in available_extensions for ext in [
                 "XR_EXT_eye_gaze_interaction",

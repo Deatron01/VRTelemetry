@@ -44,6 +44,17 @@ def initialize_data_schema(db_path: str = "CentralServer/central_data.db") -> No
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS session_logs (
+        log_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        license_id TEXT NOT NULL,
+        activation_id TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        file_size_bytes INTEGER,
+        received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(license_id, session_id)
+    );
+    
     CREATE INDEX IF NOT EXISTS idx_uploads_license ON uploaded_sessions(license_id);
     CREATE INDEX IF NOT EXISTS idx_uploads_activation ON uploaded_sessions(activation_id);
     CREATE INDEX IF NOT EXISTS idx_uploads_received ON uploaded_sessions(received_at);

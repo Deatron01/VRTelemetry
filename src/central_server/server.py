@@ -236,3 +236,32 @@ def admin_download_session(upload_id: str, admin=Depends(require_admin)):
     if not path or not path.exists():
         raise HTTPException(status_code=404, detail="Session file not found")
     return FileResponse(path, filename=path.name, media_type="application/octet-stream")
+
+@app.post("/data/upload-session-log")
+async def upload_session_log(
+    request: Request,
+    activation_id: str = Form(...),
+    license_id: str = Form(...),
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+):
+    ip = _client_ip(request)
+    _authorize_activation(activation_id, ip)
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty log upload")
+
+    result = data_mgr.ingest_log(
+        license_id=license_id, activation_id=activation_id,
+        session_id=session_id, file_bytes=file_bytes
+    )
+    return result
+
+
+@app.get("/admin/sessions/{session_id}/log")
+def admin_download_session_log(session_id: str, license_id: str, admin=Depends(require_admin)):
+    path = data_mgr.get_log_path(session_id, license_id)
+    if not path or not path.exists():
+        raise HTTPException(status_code=404, detail="Log not found")
+    return FileResponse(path, filename=path.name, media_type="text/plain")
