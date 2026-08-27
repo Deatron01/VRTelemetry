@@ -84,3 +84,18 @@ Interacts with the local SQLite database file path specified in initialization (
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+storage/
+├── README.md
+├── __init__.py
+├── ai_preprocessor.py
+├── database_manager.py
+├── parquet_writer.py
+├── session_uploader.py
+└── usage_tracker.py
+```

@@ -83,3 +83,14 @@ flowchart TB
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+deployment/
+├── README.md
+├── file_structure.svg
+└── physical_environment.svg
+```

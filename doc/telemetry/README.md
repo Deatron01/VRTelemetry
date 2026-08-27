@@ -179,3 +179,15 @@ sequenceDiagram
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+telemetry/
+├── README.md
+├── biometric_vector_assembly.svg
+├── openxr_headless_initialization.svg
+└── time_synchronization_pipeline.svg
+```

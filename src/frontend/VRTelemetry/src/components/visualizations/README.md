@@ -13,3 +13,13 @@ The `SpatialViewer` module is a 3D visualization component built with React Thre
 This module integrates directly with `useTelemetryStore` to pull real-time or recorded frame data for positioning 3D objects, calculating gaze intersections, and analyzing historical session paths.
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+visualizations/
+├── README.md
+└── SpatialViewer.tsx
+```

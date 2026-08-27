@@ -151,3 +151,23 @@ Interacts directly with a backend REST API running on `http://localhost:8000/api
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+pages/
+├── Activation.tsx
+├── DataQuality.tsx
+├── Export.tsx
+├── EyeTracking.tsx
+├── Login.tsx
+├── Metadata.tsx
+├── NewSession.tsx
+├── Overview.tsx
+├── Physiology.tsx
+├── README.md
+├── RawDataExplorer.tsx
+└── SessionExplorer.tsx
+```

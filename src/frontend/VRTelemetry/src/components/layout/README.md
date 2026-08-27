@@ -12,3 +12,13 @@ AppShell serves as the main layout container and application frame for the VRTel
 Interacts directly with `useTelemetryStore` for global state management (frames, current frame index, playback states, speeds), `TelemetryParser` for asynchronous parsing of uploaded `.parquet` data files, and Lucide React icons for UI iconography.
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+layout/
+├── AppShell.tsx
+└── README.md
+```

@@ -86,3 +86,13 @@ flowchart TD
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+activity/
+├── README.md
+└── main_hardware_pacing_loop.svg
+```

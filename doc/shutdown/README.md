@@ -18,3 +18,13 @@ flowchart TD
 ```
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+shutdown/
+├── README.md
+└── teardown_activity.svg
+```

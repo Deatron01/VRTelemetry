@@ -96,3 +96,18 @@ This module integrates directly with the `EyeTrackingFactory` by registering its
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+eye_tracking/
+├── README.md
+├── __init__.py
+├── base_driver.py
+├── ext_eye_gaze.py
+├── factory.py
+├── fb_social.py
+└── htc_tracker.py
+```

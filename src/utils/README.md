@@ -76,3 +76,17 @@ This module integrates with standard Python platform libraries, the psutil exter
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+utils/
+├── README.md
+├── __init__.py
+├── auto_installer.py
+├── hardware_monitor.py
+├── logger.py
+└── system_profiler.py
+```

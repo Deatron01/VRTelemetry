@@ -46,3 +46,17 @@ Interacts directly with `LicenseManager`, `AuthManager`, and `CentralDataManager
 ---
 
 ---
+
+## Folder & File Structure
+
+Here is the layout of files and subfolders contained within this path:
+
+```text
+central_server/
+├── admin_ui/
+│   └── index.html
+├── README.md
+├── data_manager.py
+├── data_schema.py
+└── server.py
+```
