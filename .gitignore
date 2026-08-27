@@ -36,6 +36,7 @@ Logs/
 *.sqlite3
 
 # Virtual Environments
+.env
 venv/
 .env/
 env/
