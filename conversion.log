@@ -527,3 +527,289 @@ ERROR: The process "24916" not found.
 2026-07-09 11:06:18 [INFO] ThreadPoolExecutor-0_0: Successfully generated: eye_tracking_driver_hierarchy.svg
 2026-07-09 11:06:18 [INFO] MainThread: Batch conversion completed! Generated 33 diagrams in total.
 2026-07-09 11:06:18 [INFO] MainThread: Detailed logs saved to: C:\Users\nipit\Desktop\VRTelemetry\conversion.log
+2026-08-27 17:19:30 [INFO] MainThread: Found 16 markdown files in 'doc'. Starting batch conversion...
+2026-08-27 17:19:34 [ERROR] ThreadPoolExecutor-0_0: Failed to render Auto Installer Activity.svg:
+UnknownDiagramError: No diagram type detected matching given configuration for text: activityDiagram
+    start
+    :verify_and_install_dependencies;
+    :Locate requirements.txt;
+    if (File exists?) then (yes)
+        :Run pip install via subprocess;
+        if (Installation success?) then (yes)
+            :Log success;
+            stop
+        else (no)
+            :Log critical error and exit;
+            stop
+        endif
+    else (no)
+        :Log error and return;
+        stop
+    endif
+detectType (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-CHAKFXHA.mjs:5718:9)
+    at $eval ($eval at renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:33), <anonymous>:60:47)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+2026-08-27 17:19:34 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Backends Architecture.svg
+2026-08-27 17:19:34 [INFO] ThreadPoolExecutor-0_3: Successfully generated: C4 Component Engine.svg
+2026-08-27 17:19:34 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Backend Ocolus Api.svg
+2026-08-27 17:19:38 [ERROR] ThreadPoolExecutor-0_2: Failed to render Backends Hal Architecture.svg:
+Error: Parse error on line 7:
+..."]    end    App ["Spatial Engine / C
+--------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'AMP', 'COLON', 'START_LINK', 'LINK', 'LINK_ID', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'SQS'
+Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-YI7H2ERT.mjs:1451:21)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+    at fromText (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.esm.mjs:1320:17)
+2026-08-27 17:19:38 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Central Data Manager Ingest Flow.svg
+2026-08-27 17:19:38 [INFO] ThreadPoolExecutor-0_3: Successfully generated: C4 Context Container.svg
+2026-08-27 17:19:38 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Backend Steamvr Api.svg
+2026-08-27 17:19:41 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Export Actions Activity.svg
+2026-08-27 17:19:41 [ERROR] ThreadPoolExecutor-0_1: Failed to render Central Server Api.svg:
+Error: Parse error on line 5:
+...board] -->|/admin/* (require_admin)| Ser
+-----------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'PS'
+Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-YI7H2ERT.mjs:1451:21)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+    at fromText (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.esm.mjs:1320:17)
+2026-08-27 17:19:41 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Call Graph Bootstrapper.svg
+2026-08-27 17:19:41 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Metadata Hierarchy.svg
+2026-08-27 17:19:44 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Main Hardware Pacing Loop.svg
+2026-08-27 17:19:45 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Cli Argument Flow.svg
+2026-08-27 17:19:45 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Postcss Config.svg
+2026-08-27 17:19:45 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Component Architecture.svg
+2026-08-27 17:19:48 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Central Data Ingest Flow.svg
+2026-08-27 17:19:49 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Ext Eye Gaze Architecture.svg
+2026-08-27 17:19:49 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Core Module Architecture.svg
+2026-08-27 17:19:49 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Postcss Config Architecture.svg
+2026-08-27 17:19:52 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Central Data Manager Ingest Flow.svg
+2026-08-27 17:19:52 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Eye Tracking Factory Sequence.svg
+2026-08-27 17:19:52 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Tailwind Config.svg
+2026-08-27 17:19:52 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Error Handling Flow.svg
+2026-08-27 17:19:55 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Central Data Schema Flow.svg
+2026-08-27 17:19:55 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Fb Social Driver Api.svg
+2026-08-27 17:19:56 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Tailwind Configuration.svg
+2026-08-27 17:19:56 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Eye Tracking Architecture.svg
+2026-08-27 17:19:59 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Htc Tracker Api.svg
+2026-08-27 17:19:59 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Central Server Data Schema.svg
+2026-08-27 17:19:59 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Vite Config.svg
+2026-08-27 17:19:59 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Hardware Monitor Subsystem.svg
+2026-08-27 17:20:02 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Main Api Architecture.svg
+2026-08-27 17:20:02 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Data Manager Ingest Flow.svg
+2026-08-27 17:20:02 [ERROR] ThreadPoolExecutor-0_3: Failed to render Vite Configuration Diagram.svg:
+Error: Parse error on line 3:
+... B -->|Uses Plugin| C(@vitejs/plugin-rea
+-----------------------^
+Expecting 'AMP', 'COLON', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'LINK_ID'
+Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-YI7H2ERT.mjs:1451:21)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+    at fromText (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.esm.mjs:1320:17)
+2026-08-27 17:20:03 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Logger Architecture.svg
+2026-08-27 17:20:05 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Main Api Workflow.svg
+2026-08-27 17:20:05 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Data Quality Computation.svg
+2026-08-27 17:20:05 [INFO] ThreadPoolExecutor-0_3: Successfully generated: File Structure.svg
+2026-08-27 17:20:06 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Logging Architecture.svg
+2026-08-27 17:20:08 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Oculus Backend Api.svg
+2026-08-27 17:20:08 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Data Quality Dataflow.svg
+2026-08-27 17:20:09 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Physical Environment.svg
+2026-08-27 17:20:09 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Main Architecture.svg
+2026-08-27 17:20:12 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Data Schema Erd.svg
+2026-08-27 17:20:12 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Runtime Capability Discovery.svg
+2026-08-27 17:20:12 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Ci Cd Execution Matrix.svg
+2026-08-27 17:20:12 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Main Bootstrap Architecture.svg
+2026-08-27 17:20:15 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Runtime Capability Discovery Api.svg
+2026-08-27 17:20:15 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Database Manager Dataflow.svg
+2026-08-27 17:20:15 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Contribution Workflow.svg
+2026-08-27 17:20:16 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Main Tsx Architecture.svg
+2026-08-27 17:20:18 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Server Api.svg
+2026-08-27 17:20:18 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Db Schema Architecture.svg
+2026-08-27 17:20:19 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Quick Reference Mindmap.svg
+2026-08-27 17:20:19 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Module Dependencies.svg
+2026-08-27 17:20:21 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Session Explorer Api Flow.svg
+2026-08-27 17:20:22 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Erd Metadata Schema.svg
+2026-08-27 17:20:22 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Critical Path 90Hz.svg
+2026-08-27 17:20:23 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Openxr Backend Architecture.svg
+2026-08-27 17:20:24 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Vr Telemetry Api.svg
+2026-08-27 17:20:25 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Export Dataflow.svg
+2026-08-27 17:20:26 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Ai Post Processor Flow.svg
+2026-08-27 17:20:26 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Openxr Headless Architecture.svg
+2026-08-27 17:20:28 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Vrtelemetry Api Architecture.svg
+2026-08-27 17:20:29 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Level1 Telemetry Pipeline.svg
+2026-08-27 17:20:29 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Ai Preprocessor Pipeline.svg
+2026-08-27 17:20:30 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Server Entrypoint Architecture.svg
+2026-08-27 17:20:31 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Activation Sequence.svg
+2026-08-27 17:20:32 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Local Cache Dataflow.svg
+2026-08-27 17:20:32 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Tert Runner Pipeline.svg
+2026-08-27 17:20:33 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Spatial Viewer Architecture.svg
+2026-08-27 17:20:34 [INFO] ThreadPoolExecutor-0_1: Successfully generated: App Initialization Flow.svg
+2026-08-27 17:20:35 [ERROR] ThreadPoolExecutor-0_3: Failed to render Udp Receiver Pipeline.svg:
+UnknownDiagramError: No diagram type detected matching given configuration for text: pipeline
+    title UDP Ingestion Pipeline
+    subgraph Source
+        A[Quest Pro Overlay] -->|Raw UDP Datagrams| B(NativeQuestHarvesterProtocol)
+    end
+    subgraph Ingestion Service
+        B --> C{Packet Size Valid?}
+        C -->|No| D[Discard Packet]
+        C -->|Yes| E[Unpack 64-byte Binary Struct]
+        E --> F[Map to TelemetryFrame]
+        F --> G[Normalize Confidences]
+        G --> H[Push to BiometricSynchronizer]
+    end
+detectType (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-CHAKFXHA.mjs:5718:9)
+    at $eval ($eval at renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:33), <anonymous>:60:47)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+2026-08-27 17:20:36 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Parquet Schema Dictionary.svg
+2026-08-27 17:20:36 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Storage Architecture.svg
+2026-08-27 17:20:37 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Appshell Playback Sequence.svg
+2026-08-27 17:20:38 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Teardown Activity.svg
+2026-08-27 17:20:39 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Parquet Writer Dataflow.svg
+2026-08-27 17:20:39 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Telemetry Core Architecture.svg
+2026-08-27 17:20:41 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Auth Manager Sequence.svg
+2026-08-27 17:20:42 [INFO] ThreadPoolExecutor-0_3: Successfully generated: App Lifecycle State.svg
+2026-08-27 17:20:42 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Spatial Viewer Dataflow.svg
+2026-08-27 17:20:43 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Thread Synchronization.svg
+2026-08-27 17:20:44 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Backend Steamvr Sequence.svg
+2026-08-27 17:20:45 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Synchronizer Dataflow.svg
+2026-08-27 17:20:45 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Engine Lifecycle.svg
+2026-08-27 17:20:46 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Utils Layer Architecture.svg
+2026-08-27 17:20:47 [ERROR] ThreadPoolExecutor-0_1: Failed to render Biometric Synchronizer Sequence.svg:
+Error: Parse error on line 12:
+...r.push(frame_tuple)
+----------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/sequenceDiagram-DXCB7GA4.mjs:409:21)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+    at fromText (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.esm.mjs:1320:17)
+2026-08-27 17:20:48 [ERROR] ThreadPoolExecutor-0_0: Failed to render Telemetry Frame Dataflow.svg:
+Error: Parse error on line 3:
+...    TF -->|to_tuple()| PA[PyArrow Memor
+----------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'PS'
+Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-YI7H2ERT.mjs:1451:21)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+    at fromText (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.esm.mjs:1320:17)
+2026-08-27 17:20:48 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Login Component States.svg
+2026-08-27 17:20:50 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Biometric Vector Assembly.svg
+2026-08-27 17:20:50 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Bootstrap Admin Sequence.svg
+2026-08-27 17:20:52 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Telemetryparser Dataflow.svg
+2026-08-27 17:20:52 [INFO] ThreadPoolExecutor-0_3: Successfully generated: New Session State Machine.svg
+2026-08-27 17:20:54 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Eye Tracking Dataflow.svg
+2026-08-27 17:20:54 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Data Synchronization Pipeline.svg
+2026-08-27 17:20:56 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Udp Receiver Dataflow.svg
+2026-08-27 17:20:56 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Openxr Session Lifecycle.svg
+2026-08-27 17:20:57 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Eye Tracking Telemetry Flow.svg
+2026-08-27 17:20:57 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Discovery Sequence.svg
+2026-08-27 17:20:59 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Usage Tracker Dataflow.svg
+2026-08-27 17:20:59 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Openxr Session States.svg
+2026-08-27 17:21:01 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Openxr Headless Initialization.svg
+2026-08-27 17:21:01 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Ext Eye Gaze Sequence.svg
+2026-08-27 17:21:03 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Telemetry Store State.svg
+2026-08-27 17:21:03 [INFO] ThreadPoolExecutor-0_0: Successfully generated: Testing Architecture.svg
+2026-08-27 17:21:04 [ERROR] ThreadPoolExecutor-0_2: Failed to render Physiology Dataflow.svg:
+Error: Parse error on line 6:
+...-Axis| F[Heart Rate (BPM)]    E -->|Rig
+-----------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'PS'
+Parser.parseError (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/chunks/mermaid.esm/chunk-YI7H2ERT.mjs:1451:21)
+    at #evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:388:19)
+    at async ExecutionContext.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/ExecutionContext.js:274:16)
+    at async IsolatedWorld.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/cdp/IsolatedWorld.js:102:16)
+    at async CdpJSHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/JSHandle.js:146:20)
+    at async CdpElementHandle.evaluate (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:343:20)
+    at async CdpElementHandle.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/ElementHandle.js:497:24)
+    at async CdpFrame.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:464:20)
+    at async CdpPage.$eval (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:456:20)
+    at async renderMermaid (file:///C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/src/index.js:480:22)
+    at fromText (https://mermaid-cli-intercept.invalid/C:/Users/nipit/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.esm.mjs:1320:17)
+2026-08-27 17:21:04 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Eye Tracking Factory Sequence.svg
+2026-08-27 17:21:05 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Base Driver Uml.svg
+2026-08-27 17:21:07 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Physiology Telemetry Flow.svg
+2026-08-27 17:21:07 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Fb Social Lifecycle.svg
+2026-08-27 17:21:09 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Central Data Schema Er.svg
+2026-08-27 17:21:09 [INFO] ThreadPoolExecutor-0_2: Successfully generated: System Profiler Telemetry.svg
+2026-08-27 17:21:10 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Hardware Monitor Lifecycle.svg
+2026-08-27 17:21:11 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Core Class Diagram.svg
+2026-08-27 17:21:12 [INFO] ThreadPoolExecutor-0_2: Successfully generated: Time Synchronization Pipeline.svg
+2026-08-27 17:21:13 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Htc Tracker Sequence.svg
+2026-08-27 17:21:14 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Eye Tracking Driver Hierarchy.svg
+2026-08-27 17:21:15 [INFO] ThreadPoolExecutor-0_1: Successfully generated: License Manager Activation Sequence.svg
+2026-08-27 17:21:17 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Eye Tracking Driver Uml.svg
+2026-08-27 17:21:18 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Login Sequence.svg
+2026-08-27 17:21:19 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Ivr Backend Interface.svg
+2026-08-27 17:21:20 [INFO] ThreadPoolExecutor-0_1: Successfully generated: New Session Lifecycle.svg
+2026-08-27 17:21:22 [INFO] ThreadPoolExecutor-0_3: Successfully generated: Vr Telemetry Exceptions.svg
+2026-08-27 17:21:22 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Oculus Backend Sequence.svg
+2026-08-27 17:21:24 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Openxr Backend Lifecycle.svg
+2026-08-27 17:21:26 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Openxr Backend Sequence.svg
+2026-08-27 17:21:28 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Openxr Headless Lifecycle.svg
+2026-08-27 17:21:30 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Openxr Headless Sequence.svg
+2026-08-27 17:21:32 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Openxr Runtime Discovery Sequence.svg
+2026-08-27 17:21:34 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Server Boot Sequence.svg
+2026-08-27 17:21:36 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Server Entrypoint Sequence.svg
+2026-08-27 17:21:37 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Session Uploader Sequence.svg
+2026-08-27 17:21:39 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Startup And Acquisition Loop.svg
+2026-08-27 17:21:41 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Steamvr Backend Sequence.svg
+2026-08-27 17:21:43 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Telemetry Engine Lifecycle.svg
+2026-08-27 17:21:45 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Tert Runner Boot.svg
+2026-08-27 17:21:47 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Tert Runner Boot Sequence.svg
+2026-08-27 17:21:49 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Tert Runner Sequence.svg
+2026-08-27 17:21:51 [INFO] ThreadPoolExecutor-0_1: Successfully generated: Udp Receiver Sequence.svg
+2026-08-27 17:21:51 [INFO] MainThread: Batch conversion completed! Generated 133 diagrams in total.
+2026-08-27 17:21:51 [INFO] MainThread: Detailed logs saved to: C:\Users\nipit\Desktop\VRTelemetry\conversion.log
