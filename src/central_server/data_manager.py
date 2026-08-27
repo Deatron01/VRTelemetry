@@ -131,3 +131,34 @@ class CentralDataManager:
                VALUES (?, ?, ?, ?, ?)""",
             (upload_id, activation_id, event_type, detail, ip_address)
         )
+        
+    def ingest_log(self, *, license_id: str, activation_id: str, session_id: str,
+                    file_bytes: bytes) -> Dict[str, Any]:
+        log_id = str(uuid.uuid4())
+        dest_dir = self.storage_root / license_id / "logs"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / f"{session_id}.log"
+        dest_path.write_bytes(file_bytes)
+
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO session_logs (log_id, session_id, license_id, activation_id,
+                                              storage_path, file_size_bytes)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(license_id, session_id) DO UPDATE SET
+                       storage_path=excluded.storage_path, file_size_bytes=excluded.file_size_bytes""",
+                (log_id, session_id, license_id, activation_id,
+                 str(dest_path.relative_to(self.storage_root)), len(file_bytes))
+            )
+            conn.commit()
+
+        logger.info(f"Ingested session log for {session_id} ({len(file_bytes)} bytes)")
+        return {"ok": True, "log_id": log_id}
+
+    def get_log_path(self, session_id: str, license_id: str) -> Optional[Path]:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT storage_path FROM session_logs WHERE session_id = ? AND license_id = ?",
+                (session_id, license_id)
+            ).fetchone()
+            return (self.storage_root / row["storage_path"]) if row else None

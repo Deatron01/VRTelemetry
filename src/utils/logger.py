@@ -3,6 +3,7 @@
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 def setup_logging(log_dir: str = "Logs", log_level: int = logging.INFO) -> None:
     """
@@ -39,6 +40,40 @@ def setup_logging(log_dir: str = "Logs", log_level: int = logging.INFO) -> None:
     # Suppress verbose debug output from third party libraries unless critical
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     logging.getLogger("xr").setLevel(logging.WARNING)
+
+
+
+def attach_session_log_capture(session_id: str, log_dir: str = "Sessions/logs") -> logging.Handler:
+    """
+    Adds a second file handler scoped to one recording session, capturing
+    everything logged at INFO+ during that session — including driver
+    resolution reasoning, OpenXR extension enumeration, and any warnings/errors
+    the hardware backends emit. Runs alongside the global engine log, not
+    instead of it.
+    """
+    log_path = Path(log_dir)
+    log_path.mkdir(parents=True, exist_ok=True)
+    file_path = log_path / f"session_{session_id}.log"
+
+    formatter = logging.Formatter(
+        fmt="[%(asctime)s] [%(levelname)-8s] [%(threadName)-15s] [%(name)-20s] - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    handler = logging.FileHandler(file_path, encoding="utf-8", mode="w")
+    handler.setFormatter(formatter)
+    handler.setLevel(logging.INFO)
+
+    logging.getLogger().addHandler(handler)
+    handler._session_log_path = file_path  # stashed for retrieval on detach
+    return handler
+
+
+def detach_session_log_capture(handler: logging.Handler) -> Optional[Path]:
+    """Seals the session log — call this once the session is fully finished."""
+    logging.getLogger().removeHandler(handler)
+    path = getattr(handler, "_session_log_path", None)
+    handler.close()
+    return path
 
 # Expose singleton logger target for standard framework imports
 logger = logging.getLogger("VRTelemetry")

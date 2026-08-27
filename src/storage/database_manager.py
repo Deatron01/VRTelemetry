@@ -90,9 +90,6 @@ class DatabaseManager:
             outlier_removal TEXT,
             total_dropped_frames INTEGER,
             
-            raw_json TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            
             -- System & Environment Profile (Cat 9)
             os_name TEXT,
             os_version TEXT,
@@ -108,6 +105,10 @@ class DatabaseManager:
             disk_free_gb REAL,
             gpu_info TEXT,
             app_version TEXT,
+            available_extensions_json TEXT,
+            
+            raw_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """
         try:
@@ -155,7 +156,7 @@ class DatabaseManager:
             
             os_name, os_version, os_release, architecture, hostname, os_user,
             cpu_name, cpu_cores_logical, cpu_cores_physical, total_ram_gb,
-            disk_total_gb, disk_free_gb, gpu_info, app_version,
+            disk_total_gb, disk_free_gb, gpu_info, app_version, available_extensions_json,
             
             raw_json
         ) VALUES (
@@ -164,6 +165,7 @@ class DatabaseManager:
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?
         )
         """
@@ -239,6 +241,7 @@ class DatabaseManager:
             sys_profile.get("disk_free_gb", 0.0),
             sys_profile.get("gpu_info", "Unknown"),
             "1.0.0",
+            json.dumps(hw_meta.get("available_extensions", [])),
             
             json.dumps(metadata)
         )

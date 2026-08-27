@@ -88,3 +88,28 @@ class SessionUploader:
         self.local_license_cache.queue_pending_upload(
             session_id, str(parquet_path), json.dumps(metadata)
         )
+        
+    def upload_log(self, log_path: Path, session_id: str) -> Dict[str, Any]:
+        state = self.local_license_cache.get_state()
+        if not state or state.get("status") != "active":
+            return {"ok": False, "reason": "no_active_license"}
+        if not log_path.exists():
+            return {"ok": False, "reason": "log_file_not_found"}
+
+        try:
+            with open(log_path, "rb") as f:
+                response = requests.post(
+                    f"{self.central_server_url}/data/upload-session-log",
+                    data={
+                        "activation_id": state["activation_id"],
+                        "license_id": state.get("license_id", ""),
+                        "session_id": session_id,
+                    },
+                    files={"file": (log_path.name, f, "text/plain")},
+                    timeout=60,
+                )
+            if response.status_code == 200:
+                return response.json()
+            return {"ok": False, "reason": response.text}
+        except requests.RequestException as e:
+            return {"ok": False, "reason": "network_error", "detail": str(e)}

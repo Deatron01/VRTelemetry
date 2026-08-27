@@ -22,6 +22,7 @@ from src.storage.session_uploader import SessionUploader
 from src.license_service.local_cache import LocalLicenseCache
 
 from src.utils.system_profiler import collect_system_profile
+from src.utils.logger import attach_session_log_capture, detach_session_log_capture
 
 class TelemetryEngine:
     """
@@ -93,6 +94,12 @@ class TelemetryEngine:
         to the appropriate hardware tracking backend.
         """
         logger.info("Booting production telemetry engine...")
+        
+        self._session_log_handler = attach_session_log_capture(self.session_id)
+        
+        system_profile = collect_system_profile()
+        self.subject_metadata.setdefault("S-IX_System_Profile", {})
+        self.subject_metadata["S-IX_System_Profile"].update(system_profile)
         
         self.db_manager.persist_experiment(self.subject_metadata)
         self.hardware.start()
@@ -179,7 +186,7 @@ class TelemetryEngine:
             
         receiver.stop()
 
-    def _teardown(self) -> None:
+     def _teardown(self) -> None:
         logger.info("Executing deterministic teardown sequence...")
         self.is_running = False
         self._shutdown_event.set()
@@ -193,14 +200,13 @@ class TelemetryEngine:
             self._async_thread.join(timeout=5.0)
 
         self.hardware.stop()
-        self.writer.stop()  # Parquet file is fully flushed and closed after this line
+        self.writer.stop()
 
         if getattr(self, "configured_backend", "auto") != "quest_udp" and self.backend:
             self.backend.shutdown()
+            
+        self.session_log_path = detach_session_log_capture(self._session_log_handler)
 
-        # Upload only after the writer has confirmed the file is sealed —
-        # uploading a still-open/partially-flushed Parquet file would ship
-        # corrupt or truncated data to the central server.
         self._upload_completed_session()
 
         logger.info(f"Telemetry engine shutdown complete.")
@@ -214,7 +220,7 @@ class TelemetryEngine:
                 "session_id": session_id,
                 "subject_id": static_meta.get("subject_id"),
                 "total_frames": self.frames_recorded,
-                "duration_sec": None,  # left for the central server to derive from the Parquet file itself if needed
+                "duration_sec": None,
             }
 
             result = self.uploader.upload(self.parquet_path, session_id, summary_metadata)
@@ -223,7 +229,14 @@ class TelemetryEngine:
             else:
                 logger.warning(f"Session {session_id} could not be synced now "
                                 f"(reason: {result.get('reason')}) — queued for retry.")
+
+            # Log upload is best-effort and independent of the Parquet upload outcome —
+            # even a session whose data upload failed should still get its diagnostic
+            # log shipped if possible, since that log might explain *why* it failed.
+            if getattr(self, "session_log_path", None) and self.session_log_path.exists():
+                log_result = self.uploader.upload_log(self.session_log_path, session_id)
+                if not log_result.get("ok"):
+                    logger.warning(f"Session log upload failed for {session_id}: {log_result.get('reason')}")
+
         except Exception as e:
-            # Upload failure must never mask/replace the "recording completed successfully"
-            # outcome — the researcher's data is already safe on local disk regardless.
             logger.error(f"Unexpected error during post-session upload: {e}")
