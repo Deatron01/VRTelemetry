@@ -29,33 +29,35 @@ def merge_and_clean():
             # Collect all .md files in the current directory
             md_files = sorted([current_dir / f for f in files if f.endswith(".md")])
 
-            # Skip if there are no files or only 1 file
-            if len(md_files) < 2:
+            # Skip if there are no Markdown files
+            if not md_files:
                 continue
 
-            # Build combined filename: name1_name2_name3.md
-            combined_stem = "_".join([f.stem for f in md_files])
+            # If there is only 1 Markdown file and it is already README.md, skip
+            if len(md_files) == 1 and md_files[0].name.lower() == "readme.md":
+                continue
 
-            # Safety guard against Windows maximum filename length limits (255 chars)
-            if len(combined_stem) > 180:
-                combined_stem = combined_stem[:180] + "_combined"
-
-            combined_file_path = current_dir / f"{combined_stem}.md"
+            combined_file_path = current_dir / "README.md"
 
             # Merge contents from all files
             merged_sections = []
             for f in md_files:
                 title = f.stem.replace("_", " ").title()
                 content = f.read_text(encoding="utf-8").strip()
-                merged_sections.append(f"# {title}\n\n{content}\n\n---\n")
+                
+                # Avoid duplicate "# Readme" headers if README.md is part of the merge
+                if f.name.lower() != "readme.md":
+                    merged_sections.append(f"# {title}\n\n{content}\n\n---\n")
+                else:
+                    merged_sections.append(f"{content}\n\n---\n")
 
-            # 1. Write the new combined file
+            # 1. Write the new README.md
             combined_file_path.write_text("\n".join(merged_sections), encoding="utf-8")
-            print(f"[+] Created combined file: {combined_file_path.relative_to(PROJECT_ROOT)}")
+            print(f"[+] Created/Updated: {combined_file_path.relative_to(PROJECT_ROOT)}")
 
-            # 2. Delete the original constituent .md files
+            # 2. Delete the original constituent .md files (excluding README.md)
             for f in md_files:
-                if f != combined_file_path:
+                if f.name.lower() != "readme.md":
                     try:
                         f.unlink()
                         print(f"    [-] Deleted: {f.relative_to(PROJECT_ROOT)}")
