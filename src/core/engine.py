@@ -24,6 +24,7 @@ from src.license_service.local_cache import LocalLicenseCache
 from src.utils.system_profiler import collect_system_profile
 from src.utils.logger import attach_session_log_capture, detach_session_log_capture
 
+from src.core.live_state import LiveExperimentState
 class TelemetryEngine:
     """
     Production telemetry orchestrator. Guarantees deterministic synchronization between
@@ -34,13 +35,24 @@ class TelemetryEngine:
                  subject_metadata: Optional[Dict[str, Any]] = None,
                  hardware_metadata: Optional[Dict[str, Any]] = None,
                  central_server_url: str = "http://192.168.1.X:9000"):
+        DEFAULT_MAX_SAMPLING_HZ = 120.0
+        self.synchronizer = BiometricSynchronizer(
+            writer=self.writer,
+            hardware_monitor=self.hardware,
+            max_hz=DEFAULT_MAX_SAMPLING_HZ,
+        )
         self.is_running = False
         self.frames_recorded = 0
         self.gdpr_consent = gdpr_consent
+        self.live_state = LiveExperimentState()
+        self._last_frame_ts_ns: Optional[int] = None
         
         self.local_license_cache = LocalLicenseCache()
         self.uploader = SessionUploader(central_server_url, self.local_license_cache)
-        
+        self.synchronizer = BiometricSynchronizer(
+            writer=self.writer, hardware_monitor=self.hardware,
+            max_hz=DEFAULT_MAX_SAMPLING_HZ, live_state=self.live_state,
+        )
         if not self.gdpr_consent:
             raise GDPRConsentError("CRITICAL: Biometric tracking initialization aborted. Explicit user GDPR consent missing.")
             
@@ -70,6 +82,13 @@ class TelemetryEngine:
             },
             "H-VII_Hardware_Capabilities": hardware_metadata or {}
         }
+        
+        if "S-IX_System_Profile" not in self.subject_metadata:
+            try:
+                self.subject_metadata["S-IX_System_Profile"] = collect_system_profile()
+            except Exception as e:
+                logger.warning(f"System profile collection failed, continuing with empty profile: {e}")
+                self.subject_metadata["S-IX_System_Profile"] = {}
 
     def _start_async_loop(self) -> None:
         """Isolated thread execution for non-blocking I/O operations."""
@@ -104,7 +123,12 @@ class TelemetryEngine:
         self.db_manager.persist_experiment(self.subject_metadata)
         self.hardware.start()
         self.writer.start()
-        
+        persisted = self.db_manager.persist_experiment(self.subject_metadata)
+        if not persisted:
+            logger.error(
+                "Session metadata failed to persist — recording will continue, but this session's "
+                "subject/hardware/system profile will be MISSING from the database."
+            )
         # Sweep anything left over from a prior offline session before starting new work.
         # Non-blocking in spirit — a slow/unreachable server here just logs and moves on,
         # it must never delay the actual telemetry loop from starting.
@@ -146,12 +170,20 @@ class TelemetryEngine:
             self._teardown()
 
     def _run_pcvr_mode(self) -> None:
-        """Standard PCVR hardware-synchronized loop via dynamically selected API."""
-        # Frissített log szöveg, hogy alkalmazkodjon az aktív backendhez
         logger.info(f"Initializing Native Context via {self.backend.__class__.__name__}...")
         if not self.backend.initialize():
             logger.error("Failed to bind PCVR session. Terminating execution.")
             return
+
+        detected_hz = getattr(self.backend, "get_refresh_rate_hz", lambda: None)()
+        if detected_hz and detected_hz > 0:
+            cap = max(30.0, min(500.0, detected_hz * 1.2))  # small headroom for jitter
+            self.synchronizer.set_max_hz(cap)
+            self.subject_metadata["M-IV_Static_Metadata"]["hmd_refresh_rate"] = detected_hz
+            logger.info(f"Detected live HMD refresh rate: {detected_hz:.1f} Hz — sampling cap set to {cap:.1f} Hz.")
+        else:
+            logger.warning(f"Could not detect live refresh rate; using default sampling cap of "
+                            f"{self.synchronizer.max_hz:.1f} Hz.")
 
         logger.info("Main telemetry cycle active. Listening for HMD pacing.")
         while self.is_running and not self._shutdown_event.is_set():
@@ -159,16 +191,30 @@ class TelemetryEngine:
                 logger.error("Consent revoked during active sampling.")
                 break
 
-            # Poll hardware (blocks until headset requires a frame)
             frame_data = self.backend.poll_frame(self.frames_recorded)
+
+            if self._last_frame_ts_ns is not None and frame_data.timestamp_ns > self._last_frame_ts_ns:
+                dt = (frame_data.timestamp_ns - self._last_frame_ts_ns) / 1e9
+                if dt > 0:
+                    frame_data.app_fps = 1.0 / dt
+            self._last_frame_ts_ns = frame_data.timestamp_ns
             
-            if frame_data.timestamp_ns > 0:
+            # A frame with zero valid tracking sources is the stub returned when the
+            # session isn't ready — recording it corrupts the dataset with fake all-zero rows.
+            has_valid_source = (
+                frame_data.hmd_tracking_valid > 0
+                or frame_data.left_tracking_valid > 0
+                or frame_data.right_tracking_valid > 0
+                or frame_data.eye_tracking_valid > 0
+            )
+            if has_valid_source:
                 self.synchronizer.push_frame(frame_data)
                 self.frames_recorded += 1
 
     def _run_quest_udp_mode(self) -> None:
         """Headless network loop catching native Quest Pro biometric payloads."""
-        port = getattr(self, "network_port", 5005)
+        port = getattr(self, "network_port", 5005) 
+        self.synchronizer.set_max_hz(120.0)
         logger.info(f"Bypassing PCVR Runtimes. Booting Native UDP Receiver on port {port}...")
         
         receiver = NativeQuestReceiver(host="0.0.0.0", port=port)
@@ -186,13 +232,18 @@ class TelemetryEngine:
             
         receiver.stop()
 
-     def _teardown(self) -> None:
+    def _teardown(self) -> None:
         logger.info("Executing deterministic teardown sequence...")
         self.is_running = False
         self._shutdown_event.set()
 
         self.synchronizer.stop()
-
+        logger.info(
+                f"Sampling summary: {self.frames_recorded} frames recorded, "
+                f"{self.synchronizer.dropped_backpressure} dropped (buffer full), "
+                f"{self.synchronizer.dropped_oversampling} dropped (oversampling cap)."
+            )
+        
         if self._async_loop and self._async_loop.is_running():
             self._async_loop.call_soon_threadsafe(self._async_loop.stop)
 

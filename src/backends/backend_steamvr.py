@@ -57,6 +57,7 @@ class SteamVROverlayBackend(IVRBackend):
         self.vr_system: Optional[openvr.IVRSystem] = None
         self.vr_overlay: Optional[openvr.IVROverlay] = None
         self.overlay_handle = openvr.k_ulOverlayHandleInvalid
+        self.vr_chaperone: Optional[openvr.IVRChaperone] = None
         
     def initialize(self) -> bool:
         try:
@@ -101,6 +102,36 @@ class SteamVROverlayBackend(IVRBackend):
                 frame.hmd_rot_x, frame.hmd_rot_y, frame.hmd_rot_z, frame.hmd_rot_w = matrix_to_quaternion(matrix)
                 frame.hmd_tracking_valid = 1.0
 
+            # --- 1b. HMD Battery ---
+            try:
+                error = openvr.TrackedPropertyError()
+                frame.battery_hmd = self.vr_system.getFloatTrackedDeviceProperty(
+                    openvr.k_unTrackedDeviceIndex_Hmd,
+                    openvr.Prop_DeviceBatteryPercentage_Float,
+                    error
+                )
+            except Exception as batt_err:
+                logger.debug(f"HMD battery property unavailable: {batt_err}")
+                frame.battery_hmd = -1.0
+
+            # --- 1c. Distance to Play-Area Boundary (Chaperone) ---
+            try:
+                if self.vr_chaperone is None:
+                    self.vr_chaperone = openvr.IVRChaperone()
+
+                chap_ok, play_width, play_depth = self.vr_chaperone.getPlayAreaSize()
+                if chap_ok and hmd_pose.bPoseIsValid:
+                    half_w, half_d = play_width / 2.0, play_depth / 2.0
+                    dx = half_w - abs(frame.hmd_pos_x)
+                    dz = half_d - abs(frame.hmd_pos_z)
+                    # Distance to the nearest wall along either axis; clamp to zero if already outside it
+                    frame.distance_to_boundary = max(0.0, min(dx, dz))
+                else:
+                    frame.distance_to_boundary = -1.0
+            except Exception as chap_err:
+                logger.debug(f"Chaperone boundary query unavailable: {chap_err}")
+                frame.distance_to_boundary = -1.0
+
             # --- 2. Process Controller Telemetry ---
             left_idx = self.vr_system.getTrackedDeviceIndexForControllerRole(openvr.TrackedControllerRole_LeftHand)
             right_idx = self.vr_system.getTrackedDeviceIndexForControllerRole(openvr.TrackedControllerRole_RightHand)
@@ -122,6 +153,16 @@ class SteamVROverlayBackend(IVRBackend):
                         # Grip button is bit 2 in the ulButtonPressed mask
                         frame.left_grip = 1.0 if (state.ulButtonPressed & (1 << openvr.k_EButton_Grip)) else 0.0
 
+                # Left Controller Battery
+                try:
+                    error = openvr.TrackedPropertyError()
+                    frame.battery_left = self.vr_system.getFloatTrackedDeviceProperty(
+                        left_idx, openvr.Prop_DeviceBatteryPercentage_Float, error
+                    )
+                except Exception as batt_err:
+                    logger.debug(f"Left controller battery property unavailable: {batt_err}")
+                    frame.battery_left = -1.0
+
             # Right Controller
             if right_idx != openvr.k_unTrackedDeviceIndexInvalid:
                 right_pose = poses[right_idx]
@@ -137,6 +178,16 @@ class SteamVROverlayBackend(IVRBackend):
                         frame.right_joy_y = state.rAxis[0].y
                         frame.right_trigger = state.rAxis[1].x
                         frame.right_grip = 1.0 if (state.ulButtonPressed & (1 << openvr.k_EButton_Grip)) else 0.0
+
+                # Right Controller Battery
+                try:
+                    error = openvr.TrackedPropertyError()
+                    frame.battery_right = self.vr_system.getFloatTrackedDeviceProperty(
+                        right_idx, openvr.Prop_DeviceBatteryPercentage_Float, error
+                    )
+                except Exception as batt_err:
+                    logger.debug(f"Right controller battery property unavailable: {batt_err}")
+                    frame.battery_right = -1.0
 
             # --- 3. Process General Flags & Timestamps ---
             try:
@@ -167,3 +218,16 @@ class SteamVROverlayBackend(IVRBackend):
             self.vr_system = None
             
         logger.info("OpenVR Overlay Context Terminated.")
+        
+    def get_refresh_rate_hz(self) -> Optional[float]:
+        if not self.vr_system:
+            return None
+        try:
+            error = openvr.TrackedPropertyError()
+            rate = self.vr_system.getFloatTrackedDeviceProperty(
+                openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_DisplayFrequency_Float, error
+            )
+            return float(rate) if rate and rate > 0 else None
+        except Exception as e:
+            logger.debug(f"Refresh rate query failed (non-critical): {e}")
+            return None

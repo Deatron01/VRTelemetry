@@ -541,6 +541,49 @@ def license_activate(payload: LicenseActivateRequest):
     )
     return {"ok": True}
 
+class SceneUpdate(BaseModel):
+    scene_id: float
+
+class EventMarkerUpdate(BaseModel):
+    value: float = 1.0
+
+class HapticTrigger(BaseModel):
+    side: str
+    intensity: float
+    duration_sec: float = 0.1
+
+class TargetPosition(BaseModel):
+    x: float
+    y: float
+    z: float
+
+def _require_active_engine():
+    if not active_engine or not getattr(active_engine, 'is_running', False):
+        raise HTTPException(status_code=400, detail="No active recording session.")
+    return active_engine
+
+@app.post("/api/session/scene")
+def set_scene(payload: SceneUpdate):
+    _require_active_engine().live_state.set_scene(payload.scene_id)
+    return {"ok": True}
+
+@app.post("/api/session/mark")
+def set_event_marker(payload: EventMarkerUpdate):
+    _require_active_engine().live_state.set_event_marker(payload.value)
+    return {"ok": True}
+
+@app.post("/api/session/haptic")
+def trigger_haptic(payload: HapticTrigger):
+    if payload.side not in ("left", "right"):
+        raise HTTPException(status_code=400, detail="side must be 'left' or 'right'")
+    _require_active_engine().live_state.trigger_haptic(payload.side, payload.intensity, payload.duration_sec)
+    return {"ok": True}
+
+@app.post("/api/session/target")
+def set_target_position(payload: TargetPosition):
+    _require_active_engine().live_state.set_target_position(payload.x, payload.y, payload.z)
+    return {"ok": True}
+
 # =====================================================================
 # --- ORIGINAL CLI EXECUTION BLOCK ---
 # =====================================================================
