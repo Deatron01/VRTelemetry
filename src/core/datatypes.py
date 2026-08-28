@@ -109,12 +109,15 @@ class TelemetryFrame:
             left_eye_pos_x=0.0, left_eye_pos_y=0.0, left_eye_pos_z=0.0, left_eye_rot_x=0.0, left_eye_rot_y=0.0, left_eye_rot_z=0.0, left_eye_rot_w=1.0,
             right_eye_pos_x=0.0, right_eye_pos_y=0.0, right_eye_pos_z=0.0, right_eye_rot_x=0.0, right_eye_rot_y=0.0, right_eye_rot_z=0.0, right_eye_rot_w=1.0,
             eye_tracking_valid=0.0, left_pupil_size=0.0, right_pupil_size=0.0, heart_rate_bpm=0.0,
-            distance_to_boundary=0.0, app_fps=90.0, event_marker=0.0,
-            battery_hmd=1.0, battery_left=1.0, battery_right=1.0,
-            haptic_left_intensity=0.0, haptic_right_intensity=0.0,
-            gaze_focal_distance=0.0, voice_amplitude_db=-60.0,
-            cpu_utilization=0.0, gpu_utilization=0.0,
-            scene_id=1.0, # Default to Menu state
+            distance_to_boundary=-1.0,   
+            app_fps=0.0,                 
+            event_marker=0.0,            
+            battery_hmd=-1.0, battery_left=-1.0, battery_right=-1.0,  
+            haptic_left_intensity=0.0, haptic_right_intensity=0.0,   
+            gaze_focal_distance=-1.0,    
+            voice_amplitude_db=-60.0,
+            cpu_utilization=0.0, gpu_utilization=-1.0,  
+            scene_id=1.0,                
             target_obj_pos_x=0.0, target_obj_pos_y=0.0, target_obj_pos_z=0.0,
             dist_to_target_left=0.0, dist_to_target_right=0.0
         )

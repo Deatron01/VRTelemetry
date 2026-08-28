@@ -21,6 +21,8 @@ class OpenXRBackend(IVRBackend):
     """
 
     def __init__(self) -> None:
+        self.refresh_rate_hz: Optional[float] = None
+        
         self.instance: Optional[xr.Instance] = None
         self.system_id: Optional[xr.SystemId] = None
         self.session: Optional[xr.Session] = None
@@ -55,6 +57,9 @@ class OpenXRBackend(IVRBackend):
                 for ext in xr.enumerate_instance_extension_properties()
             ]
             enabled_extensions = []
+            
+            if "XR_FB_display_refresh_rate" in available_extensions:
+                enabled_extensions.append("XR_FB_display_refresh_rate")
 
             if "XR_MND_headless" in available_extensions:
                 enabled_extensions.append("XR_MND_headless")
@@ -85,6 +90,7 @@ class OpenXRBackend(IVRBackend):
             
             session_create_info = xr.SessionCreateInfo(system_id=self.system_id)
             self.session = xr.create_session(self.instance, session_create_info)
+            self._query_refresh_rate(enabled_extensions)
             
             try:
                 self.app_space = xr.create_reference_space(self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.LOCAL))
@@ -293,3 +299,24 @@ class OpenXRBackend(IVRBackend):
             self.instance = None
             
         logger.info("OpenXR Context Safely Terminated.")
+    
+    def _query_refresh_rate(self, enabled_extensions: list) -> None:
+        if "XR_FB_display_refresh_rate" not in enabled_extensions:
+            return
+        try:
+            get_rate_fn = xr.get_instance_proc_addr(self.instance, "xrGetDisplayRefreshRateFB")
+            if not get_rate_fn:
+                return
+            rate = ctypes.c_float()
+            func = ctypes.CFUNCTYPE(
+                xr.Result, xr.Session, ctypes.POINTER(ctypes.c_float)
+            )(get_rate_fn)
+            res = func(self.session, ctypes.byref(rate))
+            if not xr.Result(res).is_exception() and rate.value > 0:
+                self.refresh_rate_hz = float(rate.value)
+                logger.info(f"Live HMD refresh rate reported by runtime: {self.refresh_rate_hz:.1f} Hz")
+        except Exception as e:
+            logger.debug(f"Refresh rate query failed (non-critical): {e}")
+
+    def get_refresh_rate_hz(self) -> Optional[float]:
+        return self.refresh_rate_hz

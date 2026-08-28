@@ -29,7 +29,6 @@ class DatabaseManager:
         """Constructs tables matching Requirement Categories 4, 5, 6, and 8."""
         query = """
         CREATE TABLE IF NOT EXISTS session_metadata (
-            -- Session & Base Metadata (Cat 4)
             session_id TEXT PRIMARY KEY,
             start_timestamp_utc TEXT,
             subject_id TEXT NOT NULL,
@@ -41,8 +40,7 @@ class DatabaseManager:
             subject_ipd_mm REAL,
             vision_correction TEXT,
             vision_impairment TEXT,
-            
-            -- Environment & Hardware Specs (Cat 4)
+
             tracking_space_type TEXT,
             play_area_width_m REAL,
             play_area_length_m REAL,
@@ -64,15 +62,13 @@ class DatabaseManager:
             has_eye_tracking INTEGER,
             has_face_tracking INTEGER,
             has_body_tracking INTEGER,
-            
-            -- Calibration Profile (Cat 5)
+
             neutral_head_height REAL,
             shoulder_width_est REAL,
             arm_length_left REAL,
             arm_length_right REAL,
             dominant_hand TEXT,
-            
-            -- Subjective Labels (Cat 6)
+
             ssq_nausea_score REAL,
             ssq_oculomotor_score REAL,
             ssq_disorientation REAL,
@@ -81,15 +77,17 @@ class DatabaseManager:
             nasa_tlx_frustration REAL,
             perceived_temp_c REAL,
             session_rating INTEGER,
-            
-            -- Data Processing Metadata (Cat 8)
+
             preprocessor_version TEXT,
             smoothing_algorithm TEXT,
             scaling_method TEXT,
             velocity_deriv_method TEXT,
             outlier_removal TEXT,
             total_dropped_frames INTEGER,
-            
+
+            raw_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
             -- System & Environment Profile (Cat 9)
             os_name TEXT,
             os_version TEXT,
@@ -104,11 +102,7 @@ class DatabaseManager:
             disk_total_gb REAL,
             disk_free_gb REAL,
             gpu_info TEXT,
-            app_version TEXT,
-            available_extensions_json TEXT,
-            
-            raw_json TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            app_version TEXT
         );
         """
         try:
@@ -117,7 +111,10 @@ class DatabaseManager:
                 conn.commit()
             logger.info("SQLite Schema Initialization Successful with full specification mapping.")
         except sqlite3.Error as e:
-            logger.error(f"SQLite Schema Initialization Failed: {e}")
+            # This used to be swallowed — every persist_experiment() call afterward would fail
+            # silently against a table that never got created. Fail loudly instead.
+            logger.critical(f"SQLite Schema Initialization FAILED — session metadata cannot be persisted: {e}")
+            raise
 
     def persist_experiment(self, metadata: Dict[str, Any]) -> None:
         """
@@ -251,7 +248,10 @@ class DatabaseManager:
                 conn.execute(query, values)
                 conn.commit()
             logger.info(f"Static experiment metadata committed for session: {session_id}")
+            return True
         except sqlite3.IntegrityError:
             logger.warning(f"Session {session_id} already exists in relational ledger.")
+            return False
         except sqlite3.Error as e:
-            logger.error(f"Failed to persist static metadata: {e}")
+            logger.error(f"Failed to persist static metadata for session {session_id}: {e}")
+            return False
