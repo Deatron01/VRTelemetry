@@ -64,6 +64,16 @@ class LocalLicenseCache:
                     value TEXT
                 )
             """)
+            conn.execute("""
+                            CREATE TABLE IF NOT EXISTS pending_patient_syncs (
+                                patient_id TEXT PRIMARY KEY,
+                                payload_json TEXT NOT NULL,
+                                attempts INTEGER DEFAULT 0,
+                                last_attempt_at TIMESTAMP,
+                                last_error TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
             conn.commit()
 
     def save(self, activation_id: str, license_key: str, hardware_fingerprint: str,
@@ -139,6 +149,35 @@ class LocalLicenseCache:
             rows = conn.execute("SELECT * FROM pending_uploads ORDER BY created_at ASC").fetchall()
             return [dict(r) for r in rows]
 
+    def queue_pending_patient_sync(self, patient_id: str, payload_json: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO pending_patient_syncs (patient_id, payload_json)
+                VALUES (?, ?)
+                ON CONFLICT(patient_id) DO UPDATE SET payload_json=excluded.payload_json
+            """, (patient_id, payload_json))
+            conn.commit()
+
+    def record_patient_sync_failure(self, patient_id: str, error: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE pending_patient_syncs
+                SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP, last_error = ?
+                WHERE patient_id = ?
+            """, (error, patient_id))
+            conn.commit()
+
+    def clear_pending_patient_sync(self, patient_id: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM pending_patient_syncs WHERE patient_id = ?", (patient_id,))
+            conn.commit()
+
+    def list_pending_patient_syncs(self) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM pending_patient_syncs ORDER BY created_at ASC").fetchall()
+            return [dict(r) for r in rows]
+        
     # --- Account session (login state) ---
     # Single-row table, same pattern as license_state — one desktop install,
     # one logged-in account at a time.

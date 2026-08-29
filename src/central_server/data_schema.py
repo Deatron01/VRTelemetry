@@ -55,6 +55,26 @@ def initialize_data_schema(db_path: str = "CentralServer/central_data.db") -> No
         UNIQUE(license_id, session_id)
     );
     
+    CREATE TABLE IF NOT EXISTS synced_patients (
+        patient_id TEXT NOT NULL,
+        license_id TEXT NOT NULL,
+        activation_id TEXT,
+        display_name TEXT,
+        external_ref TEXT,
+        date_of_birth TEXT,
+        biological_sex TEXT,
+        notes TEXT,
+        gdpr_consent_given INTEGER,
+        gdpr_consent_version TEXT,
+        gdpr_consent_timestamp TEXT,
+        gdpr_consent_withdrawn_at TEXT,
+        is_anonymized INTEGER DEFAULT 0,
+        raw_json TEXT NOT NULL,
+        first_received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (license_id, patient_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_uploads_license ON uploaded_sessions(license_id);
     CREATE INDEX IF NOT EXISTS idx_uploads_activation ON uploaded_sessions(activation_id);
     CREATE INDEX IF NOT EXISTS idx_uploads_received ON uploaded_sessions(received_at);

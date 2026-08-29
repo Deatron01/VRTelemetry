@@ -1,25 +1,50 @@
-import React, { useState } from 'react';
-import { PlayCircle, ShieldAlert, Cpu, Network, User, StopCircle, Server } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { PlayCircle, ShieldAlert, Cpu, Network, User, StopCircle, Server, Users } from 'lucide-react';
 
+interface Patient {
+  patient_id: string;
+  display_name: string;
+  gdpr_consent_given: number;
+  is_anonymized: number;
+}
 export const NewSession = () => {
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
-    subject_id: `SUB_${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
+    patient_id: '',
+    subject_id: '',
     backend: 'auto',
     port: 5005,
     gdpr_consent: false,
     central_server_url: 'http://192.168.1.X:9000'
   });
 
+  useEffect(() => {
+    fetch('http://localhost:8000/api/patients')
+      .then(r => r.json())
+      .then((data: Patient[]) => setPatients(data.filter(p => !p.is_anonymized)))
+      .catch(() => setPatients([]));
+  }, []);
+
+  const selectedPatient = patients.find(p => p.patient_id === form.patient_id);
+
   const handleStart = async () => {
-    if (!form.gdpr_consent) {
-      setError("Explicit GDPR consent is required to begin biometric acquisition.");
+    if (!form.patient_id) {
+      setError("Select a patient before starting acquisition.");
       return;
     }
-
+    if (selectedPatient && !selectedPatient.gdpr_consent_given) {
+      setError("This patient's GDPR consent is not active. Re-consent them from the Patients page first.");
+      return;
+    }
+    if (!form.gdpr_consent) {
+      setError("Explicit GDPR consent confirmation is required to begin biometric acquisition.");
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
 
@@ -80,15 +105,25 @@ export const NewSession = () => {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3 h-3"/> Subject ID</label>
-              <input 
-                type="text" 
-                value={form.subject_id}
-                onChange={e => setForm({...form, subject_id: e.target.value})}
-                className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors font-mono"
-              />
+              <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Users className="w-3 h-3" /> Patient
+              </label>
+              <select
+                value={form.patient_id}
+                onChange={e => setForm({ ...form, patient_id: e.target.value })}
+                className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors"
+              >
+                <option value="">Select a patient…</option>
+                {patients.map(p => (
+                  <option key={p.patient_id} value={p.patient_id} disabled={!p.gdpr_consent_given}>
+                    {p.display_name}{!p.gdpr_consent_given ? ' (consent withdrawn)' : ''}
+                  </option>
+                ))}
+              </select>
+              {patients.length === 0 && (
+                <p className="text-[11px] text-amber-600 mt-1">No patients yet — create one on the Patients page first.</p>
+              )}
             </div>
-
             <div>
               <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1"><Cpu className="w-3 h-3"/> Runtime Backend</label>
               <select 

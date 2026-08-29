@@ -162,3 +162,50 @@ class CentralDataManager:
                 (session_id, license_id)
             ).fetchone()
             return (self.storage_root / row["storage_path"]) if row else None
+        
+    def upsert_patient(self, *, license_id: str, activation_id: str, patient: Dict[str, Any]) -> Dict[str, Any]:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO synced_patients (
+                    patient_id, license_id, activation_id, display_name, external_ref,
+                    date_of_birth, biological_sex, notes, gdpr_consent_given,
+                    gdpr_consent_version, gdpr_consent_timestamp, gdpr_consent_withdrawn_at,
+                    is_anonymized, raw_json, last_updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(license_id, patient_id) DO UPDATE SET
+                    activation_id=excluded.activation_id,
+                    display_name=excluded.display_name,
+                    external_ref=excluded.external_ref,
+                    date_of_birth=excluded.date_of_birth,
+                    biological_sex=excluded.biological_sex,
+                    notes=excluded.notes,
+                    gdpr_consent_given=excluded.gdpr_consent_given,
+                    gdpr_consent_version=excluded.gdpr_consent_version,
+                    gdpr_consent_timestamp=excluded.gdpr_consent_timestamp,
+                    gdpr_consent_withdrawn_at=excluded.gdpr_consent_withdrawn_at,
+                    is_anonymized=excluded.is_anonymized,
+                    raw_json=excluded.raw_json,
+                    last_updated_at=CURRENT_TIMESTAMP""",
+                (
+                    patient["patient_id"], license_id, activation_id,
+                    patient.get("display_name"), patient.get("external_ref"),
+                    patient.get("date_of_birth"), patient.get("biological_sex"), patient.get("notes"),
+                    patient.get("gdpr_consent_given"), patient.get("gdpr_consent_version"),
+                    patient.get("gdpr_consent_timestamp"), patient.get("gdpr_consent_withdrawn_at"),
+                    patient.get("is_anonymized", 0), json.dumps(patient),
+                )
+            )
+            conn.commit()
+        logger.info(f"Patient {patient['patient_id']} synced centrally under license {license_id}")
+        return {"ok": True}
+
+    def list_patients(self, license_id: Optional[str] = None) -> list:
+        with self._conn() as conn:
+            if license_id:
+                rows = conn.execute(
+                    "SELECT * FROM synced_patients WHERE license_id = ? ORDER BY last_updated_at DESC",
+                    (license_id,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM synced_patients ORDER BY last_updated_at DESC").fetchall()
+            return [dict(r) for r in rows]

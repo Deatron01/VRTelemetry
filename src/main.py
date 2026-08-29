@@ -156,6 +156,7 @@ active_engine: Optional[TelemetryEngine] = None
 engine_thread: Optional[threading.Thread] = None
 
 class SessionStartConfig(BaseModel):
+    patient_id: str
     subject_id: str = "SUB_UNKN_01"
     backend: str = "auto"
     port: int = 5005
@@ -226,15 +227,31 @@ def get_all_sessions():
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT 
-                    session_id, start_timestamp_utc, subject_id, 
+                    session_id, patient_id, start_timestamp_utc, subject_id, 
                     hmd_model, tracking_space_type, total_dropped_frames,
                     session_rating
                 FROM session_metadata
                 ORDER BY created_at DESC
             """)
-            return cursor.fetchall()
+            sessions = cursor.fetchall()
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    # Enrich with patient display names. Sessions recorded before patient
+    # linking existed (or where the patient was since erased) fall back
+    # gracefully rather than breaking the listing.
+    patient_cache: Dict[str, Optional[str]] = {}
+    for s in sessions:
+        pid = s.get("patient_id")
+        if not pid:
+            s["patient_display_name"] = None
+            continue
+        if pid not in patient_cache:
+            p = _patients.get_patient(pid)
+            patient_cache[pid] = p["display_name"] if p and not p["is_anonymized"] else "[Erased Patient]" if p else None
+        s["patient_display_name"] = patient_cache[pid]
+
+    return sessions
 
 @app.get("/api/sessions/{session_id}")
 def get_session_details(session_id: str):
@@ -276,45 +293,56 @@ def update_session(session_id: str, update_data: SessionUpdate):
 @app.post("/api/recording/start")
 def start_recording(config: SessionStartConfig):
     global active_engine, engine_thread
-    
+
     setup_logging()
-    
+
     if active_engine and getattr(active_engine, 'is_running', False):
         raise HTTPException(status_code=400, detail="A telemetry session is already running.")
-        
+
     if not config.gdpr_consent:
         raise HTTPException(status_code=403, detail="Biometric tracking requires explicit GDPR consent.")
-        
-    logger.info(f"API Request: Start Pipeline -> Backend: [{config.backend.upper()}]")
-    
+
+    patient = _patients.get_patient(config.patient_id)
+    if not patient or patient["is_anonymized"]:
+        raise HTTPException(status_code=404, detail="Selected patient not found (or has been erased).")
+    if not patient["gdpr_consent_given"]:
+        raise HTTPException(
+            status_code=403,
+            detail="This patient's GDPR consent is not active (never given, or withdrawn). "
+                   "Recording cannot start until consent is re-established for a new patient record.",
+        )
+
+    logger.info(f"API Request: Start Pipeline -> Backend: [{config.backend.upper()}], Patient: {patient['patient_id']}")
+
     if config.backend != "quest_udp":
         raw_hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
         hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
     else:
-        hardware_capabilities = { 
+        hardware_capabilities = {
             "openxr_runtime": "Quest_OVRPlugin_Standalone",
             "hmd_model": "Meta Quest Pro",
             "has_eye_tracking": True,
             "transport_protocol": "UDP_Network_Socket",
             "binding_port": config.port
         }
-    
+
     active_engine = TelemetryEngine(
         output_dir=config.output_dir,
         gdpr_consent=config.gdpr_consent,
         hardware_metadata=hardware_capabilities,
-        central_server_url=config.central_server_url,  # new
+        central_server_url=config.central_server_url,
     )
-    
-    active_engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = config.subject_id
+
+    active_engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = config.subject_id or patient["display_name"]
+    active_engine.subject_metadata["M-IV_Static_Metadata"]["patient_id"] = patient["patient_id"]
     active_engine.configured_backend = config.backend
     active_engine.network_port = config.port
-        
+
     try:
         engine_thread = threading.Thread(target=run_engine_thread, args=(active_engine,), daemon=True)
         engine_thread.start()
-        _usage.log_event("recording_start", detail=f"backend={config.backend}")
-        return {"status": "recording_started", "subject_id": config.subject_id, "backend": config.backend}
+        _usage.log_event("recording_start", detail=f"backend={config.backend}, patient={patient['patient_id']}")
+        return {"status": "recording_started", "patient_id": patient["patient_id"], "backend": config.backend}
     except GDPRConsentError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
@@ -435,18 +463,25 @@ def set_central_config(payload: CentralUrlConfig):
 
 @app.get("/api/sync/status")
 def sync_status():
-    pending = _local_cache.list_pending_uploads()
+    pending_sessions = _local_cache.list_pending_uploads()
+    pending_patients = _local_cache.list_pending_patient_syncs()
     return {
-        "pending_count": len(pending),
+        "pending_count": len(pending_sessions) + len(pending_patients),
+        "pending_sessions": len(pending_sessions),
+        "pending_patients": len(pending_patients),
         "pending": [
-            {
-                "session_id": p["session_id"],
-                "attempts": p["attempts"],
-                "last_error": p["last_error"],
-                "created_at": p["created_at"],
-            }
-            for p in pending
+            {"session_id": p["session_id"], "attempts": p["attempts"], "last_error": p["last_error"], "created_at": p["created_at"]}
+            for p in pending_sessions
         ],
+    }
+
+@app.post("/api/sync/retry")
+def sync_retry(central_server_url: str = "http://127.0.0.1:9000"):
+    session_uploader = SessionUploader(central_server_url, _local_cache)
+    patient_uploader = PatientSyncClient(central_server_url, _local_cache)
+    return {
+        "sessions": session_uploader.retry_pending(),
+        "patients": patient_uploader.retry_pending(),
     }
 
 @app.post("/api/sync/retry")
@@ -584,6 +619,105 @@ def set_target_position(payload: TargetPosition):
     _require_active_engine().live_state.set_target_position(payload.x, payload.y, payload.z)
     return {"ok": True}
 
+from src.patients.patient_manager import PatientManager
+from src.core.exceptions import GDPRConsentError
+
+_patients = PatientManager()
+
+class PatientCreateRequest(BaseModel):
+    display_name: str
+    gdpr_consent_given: bool
+    external_ref: str = ""
+    date_of_birth: str = ""
+    biological_sex: str = ""
+    notes: str = ""
+
+class PatientUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    external_ref: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    biological_sex: Optional[str] = None
+    notes: Optional[str] = None
+    
+@app.get("/api/patients")
+def list_patients(include_anonymized: bool = False):
+    return _patients.list_patients(include_anonymized=include_anonymized)
+@app.post("/api/patients")
+def create_patient(payload: PatientCreateRequest):
+    try:
+        patient = _patients.create_patient(
+            display_name=payload.display_name,
+            gdpr_consent_given=payload.gdpr_consent_given,
+            external_ref=payload.external_ref,
+            date_of_birth=payload.date_of_birth,
+            biological_sex=payload.biological_sex,
+            notes=payload.notes,
+        )
+    except GDPRConsentError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _patient_uploader.sync_patient(patient)
+    return patient
+
+@app.put("/api/patients/{patient_id}")
+def update_patient(patient_id: str, payload: PatientUpdateRequest):
+    try:
+        updated = _patients.update_patient(
+            patient_id, {k: v for k, v in payload.dict().items() if v is not None}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    _patient_uploader.sync_patient(updated)
+    return updated
+
+@app.post("/api/patients/{patient_id}/withdraw-consent")
+def withdraw_patient_consent(patient_id: str):
+    updated = _patients.withdraw_consent(patient_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    _patient_uploader.sync_patient(updated)
+    return updated
+
+@app.delete("/api/patients/{patient_id}")
+def delete_patient(patient_id: str, hard_delete: bool = False):
+    ok = _patients.delete_patient(patient_id, hard_delete=hard_delete)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if not hard_delete:
+        # Push the now-anonymized record so central's copy reflects the erasure
+        # instead of silently keeping the pre-erasure PII forever.
+        anonymized = _patients.get_patient(patient_id)
+        if anonymized:
+            _patient_uploader.sync_patient(anonymized)
+    return {"ok": True}
+
+@app.get("/api/patients/{patient_id}/sessions")
+def get_patient_sessions(patient_id: str):
+    patient = _patients.get_patient(patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    from src.storage.database_manager import DatabaseManager
+    db = DatabaseManager()
+    return {
+        "patient": patient,
+        "sessions": db.get_sessions_for_patient(patient_id),
+    }
+from src.storage.patient_sync_client import PatientSyncClient
+
+_patient_uploader = PatientSyncClient(_central_url(), _local_cache)
+@app.on_event("startup")
+def _sweep_pending_syncs_on_boot():
+    # Anything that failed to reach central in a previous run gets one more
+    # push attempt right away, same as the engine already does for sessions.
+    try:
+        _patient_uploader.retry_pending()
+    except Exception as e:
+        logger.warning(f"Patient sync sweep on boot failed: {e}")
+  
 # =====================================================================
 # --- ORIGINAL CLI EXECUTION BLOCK ---
 # =====================================================================

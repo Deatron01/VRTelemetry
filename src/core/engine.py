@@ -59,6 +59,9 @@ class TelemetryEngine:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        self._session_wall_start_ts: Optional[float] = None
+        self._session_wall_end_ts: Optional[float] = None
+        
         self.session_id = time.strftime("%Y%m%d_%H%M%S")
         self.parquet_path = self.output_dir / f"vr_telemetry_{self.session_id}.parquet"
         
@@ -146,6 +149,8 @@ class TelemetryEngine:
         self._async_thread = threading.Thread(target=self._start_async_loop, daemon=True, name="TelemetryConsumerThread")
         self._async_thread.start()
         
+        self._session_wall_start_ts = time.time()
+        
         self.is_running = True
         backend_mode = getattr(self, "configured_backend", "auto")
         
@@ -186,9 +191,17 @@ class TelemetryEngine:
                             f"{self.synchronizer.max_hz:.1f} Hz.")
 
         logger.info("Main telemetry cycle active. Listening for HMD pacing.")
+        
         while self.is_running and not self._shutdown_event.is_set():
             if not self.gdpr_consent:
                 logger.error("Consent revoked during active sampling.")
+                break
+
+            if getattr(self.writer, "write_failed", False):
+                logger.critical(
+                    "Parquet writer has failed — stopping acquisition rather than continuing to "
+                    "collect frames that cannot be persisted."
+                )
                 break
 
             frame_data = self.backend.poll_frame(self.frames_recorded)
@@ -228,6 +241,12 @@ class TelemetryEngine:
             if not self.gdpr_consent:
                 logger.error("Consent revoked during active sampling.")
                 break
+            if getattr(self.writer, "write_failed", False):
+                logger.critical(
+                    "Parquet writer has failed — stopping UDP ingestion rather than continuing to "
+                    "collect frames that cannot be persisted."
+                )
+                break
             time.sleep(0.5)
             
         receiver.stop()
@@ -253,8 +272,12 @@ class TelemetryEngine:
         self.hardware.stop()
         self.writer.stop()
 
-        if getattr(self, "configured_backend", "auto") != "quest_udp" and self.backend:
-            self.backend.shutdown()
+        if getattr(self.writer, "write_failed", False):
+            logger.critical(
+                f"Session {self.session_id}: the Parquet writer failed partway through recording. "
+                f"The reported frame count ({self.frames_recorded}) does NOT reflect what was actually "
+                f"persisted to disk — treat this session's data as incomplete/unreliable."
+            )
             
         self.session_log_path = detach_session_log_capture(self._session_log_handler)
 
@@ -266,14 +289,18 @@ class TelemetryEngine:
         try:
             static_meta = self.subject_metadata.get("M-IV_Static_Metadata", {})
             session_id = static_meta.get("session_id", self.session_id)
+            
+            duration_sec = None
+            if self._session_wall_start_ts is not None and self._session_wall_end_ts is not None:
+                duration_sec = round(self._session_wall_end_ts - self._session_wall_start_ts, 3)
 
             summary_metadata = {
                 "session_id": session_id,
                 "subject_id": static_meta.get("subject_id"),
                 "total_frames": self.frames_recorded,
-                "duration_sec": None,
+                "duration_sec": duration_sec,
             }
-
+            
             result = self.uploader.upload(self.parquet_path, session_id, summary_metadata)
             if result.get("ok"):
                 logger.info(f"Session {session_id} synced to central server.")

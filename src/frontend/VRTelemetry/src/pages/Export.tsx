@@ -4,16 +4,30 @@ import React, { useEffect, useState } from 'react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import { Download, FileJson, FileSpreadsheet, FileText, Check, Upload } from 'lucide-react';
 
+interface SyncPendingItem {
+  session_id: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+}
+
+interface SyncStatus {
+  pending_count: number;
+  pending_sessions: number;
+  pending_patients: number;
+  pending: SyncPendingItem[];
+}
+
 export const Export = () => {
   const { metadata, metrics, frames } = useTelemetryStore();
   const [isExporting, setIsExporting] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ pending_count: number } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
 useEffect(() => {
   fetch('http://localhost:8000/api/sync/status')
     .then(r => r.json())
-    .then(setSyncStatus)
+    .then(setSyncStatus)   // now resolves against SyncStatus, fine
     .catch(() => setSyncStatus(null));
 }, []);
 
@@ -22,11 +36,12 @@ const handleSyncNow = async () => {
   try {
     await fetch('http://localhost:8000/api/sync/retry', { method: 'POST' });
     const status = await fetch('http://localhost:8000/api/sync/status').then(r => r.json());
-    setSyncStatus(status);
+    setSyncStatus(status);   // also fine against SyncStatus
   } finally {
     setIsSyncing(false);
   }
 };
+
   // Helper function to trigger browser download
   const downloadBlob = (content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -194,10 +209,10 @@ const handleSyncNow = async () => {
                 <h3 className="font-medium text-research-graphite">Sync to Central Server</h3>
                 <p className="text-xs text-research-muted mt-1">
                   {isSyncing
-                    ? 'Syncing pending sessions...'
+                    ? 'Syncing pending sessions and patients...'
                     : syncStatus && syncStatus.pending_count > 0
-                      ? `${syncStatus.pending_count} session(s) awaiting upload`
-                      : 'All sessions synced'}
+                      ? `${syncStatus.pending_sessions ?? 0} session(s), ${syncStatus.pending_patients ?? 0} patient(s) awaiting upload`
+                      : 'All sessions and patients synced'}
                 </p>
               </div>
             </div>

@@ -258,6 +258,22 @@ async def upload_session_log(
     )
     return result
 
+@app.post("/data/upload-patient")
+async def upload_patient(request: Request, payload: dict):
+    ip = _client_ip(request)
+    activation_id = payload.get("activation_id")
+    license_id = payload.get("license_id")
+    patient = payload.get("patient")
+    if not activation_id or not license_id or not patient or not patient.get("patient_id"):
+        raise HTTPException(status_code=400, detail="activation_id, license_id, and patient are required")
+
+    _authorize_activation(activation_id, ip)
+    return data_mgr.upsert_patient(license_id=license_id, activation_id=activation_id, patient=patient)
+
+
+@app.get("/admin/patients")
+def admin_list_patients(license_id: Optional[str] = None, admin=Depends(require_admin)):
+    return data_mgr.list_patients(license_id)
 
 @app.get("/admin/sessions/{session_id}/log")
 def admin_download_session_log(session_id: str, license_id: str, admin=Depends(require_admin)):
