@@ -30,6 +30,7 @@ class DatabaseManager:
         query = """
         CREATE TABLE IF NOT EXISTS session_metadata (
             session_id TEXT PRIMARY KEY,
+            patient_id TEXT,
             start_timestamp_utc TEXT,
             subject_id TEXT NOT NULL,
             subject_age INTEGER,
@@ -109,13 +110,39 @@ class DatabaseManager:
             with self._get_connection() as conn:
                 conn.execute(query)
                 conn.commit()
+
+                # this block must be present
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN patient_id TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
             logger.info("SQLite Schema Initialization Successful with full specification mapping.")
         except sqlite3.Error as e:
-            # This used to be swallowed — every persist_experiment() call afterward would fail
-            # silently against a table that never got created. Fail loudly instead.
-            logger.critical(f"SQLite Schema Initialization FAILED — session metadata cannot be persisted: {e}")
+            logger.critical(...)
             raise
 
+    def get_sessions_for_patient(self, patient_id: str) -> list:
+        """
+        Returns every recorded session linked to this patient_id, most recent
+        first — the "which sessions belong to this patient" side of the link
+        (the inverse of session_metadata.patient_id -> patients.patient_id).
+        """
+        query = """
+        SELECT session_id, start_timestamp_utc, hmd_model, total_dropped_frames,
+               session_rating, created_at
+        FROM session_metadata
+        WHERE patient_id = ?
+        ORDER BY created_at DESC
+        """
+        try:
+            with self._get_connection() as conn:
+                rows = conn.execute(query, (patient_id,)).fetchall()
+                return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to fetch sessions for patient {patient_id}: {e}")
+            return []
+        
     def persist_experiment(self, metadata: Dict[str, Any]) -> None:
         """
         Extracts nested category dicts from the static context definition and
@@ -132,7 +159,7 @@ class DatabaseManager:
 
         query = """
         INSERT INTO session_metadata (
-            session_id, start_timestamp_utc, subject_id, subject_age, subject_biological_sex,
+            session_id, patient_id, start_timestamp_utc, subject_id, subject_age, subject_biological_sex,
             subject_height_cm, subject_weight_kg, subject_vr_exp, subject_ipd_mm,
             vision_correction, vision_impairment,
             
@@ -157,7 +184,7 @@ class DatabaseManager:
             
             raw_json
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, ?,
@@ -169,6 +196,7 @@ class DatabaseManager:
 
         values = (
             session_id,
+            static_meta.get("patient_id"),
             static_meta.get("start_timestamp_utc", "Unknown"),
             static_meta.get("subject_id", "UNKNOWN"),
             static_meta.get("subject_age", 0),
@@ -247,6 +275,13 @@ class DatabaseManager:
             with self._get_connection() as conn:
                 conn.execute(query, values)
                 conn.commit()
+                
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN patient_id TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+            logger.info("SQLite Schema Initialization Successful with full specification mapping.")
             logger.info(f"Static experiment metadata committed for session: {session_id}")
             return True
         except sqlite3.IntegrityError:

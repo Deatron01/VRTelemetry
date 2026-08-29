@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Upload, Play, Pause, Activity, Eye, Compass, Info, LayoutDashboard, Database, ShieldAlert, Download, FileText, FolderSearch, Video, LogOut } from 'lucide-react';
+import { Upload, Play, Pause, Activity, Eye, Compass, Info, LayoutDashboard, Database, ShieldAlert, Download, FileText, FolderSearch, Video, LogOut, Users } from 'lucide-react';
 import { useTelemetryStore } from '../../store/useTelemetryStore';
 import { TelemetryParser } from '../../services/TelemetryParser';
 
@@ -70,6 +70,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children, currentRoute, onRo
 
   const navItems = [
     { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
+    { id: 'patients', icon: Users, label: 'Patients' },
     { id: 'record', icon: Video, label: 'Live Acquisition' },
     { id: 'explorer', icon: FolderSearch, label: 'Session Explorer' },
     { id: 'spatial', icon: Compass, label: 'Spatial Analysis' },

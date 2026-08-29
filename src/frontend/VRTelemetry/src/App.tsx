@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { Overview } from './pages/Overview';
+import { Patients } from './pages/Patients';
 import { EyeTracking } from './pages/EyeTracking';
 import { Physiology } from './pages/Physiology';
 import { RawDataExplorer } from './pages/RawDataExplorer';
@@ -14,6 +15,7 @@ import { SessionExplorer } from './pages/SessionExplorer';
 import { NewSession } from './pages/NewSession';
 import { Login } from './pages/Login';
 import { Activation } from './pages/Activation';
+
 
 interface AuthedUser {
   email: string;
@@ -88,6 +90,7 @@ function App() {
   const renderContent = () => {
     switch (route) {
       case 'overview': return <Overview />;
+      case 'patients': return <Patients />;
       case 'record': return <NewSession />;
       case 'explorer': return <SessionExplorer />;
       case 'eye': return <EyeTracking />;

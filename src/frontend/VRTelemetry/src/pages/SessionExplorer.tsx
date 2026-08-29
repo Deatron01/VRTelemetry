@@ -3,6 +3,8 @@ import { Database, Search, User, HardDrive, AlertCircle, X, Activity, Cpu, Edit2
 
 interface SessionRecord {
   session_id: string;
+  patient_id: string | null;
+  patient_display_name: string | null;
   start_timestamp_utc: string;
   subject_id: string;
   hmd_model: string;
@@ -117,6 +119,7 @@ export const SessionExplorer = () => {
               <thead className="text-xs text-research-muted uppercase bg-slate-50/50 sticky top-0 backdrop-blur-md border-b border-research-border">
                 <tr>
                   <th className="px-6 py-4 font-medium tracking-wider">Session UUID</th>
+                  <th className="px-6 py-4 font-medium tracking-wider">Patient</th>
                   <th className="px-6 py-4 font-medium tracking-wider">Date (UTC)</th>
                   <th className="px-6 py-4 font-medium tracking-wider">Subject</th>
                   <th className="px-6 py-4 font-medium tracking-wider">Hardware</th>
@@ -127,6 +130,13 @@ export const SessionExplorer = () => {
                 {sessions.map(session => (
                   <tr key={session.session_id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-6 py-4 font-mono text-xs">{session.session_id.split('-')[0]}...</td>
+                    <td className="px-6 py-4 font-medium">
+                      {session.patient_display_name ? (
+                        <span className="text-research-graphite">{session.patient_display_name}</span>
+                      ) : (
+                        <span className="text-research-muted italic">Unlinked</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4">{session.start_timestamp_utc}</td>
                     <td className="px-6 py-4 font-medium">{session.subject_id}</td>
                     <td className="px-6 py-4 text-research-muted">{session.hmd_model}</td>

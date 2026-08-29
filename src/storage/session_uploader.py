@@ -30,8 +30,13 @@ class SessionUploader:
             return {"ok": False, "reason": "no_active_license"}
 
         if not parquet_path.exists():
-            logger.error(f"Cannot upload — file not found: {parquet_path}")
-            return {"ok": False, "reason": "file_not_found"}
+            logger.warning(
+                f"Pending upload for session {session_id} references a file that no longer exists "
+                f"({parquet_path}) — this data is permanently unrecoverable. Removing from the retry "
+                f"queue instead of retrying forever."
+            )
+            self.local_license_cache.clear_pending_upload(session_id)
+            return {"ok": False, "reason": "file_not_found_removed_from_queue"}
 
         try:
             with open(parquet_path, "rb") as f:
@@ -48,9 +53,25 @@ class SessionUploader:
                     timeout=120,
                 )
             if response.status_code == 200:
+                data = response.json()
+                if data.get("verified") is False:
+                    # The central server itself detected a post-write checksum mismatch.
+                    # Treating a 200 as success here would silently discard the researcher's
+                    # only remaining copy of a file the server admits is corrupt.
+                    logger.error(
+                        f"Central server flagged session {session_id} as CORRUPT "
+                        f"(post-write checksum mismatch). Keeping local copy queued for retry."
+                    )
+                    if queue_on_failure:
+                        self._queue(session_id, parquet_path, metadata)
+                        self.local_license_cache.record_upload_attempt_failure(
+                            session_id, "server_reported_checksum_mismatch"
+                        )
+                    return {"ok": False, "reason": "server_verification_failed", "upload_id": data.get("upload_id")}
+
                 logger.info(f"Session {session_id} uploaded to central server.")
                 self.local_license_cache.clear_pending_upload(session_id)
-                return response.json()
+                return data
             else:
                 logger.error(f"Upload rejected ({response.status_code}): {response.text}")
                 if queue_on_failure:
