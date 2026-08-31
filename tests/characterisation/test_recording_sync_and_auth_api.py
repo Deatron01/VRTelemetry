@@ -319,3 +319,24 @@ def test_changing_the_central_url_does_not_repoint_the_live_uploader(
 
     assert workstation._central_url() == "http://10.0.0.9:9000"
     assert workstation._session_uploader.central_server_url == original
+
+
+def test_the_offline_stub_is_actually_in_force(client: TestClient, workstation: Any) -> None:
+    """Guards the fixture itself, not the application.
+
+    Every "unreachable server" assertion in this suite is only meaningful if the
+    stub is really installed. When VRT-10 moved the routers out of src/main.py,
+    the fixture's patch target silently stopped being the object the routers
+    use, and every one of those tests kept passing -- because there genuinely is
+    no server listening in CI either. A suite that passes for the wrong reason
+    is worse than one that fails.
+
+    This asserts the stub recorded the call, so the wiring cannot rot again
+    without something going red.
+    """
+    client.post("/api/auth/login", json={"email": "a@example.test", "password": "hunter22"})
+
+    assert workstation.request_stub.calls, (
+        "the offline stub was never called - patch target is wrong"
+    )
+    assert any("/auth/login" in url for _method, url in workstation.request_stub.calls)

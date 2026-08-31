@@ -93,11 +93,19 @@ def workstation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any
     try:
         module = importlib.import_module("src.main")
 
-        # Replace the module's `requests` alias, not the real library: other
-        # modules imported into this same process must keep working normally.
+        # Patch the alias in `dependencies`, which is where every router
+        # actually reaches for it. Patching `src.main.http_requests` used to be
+        # equivalent and no longer is: since VRT-10 that name resolves through a
+        # module __getattr__ shim, so setattr on it would bind a *new* attribute
+        # that shadows the shim and leaves the routers using the real library --
+        # a test that appears to pass while quietly making live network calls.
         import requests as real_requests
 
-        monkeypatch.setattr(module, "http_requests", _UnreachableServer(real_requests))
+        from src.interfaces.api import dependencies
+
+        stub = _UnreachableServer(real_requests)
+        monkeypatch.setattr(dependencies, "http_requests", stub)
+        module.request_stub = stub
 
         # PatientSyncClient holds its own reference to requests, reached through
         # the uploader singletons rather than through src.main's alias.

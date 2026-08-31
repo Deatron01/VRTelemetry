@@ -1,7 +1,7 @@
 # What just changed in this folder
 
-105 files have been written straight into your working tree — thirteen commits
-of work, applied. P1 is now complete. Nothing is committed; it is all sitting as unstaged
+Fourteen commits of work are applied in your working tree. **P1 complete, and
+P2 has started: `src/main.py` is now a 95-line shim.** Nothing is committed; it is all sitting as unstaged
 changes, which is exactly what you asked for: you can read the diff before
 deciding anything.
 
@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 pytest -m "not hardware"
 ```
 
-Expect **130 passed**. Your baseline was 13 passed, 2 failed.
+Expect **148 passed**. Your baseline was 13 passed, 2 failed.
 
 ```powershell
 ruff check          # All checks passed!
@@ -81,13 +81,38 @@ Splitting it is VRT-10 onwards, and the 63 characterisation tests now in
 | VRT-22 | **session metadata persistence repaired** — 68 columns against 73 placeholders |
 | VRT-9 | 63 characterisation tests covering all 29 API routes |
 | VRT-6 | typed settings; 18 hardcoded paths and URLs gone; `config.example.toml` |
+| VRT-10 | **`main.py` 1,185 lines → 95**; 29 routes into 8 routers; `create_app()` factory |
 
 ## Still open, deliberately
 
 - **VRT-21** — 16 uses of naive `datetime.utcnow()` compared against stored
   ISO-8601 strings for licence expiry. A correctness bug where your hub and
   workstations need not share a timezone. Needs its own commit and test.
-- **P2** — the decomposition. `src/main.py` is still 1,185 lines.
+- **P2 continues** — VRT-11 (repository layer, removing raw SQL from handlers)
+  and VRT-12 (composition root, ending the import-time singletons).
+
+## New in VRT-10 — where things live now
+
+| | |
+|---|---|
+| `src/interfaces/api/app.py` | `create_app()`, CORS, lifecycle |
+| `src/interfaces/api/routers/` | 8 modules, 29 routes |
+| `src/interfaces/api/schemas/` | request models, one per domain |
+| `src/interfaces/api/dependencies.py` | the shared collaborators |
+| `src/interfaces/cli/record.py` | the acquisition CLI |
+| `src/domain/session_profile.py` | anthropometrics, health profile |
+
+`src/main.py` still exports `app`, so `uvicorn src.main:app` and the Electron
+shell are unaffected.
+
+The split was verified by generating the OpenAPI document before and after and
+diffing them: 29 operations either side, none added or missing, identical
+schemas, differing only in the `tags` the split introduces. All 65
+characterisation tests passed with no change to a single test body.
+
+It also turned up two undefined names on the one path the tests can't reach —
+starting a real recording needs a headset — either of which would have crashed
+the first time you pressed record. `ruff` found them.
 
 ## New in VRT-6
 

@@ -214,6 +214,21 @@ ignore = [
 # Tests assert on private state and use hardcoded fixtures by design.
 "tests/*" = ["S105", "S106", "S104", "S108", "ARG001", "SLF001"]
 
+# VRT-10 moved these handlers out of src/main.py unchanged. The exemptions
+# follow the code rather than being new debt -- src.main's own entries shrink
+# to match. Same tickets: BLE001/B904/SIM105 -> VRT-13, S608 -> VRT-11,
+# ARG001 -> VRT-12.
+"src/interfaces/api/app.py" = ["BLE001"]
+"src/interfaces/api/dependencies.py" = ["BLE001"]
+"src/interfaces/api/routers/auth.py" = ["B904", "SIM105"]
+"src/interfaces/api/routers/licence.py" = ["B904"]
+"src/interfaces/api/routers/patients.py" = ["B904"]
+"src/interfaces/api/routers/questionnaires.py" = ["BLE001"]
+"src/interfaces/api/routers/recording.py" = ["B904", "BLE001"]
+"src/interfaces/api/routers/sessions.py" = ["B904", "S608", "W291"]
+"src/interfaces/api/routers/sync.py" = ["BLE001"]
+"src/interfaces/cli/record.py" = ["BLE001"]
+
 # ── Inherited debt, scoped per file ──────────────────────────────────────────
 # These rules stay SELECTED globally, so any new or newly-touched file is held
 # to the full standard. The exemptions below record exactly which existing files
@@ -352,7 +367,11 @@ module = [
     "src.core.engine",                             # 11 error(s) - VRT-14 (ports; most are `backend` being Optional, which is correct and now visible)
     "src.core.synchronizer",                       #  3 error(s) - VRT-14
     "src.license_service.local_cache",             #  4 error(s) - VRT-11
-    "src.main",                                    # 15 error(s) - VRT-10/VRT-12 (router split + composition root)
+    "src.interfaces.api.dependencies",       #  1 error(s) - VRT-12
+    "src.interfaces.api.routers.licence",    #  8 error(s) - VRT-11 (LocalLicenseCache signatures)
+    "src.interfaces.api.routers.questionnaires", #  2 error(s) - VRT-20
+    "src.interfaces.api.routers.recording",  #  4 error(s) - VRT-14
+    "src.interfaces.cli.record",             #  2 error(s) - VRT-14
     "src.patients.patient_manager",                #  1 error(s) - VRT-11
     "src.storage.database_manager",                #  3 error(s) - VRT-11
     "src.storage.parquet_writer",                  #  3 error(s) - VRT-11
