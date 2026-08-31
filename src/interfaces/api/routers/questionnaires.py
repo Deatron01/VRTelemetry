@@ -36,7 +36,7 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     uploaded (see SessionUploader.update_remote_metadata).
     """
 
-    row = deps.db_manager.get_session_row(session_id)
+    row = deps.sessions.get(session_id)
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -82,13 +82,13 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     if submission.session_rating is not None:
         fields["session_rating"] = submission.session_rating
 
-    saved = deps.db_manager.save_subjective_questionnaire(session_id, fields)
+    saved = deps.sessions.save_questionnaire(session_id, fields)
     if not saved:
         raise HTTPException(status_code=500, detail="Failed to persist questionnaire")
 
     # Best-effort push of the refreshed row to the central server. Never blocks
     # or fails the response — the local record is authoritative regardless.
-    updated_row = deps.db_manager.get_session_row(session_id)
+    updated_row = deps.sessions.get(session_id)
     try:
         deps.session_uploader.update_remote_metadata(session_id, updated_row)
     except Exception as e:

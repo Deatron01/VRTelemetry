@@ -1,7 +1,7 @@
 # What just changed in this folder
 
-Fourteen commits of work are applied in your working tree. **P1 complete, and
-P2 has started: `src/main.py` is now a 95-line shim.** Nothing is committed; it is all sitting as unstaged
+Fifteen commits are applied in your working tree. **P1 complete; P2 two tickets in.**
+`src/main.py` is a 95-line shim and `database_manager.py` is down from 531 to 287. Nothing is committed; it is all sitting as unstaged
 changes, which is exactly what you asked for: you can read the diff before
 deciding anything.
 
@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 pytest -m "not hardware"
 ```
 
-Expect **148 passed**. Your baseline was 13 passed, 2 failed.
+Expect **174 passed**. Your baseline was 13 passed, 2 failed.
 
 ```powershell
 ruff check          # All checks passed!
@@ -82,14 +82,33 @@ Splitting it is VRT-10 onwards, and the 63 characterisation tests now in
 | VRT-9 | 63 characterisation tests covering all 29 API routes |
 | VRT-6 | typed settings; 18 hardcoded paths and URLs gone; `config.example.toml` |
 | VRT-10 | **`main.py` 1,185 lines → 95**; 29 routes into 8 routers; `create_app()` factory |
+| VRT-11 | repository layer; **versioned migrations replacing the 14 silent `ALTER`s**; WAL + busy timeout |
 
 ## Still open, deliberately
 
 - **VRT-21** — 16 uses of naive `datetime.utcnow()` compared against stored
   ISO-8601 strings for licence expiry. A correctness bug where your hub and
   workstations need not share a timezone. Needs its own commit and test.
-- **P2 continues** — VRT-11 (repository layer, removing raw SQL from handlers)
-  and VRT-12 (composition root, ending the import-time singletons).
+- **P2 continues** — VRT-12 (composition root, ending the import-time
+  singletons), then VRT-13 (exception hierarchy) and VRT-14 (ports).
+
+## New in VRT-11 — your database gets migrated on next start
+
+`_initialize_schema` was one `CREATE TABLE` plus fourteen `ALTER TABLE`s each
+wrapped in `except sqlite3.OperationalError: pass`. That idiom cannot tell
+"already applied" from "failed", which is exactly how the VRT-22 column went
+missing. Migrations are now numbered, recorded in a `schema_version` table, and
+a failure raises.
+
+**Your `Sessions/vr_metadata.db` will be baselined and brought up to version 4
+the first time the app starts.** It keeps every existing row; it gains the
+missing `available_extensions_json` column and two indexes.
+
+Three SQLite defaults were also wrong and are now set centrally: a busy timeout
+(was zero — a writer that found the database locked failed instantly, and you
+have a sync thread and a heartbeat thread writing while the API reads), WAL
+journalling, and foreign-key enforcement. There's a test that runs four
+concurrent writers and asserts none of them error.
 
 ## New in VRT-10 — where things live now
 

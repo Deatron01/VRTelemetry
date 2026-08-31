@@ -8,7 +8,6 @@ tests/characterisation/ is the proof.
 from __future__ import annotations
 
 import io
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -68,7 +67,7 @@ def get_session_telemetry(session_id: str):
     telemetry. Mirrors /api/upload-telemetry's downsampling so the frontend's
     existing TelemetryParser.processData() can consume either source identically.
     """
-    row = deps.db_manager.get_session_row(session_id)
+    row = deps.sessions.get(session_id)
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -106,21 +105,7 @@ def get_session_telemetry(session_id: str):
 
 @router.get("/api/sessions")
 def get_all_sessions():
-    try:
-        with sqlite3.connect(deps.db_path()) as conn:
-            conn.row_factory = deps.dict_factory
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    session_id, patient_id, start_timestamp_utc, subject_id, 
-                    hmd_model, tracking_space_type, total_dropped_frames,
-                    session_rating
-                FROM session_metadata
-                ORDER BY created_at DESC
-            """)
-            sessions = cursor.fetchall()
-    except sqlite3.Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    sessions = deps.sessions.list_for_api()
 
     # Enrich with patient display names. Sessions recorded before patient
     # linking existed (or where the patient was since erased) fall back
@@ -147,38 +132,20 @@ def get_all_sessions():
 
 @router.get("/api/sessions/{session_id}")
 def get_session_details(session_id: str):
-    try:
-        with sqlite3.connect(deps.db_path()) as conn:
-            conn.row_factory = deps.dict_factory
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM session_metadata WHERE session_id = ?", (session_id,))
-            row = cursor.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Session not found")
-            return row
-    except sqlite3.Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    row = deps.sessions.get(session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return row
 
 
 @router.put("/api/sessions/{session_id}")
 def update_session(session_id: str, update_data: SessionUpdate):
-    try:
-        with sqlite3.connect(deps.db_path()) as conn:
-            cursor = conn.cursor()
-            update_fields = {k: v for k, v in update_data.dict().items() if v is not None}
-            if not update_fields:
-                return {"status": "no changes"}
+    update_fields = {k: v for k, v in update_data.dict().items() if v is not None}
+    if not update_fields:
+        return {"status": "no changes"}
 
-            set_clause = ", ".join([f"{k} = ?" for k in update_fields])
-            values = list(update_fields.values())
-            values.append(session_id)
+    updated, written = deps.sessions.update(session_id, update_fields)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session not found")
 
-            cursor.execute(f"UPDATE session_metadata SET {set_clause} WHERE session_id = ?", values)
-            conn.commit()
-
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Session not found")
-
-            return {"status": "success", "updated_fields": list(update_fields.keys())}
-    except sqlite3.Error as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "updated_fields": written}

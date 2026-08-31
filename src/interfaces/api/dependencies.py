@@ -37,6 +37,7 @@ import requests as http_requests
 
 from src.config import get_settings
 from src.core.engine import TelemetryEngine
+from src.infrastructure.persistence import SessionRepository
 from src.license_service.local_cache import LocalLicenseCache
 from src.patients.patient_manager import PatientManager
 from src.storage.database_manager import DatabaseManager
@@ -58,6 +59,7 @@ __all__ = [
     "patients",
     "recording_state",
     "session_uploader",
+    "sessions",
     "sessions_log_dir",
     "sessions_output_dir",
     "sync_scheduler",
@@ -134,6 +136,12 @@ patients = PatientManager()
 #: backfill sweep alike -- the metadata rows for every session recorded locally
 #: live here, independent of whether a sync attempt was ever made for them.
 db_manager = DatabaseManager()
+
+#: Every read and write of session_metadata goes through here. DatabaseManager
+#: above is retained only for persist_experiment, which the engine calls while
+#: recording; folding that in is VRT-14, where the engine stops constructing its
+#: own collaborators.
+sessions = SessionRepository()
 
 #: Persistent uploaders, used by the background sync scheduler and the manual
 #: "Sync Now" endpoint alike, so both paths share one retry/backoff history

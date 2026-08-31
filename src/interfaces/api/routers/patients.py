@@ -12,7 +12,6 @@ from fastapi import APIRouter, HTTPException
 from src.core.exceptions import GDPRConsentError
 from src.interfaces.api import dependencies as deps
 from src.interfaces.api.schemas.patients import PatientCreateRequest, PatientUpdateRequest
-from src.storage.database_manager import DatabaseManager
 
 router = APIRouter(tags=["patients"])
 
@@ -95,8 +94,7 @@ def get_patient_sessions(patient_id: str):
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    db = DatabaseManager()
     return {
         "patient": patient,
-        "sessions": db.get_sessions_for_patient(patient_id),
+        "sessions": deps.sessions.list_for_patient(patient_id),
     }

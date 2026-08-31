@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
+from src.infrastructure.persistence import SessionRepository, migrate
+from src.infrastructure.persistence.connection import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -107,242 +109,31 @@ class DatabaseManager:
         # configuration could be read. See src/config/settings.py (VRT-6).
         self.db_path = Path(db_path) if db_path else get_settings().paths.metadata_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._repo = SessionRepository(self.db_path)
         self._initialize_schema()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        return conn
-
     def _initialize_schema(self) -> None:
-        """Constructs tables matching Requirement Categories 4, 5, 6, and 8."""
-        query = """
-        CREATE TABLE IF NOT EXISTS session_metadata (
-            session_id TEXT PRIMARY KEY,
-            patient_id TEXT,
-            start_timestamp_utc TEXT,
-            subject_id TEXT NOT NULL,
-            subject_age INTEGER,
-            subject_biological_sex TEXT,
-            subject_height_cm REAL,
-            subject_weight_kg REAL,
-            subject_vr_exp TEXT,
-            subject_ipd_mm REAL,
-            vision_correction TEXT,
-            vision_impairment TEXT,
+        """Delegate to the migration runner (VRT-11).
 
-            tracking_space_type TEXT,
-            play_area_width_m REAL,
-            play_area_length_m REAL,
-            host_os_version TEXT,
-            host_cpu_model TEXT,
-            host_gpu_model TEXT,
-            host_ram_gb REAL,
-            gpu_driver_version TEXT,
-            openxr_runtime TEXT,
-            hmd_model TEXT,
-            hmd_firmware TEXT,
-            hmd_refresh_rate REAL,
-            hmd_render_res_w INTEGER,
-            hmd_render_res_h INTEGER,
-            hmd_fov_horizontal REAL,
-            hmd_fov_vertical REAL,
-            tracking_system TEXT,
-            controller_model TEXT,
-            has_eye_tracking INTEGER,
-            has_face_tracking INTEGER,
-            has_body_tracking INTEGER,
+        This method used to be 167 lines: one CREATE TABLE followed by fourteen
+        ALTER TABLE calls, each wrapped in ``except sqlite3.OperationalError:
+        pass``. That idiom cannot tell "already applied" from "failed", which is
+        how the column behind VRT-22 went missing for days without an error.
 
-            neutral_head_height REAL,
-            shoulder_width_est REAL,
-            arm_length_left REAL,
-            arm_length_right REAL,
-            dominant_hand TEXT,
-
-            ssq_nausea_score REAL,
-            ssq_oculomotor_score REAL,
-            ssq_disorientation REAL,
-            nasa_tlx_mental REAL,
-            nasa_tlx_physical REAL,
-            nasa_tlx_frustration REAL,
-            nasa_tlx_temporal REAL,
-            nasa_tlx_effort REAL,
-            nasa_tlx_performance REAL,
-            nasa_tlx_rtlx REAL,
-            nasa_tlx_band TEXT,
-            nasa_tlx_raw_items_json TEXT,
-            ssq_total_severity REAL,
-            ssq_severity_band TEXT,
-            ssq_raw_items_json TEXT,
-            thermal_comfort TEXT,
-            questionnaire_completed_at TEXT,
-            perceived_temp_c REAL,
-            session_rating INTEGER,
-
-            preprocessor_version TEXT,
-            smoothing_algorithm TEXT,
-            scaling_method TEXT,
-            velocity_deriv_method TEXT,
-            outlier_removal TEXT,
-            total_dropped_frames INTEGER,
-
-            raw_json TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-            -- System & Environment Profile (Cat 9)
-            os_name TEXT,
-            os_version TEXT,
-            os_release TEXT,
-            architecture TEXT,
-            hostname TEXT,
-            os_user TEXT,
-            cpu_name TEXT,
-            cpu_cores_logical INTEGER,
-            cpu_cores_physical INTEGER,
-            total_ram_gb REAL,
-            disk_total_gb REAL,
-            disk_free_gb REAL,
-            gpu_info TEXT,
-            app_version TEXT,
-
-            -- The OpenXR extensions the runtime reported at recording time.
-            -- persist_experiment() has always written this column; CREATE TABLE
-            -- never declared it and no migration added it. See VRT-22.
-            available_extensions_json TEXT
-        );
+        It also meant two things owned this schema once SessionRepository
+        arrived, both writing the same file. Now there is one owner: the
+        numbered, recorded migrations in
+        ``src.infrastructure.persistence.migrations``.
         """
-        try:
-            with self._get_connection() as conn:
-                conn.execute(query)
-                conn.commit()
-
-                # this block must be present
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN patient_id TEXT")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-
-                # Post-session subjective questionnaire columns (SSQ + NASA-TLX + thermal
-                # comfort) — added when the questionnaire capture pipeline was built; every
-                # session recorded before this migration silently had ssq_*/nasa_tlx_* default
-                # to whatever persist_experiment's INSERT used (0.0), never a real measurement.
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_temporal REAL")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_effort REAL")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute(
-                        "ALTER TABLE session_metadata ADD COLUMN nasa_tlx_performance REAL"
-                    )
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_rtlx REAL")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_band TEXT")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute(
-                        "ALTER TABLE session_metadata ADD COLUMN nasa_tlx_raw_items_json TEXT"
-                    )
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN ssq_total_severity REAL")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN ssq_severity_band TEXT")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN ssq_raw_items_json TEXT")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN thermal_comfort TEXT")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                try:
-                    conn.execute(
-                        "ALTER TABLE session_metadata ADD COLUMN questionnaire_completed_at TEXT"
-                    )
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-                # VRT-22. For databases created before the column joined
-                # CREATE TABLE above; a no-op everywhere else.
-                try:
-                    conn.execute(
-                        "ALTER TABLE session_metadata ADD COLUMN available_extensions_json TEXT"
-                    )
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass
-            logger.info("SQLite Schema Initialization Successful with full specification mapping.")
-        except sqlite3.Error:
-            logger.critical(...)
-            raise
+        migrate(self.db_path, baseline_schema=SessionRepository._create_baseline)
 
     def list_all_sessions(self) -> list:
-        """
-        Every recorded session known to this machine's local metadata DB,
-        regardless of patient linkage — the source of truth the sync backfill
-        sweep uses to find sessions that have a local recording but were never
-        (successfully) pushed to the central server.
-        """
-        query = """
-        SELECT session_id, patient_id, subject_id, start_timestamp_utc,
-               total_dropped_frames, created_at
-        FROM session_metadata
-        ORDER BY created_at ASC
-        """
-        try:
-            with self._get_connection() as conn:
-                rows = conn.execute(query).fetchall()
-                return [dict(r) for r in rows]
-        except sqlite3.Error as e:
-            logger.error(f"Failed to list all sessions: {e}")
-            return []
+        """Every session this machine knows about. Delegates to the repository."""
+        return self._repo.list_all()
 
     def get_sessions_for_patient(self, patient_id: str) -> list:
-        """
-        Returns every recorded session linked to this patient_id, most recent
-        first — the "which sessions belong to this patient" side of the link
-        (the inverse of session_metadata.patient_id -> patients.patient_id).
-        """
-        query = """
-        SELECT session_id, start_timestamp_utc, hmd_model, total_dropped_frames,
-               session_rating, created_at
-        FROM session_metadata
-        WHERE patient_id = ?
-        ORDER BY created_at DESC
-        """
-        try:
-            with self._get_connection() as conn:
-                rows = conn.execute(query, (patient_id,)).fetchall()
-                return [dict(r) for r in rows]
-        except sqlite3.Error as e:
-            logger.error(f"Failed to fetch sessions for patient {patient_id}: {e}")
-            return []
+        """Sessions linked to one patient. Delegates to the repository."""
+        return self._repo.list_for_patient(patient_id)
 
     def persist_experiment(self, metadata: dict[str, Any]) -> None:
         """
@@ -446,16 +237,12 @@ class DatabaseManager:
             )
 
         try:
-            with self._get_connection() as conn:
+            with transaction(self.db_path) as conn:
                 conn.execute(query, values)
-                conn.commit()
-
-                try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN patient_id TEXT")
-                    conn.commit()
-                except sqlite3.OperationalError:
-                    pass  # column already exists
-            logger.info("SQLite Schema Initialization Successful with full specification mapping.")
+            # The ALTER TABLE that used to sit inside this write is gone: adding
+            # a column on every INSERT was schema management smuggled into a data
+            # path, and it is what let a missing column go unnoticed. Migration 2
+            # owns that column now (VRT-11).
             logger.info(f"Static experiment metadata committed for session: {session_id}")
             return True
         except sqlite3.IntegrityError:
@@ -492,40 +279,9 @@ class DatabaseManager:
     )
 
     def save_subjective_questionnaire(self, session_id: str, fields: dict[str, Any]) -> bool:
-        """
-        Persists a scored post-session questionnaire (SSQ + NASA-TLX +
-        thermal comfort) onto an already-recorded session row. Called after
-        recording stops — the engine that ran persist_experiment() no longer
-        exists by the time a researcher fills this in, so this is a plain
-        UPDATE keyed on session_id rather than another INSERT.
-        """
-        clean = {k: v for k, v in fields.items() if k in self.QUESTIONNAIRE_FIELDS}
-        if not clean:
-            return False
-
-        set_clause = ", ".join(f"{col} = ?" for col in clean)
-        values = list(clean.values()) + [session_id]
-
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.execute(
-                    f"UPDATE session_metadata SET {set_clause} WHERE session_id = ?",
-                    values,
-                )
-                conn.commit()
-                return cursor.rowcount > 0
-        except sqlite3.Error as e:
-            logger.error(f"Failed to save questionnaire for session {session_id}: {e}")
-            return False
+        """Persist a scored questionnaire. Delegates to the repository."""
+        return self._repo.save_questionnaire(session_id, fields)
 
     def get_session_row(self, session_id: str) -> dict[str, Any]:
-        """Full flat session_metadata row, used to rebuild the sync payload after a questionnaire update."""
-        try:
-            with self._get_connection() as conn:
-                row = conn.execute(
-                    "SELECT * FROM session_metadata WHERE session_id = ?", (session_id,)
-                ).fetchone()
-                return dict(row) if row else {}
-        except sqlite3.Error as e:
-            logger.error(f"Failed to fetch session row {session_id}: {e}")
-            return {}
+        """Full flat session row. Delegates to the repository."""
+        return self._repo.get(session_id)
