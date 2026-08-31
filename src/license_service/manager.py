@@ -109,10 +109,15 @@ class LicenseManager:
 
             return {"ok": True, "activation_id": activation_id, "expires_at": lic["expires_at"], "license_id": lic["license_id"]}
 
-    def heartbeat(self, activation_id: str, ip_address: str = "") -> Dict[str, Any]:
+    def heartbeat(self, activation_id: str, ip_address: str = "", machine_label: Optional[str] = None) -> Dict[str, Any]:
         """
         Periodic check-in from a running desktop app. This is the mechanism
-        that makes revocation actually take effect on a machine that's already activated.
+        that makes revocation actually take effect on a machine that's already
+        activated. Also doubles as the keep-alive for the license/machine
+        table's last_heartbeat_at column, which the Active Clients admin view
+        falls back to when a client hasn't reported to /client/heartbeat yet.
+        Passing machine_label keeps it current if the researcher renames the
+        machine after activation; omit it (None) to leave it untouched.
         """
         with self._conn() as conn:
             row = conn.execute(
@@ -132,14 +137,21 @@ class LicenseManager:
             if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) < datetime.utcnow():
                 return {"ok": False, "reason": "expired"}
 
-            conn.execute(
-                "UPDATE machine_activations SET last_heartbeat_at = CURRENT_TIMESTAMP WHERE activation_id = ?",
-                (activation_id,)
-            )
+            if machine_label:
+                conn.execute(
+                    "UPDATE machine_activations SET last_heartbeat_at = CURRENT_TIMESTAMP, "
+                    "machine_label = ? WHERE activation_id = ?",
+                    (machine_label, activation_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE machine_activations SET last_heartbeat_at = CURRENT_TIMESTAMP WHERE activation_id = ?",
+                    (activation_id,)
+                )
             self._log_event(conn, row["license_id"], activation_id, "heartbeat", "", ip_address)
             conn.commit()
 
-            return {"ok": True, "expires_at": row["expires_at"]}
+            return {"ok": True, "expires_at": row["expires_at"], "license_id": row["license_id"]}
 
     def revoke_license(self, license_key: str, reason: str = "") -> bool:
         """Admin action: kill an entire license (all machines) — your 'cut off a researcher' button."""
@@ -191,6 +203,28 @@ class LicenseManager:
                VALUES (?, ?, ?, ?, ?)""",
             (license_id, activation_id, event_type, detail, ip_address)
         )
+
+    def list_activations(self) -> List[Dict[str, Any]]:
+        """
+        Every machine ever activated against any license, with enough license/
+        org/owner context joined in that the admin Active Clients view doesn't
+        need a second round trip. Used together with CentralDataManager's
+        client_heartbeats table (which has the richer, more frequent presence
+        data) — this is the fallback/enrichment source for machines that were
+        activated but haven't sent a /client/heartbeat ping yet.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT ma.*, l.license_key, l.status AS license_status, l.plan,
+                          l.expires_at AS license_expires_at,
+                          u.email AS owner_email, o.name AS org_name
+                   FROM machine_activations ma
+                   JOIN licenses l ON ma.license_id = l.license_id
+                   LEFT JOIN users u ON l.user_id = u.user_id
+                   LEFT JOIN organizations o ON l.org_id = o.org_id
+                   ORDER BY ma.last_heartbeat_at DESC"""
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def list_licenses(self) -> List[Dict[str, Any]]:
         with self._conn() as conn:

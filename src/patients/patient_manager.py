@@ -46,6 +46,22 @@ class PatientManager:
         conn.row_factory = sqlite3.Row
         return conn
 
+    # Self-reported columns added so per-session telemetry/biometric measures
+    # (SSQ scores, NASA-TLX, frame data — see DatabaseManager.session_metadata)
+    # can be statistically joined against real subject covariates instead of
+    # the "Unknown"/0.0 placeholders that column set has always defaulted to.
+    # Collected once per patient rather than re-asked every session; snapshotted
+    # into each session's own row at recording time (see main.py start_recording)
+    # so editing a patient's profile later never silently rewrites past sessions'
+    # recorded covariates.
+    HEALTH_PROFILE_FIELDS = (
+        "age_years", "height_cm", "weight_kg", "dominant_hand",
+        "vr_experience_level", "vr_experience_hours_estimate",
+        "gaming_experience_hours_per_week", "vision_correction",
+        "vision_impairment", "motion_sickness_susceptibility",
+        "relevant_health_conditions",
+    )
+
     def _initialize_schema(self) -> None:
         query = """
         CREATE TABLE IF NOT EXISTS patients (
@@ -55,6 +71,19 @@ class PatientManager:
             date_of_birth TEXT,
             biological_sex TEXT,
             notes TEXT,
+
+            -- Self-reported health / demographic profile (see HEALTH_PROFILE_FIELDS)
+            age_years INTEGER,                        -- fallback when date_of_birth isn't provided
+            height_cm REAL,
+            weight_kg REAL,
+            dominant_hand TEXT,                       -- left | right | ambidextrous
+            vr_experience_level TEXT,                  -- none | novice | intermediate | experienced | expert
+            vr_experience_hours_estimate REAL,
+            gaming_experience_hours_per_week REAL,
+            vision_correction TEXT,                    -- none | glasses | contacts
+            vision_impairment TEXT,                     -- free text, e.g. "colorblind", "astigmatism"
+            motion_sickness_susceptibility TEXT,        -- none | mild | moderate | severe
+            relevant_health_conditions TEXT,            -- free text (vestibular, cardiac, epilepsy, etc.)
 
             gdpr_consent_given INTEGER NOT NULL DEFAULT 0,
             gdpr_consent_version TEXT,
@@ -70,6 +99,20 @@ class PatientManager:
             with self._get_connection() as conn:
                 conn.execute(query)
                 conn.commit()
+
+                # Idempotent migrations for DBs created before the health profile
+                # columns existed. One ALTER per column, each independently safe
+                # to fail with "duplicate column" on a DB that already has it.
+                for column in self.HEALTH_PROFILE_FIELDS:
+                    col_type = "REAL" if column in (
+                        "height_cm", "weight_kg", "vr_experience_hours_estimate",
+                        "gaming_experience_hours_per_week",
+                    ) else ("INTEGER" if column == "age_years" else "TEXT")
+                    try:
+                        conn.execute(f"ALTER TABLE patients ADD COLUMN {column} {col_type}")
+                        conn.commit()
+                    except sqlite3.OperationalError:
+                        pass
             logger.info("Patient registry schema initialized.")
         except sqlite3.Error as e:
             logger.critical(f"Failed to initialize patient registry schema: {e}")
@@ -86,6 +129,17 @@ class PatientManager:
         biological_sex: str = "",
         notes: str = "",
         gdpr_consent_version: str = CURRENT_CONSENT_VERSION,
+        age_years: Optional[int] = None,
+        height_cm: Optional[float] = None,
+        weight_kg: Optional[float] = None,
+        dominant_hand: str = "",
+        vr_experience_level: str = "",
+        vr_experience_hours_estimate: Optional[float] = None,
+        gaming_experience_hours_per_week: Optional[float] = None,
+        vision_correction: str = "",
+        vision_impairment: str = "",
+        motion_sickness_susceptibility: str = "",
+        relevant_health_conditions: str = "",
     ) -> Dict[str, Any]:
         if not display_name or not display_name.strip():
             raise ValueError("display_name is required")
@@ -103,11 +157,22 @@ class PatientManager:
             conn.execute(
                 """INSERT INTO patients (
                     patient_id, display_name, external_ref, date_of_birth,
-                    biological_sex, notes, gdpr_consent_given, gdpr_consent_version,
-                    gdpr_consent_timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+                    biological_sex, notes,
+                    age_years, height_cm, weight_kg, dominant_hand,
+                    vr_experience_level, vr_experience_hours_estimate,
+                    gaming_experience_hours_per_week, vision_correction,
+                    vision_impairment, motion_sickness_susceptibility,
+                    relevant_health_conditions,
+                    gdpr_consent_given, gdpr_consent_version, gdpr_consent_timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
                 (patient_id, display_name.strip(), external_ref, date_of_birth,
-                 biological_sex, notes, gdpr_consent_version, now)
+                 biological_sex, notes,
+                 age_years, height_cm, weight_kg, dominant_hand,
+                 vr_experience_level, vr_experience_hours_estimate,
+                 gaming_experience_hours_per_week, vision_correction,
+                 vision_impairment, motion_sickness_susceptibility,
+                 relevant_health_conditions,
+                 gdpr_consent_version, now)
             )
             conn.commit()
 
@@ -140,7 +205,9 @@ class PatientManager:
         if existing["is_anonymized"]:
             raise ValueError("Cannot edit an anonymized (erased) patient record.")
 
-        editable_fields = {"display_name", "external_ref", "date_of_birth", "biological_sex", "notes"}
+        editable_fields = {
+            "display_name", "external_ref", "date_of_birth", "biological_sex", "notes",
+        } | set(self.HEALTH_PROFILE_FIELDS)
         set_fields = {k: v for k, v in updates.items() if k in editable_fields}
         if not set_fields:
             return existing
@@ -172,6 +239,28 @@ class PatientManager:
 
     # ---------------------------------------------------------------- delete / erasure
 
+    def estimate_age_years(self, patient: Dict[str, Any]) -> Optional[int]:
+        """
+        Effective age for a session's static metadata: derived from date_of_birth
+        when available (most accurate, and stays correct as time passes without
+        the researcher re-entering it), falling back to the self-reported
+        age_years field for protocols that intentionally collect only age
+        (not full DOB) for anonymity, or simply haven't recorded a DOB.
+        """
+        dob = patient.get("date_of_birth")
+        if dob:
+            for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+                try:
+                    born = datetime.strptime(dob[:10], fmt)
+                    today = datetime.utcnow()
+                    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+                    if 0 <= age <= 130:
+                        return age
+                except ValueError:
+                    continue
+        age_years = patient.get("age_years")
+        return int(age_years) if age_years is not None else None
+
     def delete_patient(self, patient_id: str, hard_delete: bool = False) -> bool:
         """
         Default behavior fulfills a right-to-erasure request by scrubbing
@@ -189,11 +278,17 @@ class PatientManager:
                 conn.execute("DELETE FROM patients WHERE patient_id = ?", (patient_id,))
             else:
                 now = datetime.utcnow().isoformat()
+                # Right-to-erasure scrubs the health/demographic profile too — these
+                # are special-category data under the same consent umbrella as the
+                # identifying fields, so an erasure request has to clear all of it,
+                # not just name/DOB/notes.
+                health_reset_clause = ", ".join(f"{col} = NULL" for col in self.HEALTH_PROFILE_FIELDS)
                 conn.execute(
-                    """UPDATE patients SET
+                    f"""UPDATE patients SET
                         display_name = '[ERASED]', external_ref = '', date_of_birth = '',
                         biological_sex = '', notes = '', is_anonymized = 1,
-                        gdpr_consent_given = 0, updated_at = ?
+                        gdpr_consent_given = 0, updated_at = ?,
+                        {health_reset_clause}
                        WHERE patient_id = ?""",
                     (now, patient_id)
                 )

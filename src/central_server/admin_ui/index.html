@@ -1,44 +1,75 @@
-<!-- src/central_server/admin_ui/index.html -->
 <!doctype html>
-<html>
+<html lang="en" class="dark">
 <head>
   <meta charset="utf-8" />
   <title>VRTelemetry — Admin Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            slate: { 850: '#151e2e' }
+          }
+        }
+      }
+    }
+  </script>
   <style>
-    body { font-family: -apple-system, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 32px; }
-    h1 { font-size: 20px; margin-bottom: 4px; }
-    .sub { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
-    .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin: 0 0 14px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #334155; }
-    th { color: #94a3b8; font-weight: 500; }
-    .badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
-    .badge.active { background: #064e3b; color: #6ee7b7; }
-    .badge.revoked { background: #450a0a; color: #fca5a5; }
-    .badge.admin { background: #1e3a8a; color: #93c5fd; }
-    .badge.researcher { background: #334155; color: #cbd5e1; }
-    input, select { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 8px; border-radius: 6px; font-size: 13px; margin-right: 8px; }
-    button { background: #2563eb; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-    button:hover { background: #1d4ed8; }
-    button.danger { background: #dc2626; }
-    button.danger:hover { background: #b91c1c; }
-    .login-box { max-width: 360px; margin: 80px auto; }
-    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-    .error { color: #fca5a5; font-size: 13px; margin-top: 8px; }
-    input::placeholder { color: #64748b; opacity: 1; }
-    .field { display: flex; flex-direction: column; gap: 4px; }
-    .field label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
+    /* Custom scrollbar for tables */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    .toast-enter { animation: slideIn 0.3s ease-out forwards; }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { color: #e2e8f0; }
+    th.sortable .sort-arrow { opacity: 0.4; margin-left: 4px; font-size: 10px; }
+    th.sortable.sort-active .sort-arrow { opacity: 1; color: #60a5fa; }
+
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 9999px; }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.7);
+      display: flex; align-items: center; justify-content: center; z-index: 60;
+    }
   </style>
 </head>
-<body>
-  <div id="app"></div>
+<body class="bg-slate-900 text-slate-200 font-sans antialiased overflow-hidden">
+  <div id="app" class="h-screen w-full flex"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+  <div id="modal-container"></div>
 
   <script>
     const API = window.location.origin;
     let sessionToken = localStorage.getItem('admin_session_token') || null;
     let currentUser = null;
+    let activeTab = 'clients';
 
+    // Cached raw rows per tab, so client-side search/sort never re-fetches.
+    const tableState = {
+      clients:  { rows: [], sortKey: 'last_seen_at', sortDir: 'desc', query: '' },
+      licenses: { rows: [], sortKey: 'issued_at',    sortDir: 'desc', query: '' },
+      users:    { rows: [], sortKey: 'created_at',   sortDir: 'desc', query: '' },
+      sessions: { rows: [], sortKey: 'received_at',  sortDir: 'desc', query: '', filterLicense: '' },
+      patients: { rows: [], sortKey: 'last_updated_at', sortDir: 'desc', query: '', filterLicense: '' },
+      files:    { rows: [], sortKey: 'last_modified', sortDir: 'desc', query: '' },
+    };
+    let allLicenses = []; // used to populate license filter dropdowns
+    let clientsAutoRefresh = null;
+
+    // --- API Wrapper ---
     async function api(path, opts = {}) {
       const headers = opts.headers || {};
       if (sessionToken && path.startsWith('/admin')) headers['X-Session-Token'] = sessionToken;
@@ -50,104 +81,358 @@
       return res.json();
     }
 
+    // --- Toast Notifications ---
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const bg = type === 'success' ? 'bg-emerald-900/90 border-emerald-700 text-emerald-200' : 'bg-red-900/90 border-red-700 text-red-200';
+      toast.className = `toast-enter ${bg} border px-4 py-3 rounded-lg shadow-lg text-sm flex items-center gap-3`;
+      toast.innerHTML = `
+        <span class="block">${escapeHtml(message)}</span>
+        <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white">&times;</button>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => { if (toast.parentElement) toast.remove(); }, 4000);
+    }
+
+    function escapeHtml(s) {
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    }
+
+    function fmtDate(v) {
+      if (!v) return '<span class="text-slate-500">—</span>';
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return escapeHtml(v);
+      return d.toLocaleString();
+    }
+
+    function relativeTime(seconds) {
+      if (seconds === null || seconds === undefined) return 'never';
+      if (seconds < 5) return 'just now';
+      if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+      return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+      if (!+bytes) return '0 Bytes';
+      const k = 1024, dm = decimals < 0 ? 0 : decimals, sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function badge(text, color) {
+      const colors = {
+        green: 'bg-emerald-900/50 text-emerald-400 border-emerald-800',
+        red: 'bg-red-900/50 text-red-400 border-red-800',
+        slate: 'bg-slate-700 text-slate-300 border-slate-600',
+        purple: 'bg-purple-900/50 text-purple-400 border-purple-800',
+        amber: 'bg-amber-900/50 text-amber-400 border-amber-800',
+        blue: 'bg-blue-900/50 text-blue-400 border-blue-800',
+      };
+      return `<span class="px-2.5 py-1 rounded-full text-xs font-medium border ${colors[color] || colors.slate}">${escapeHtml(text)}</span>`;
+    }
+
+    // --- Generic modal JSON / detail viewer ("no data hidden") ---
+    function showDetailModal(title, obj) {
+      const container = document.getElementById('modal-container');
+      let pretty;
+      try { pretty = JSON.stringify(obj, null, 2); } catch (e) { pretty = String(obj); }
+      container.innerHTML = `
+        <div class="modal-backdrop" onclick="if(event.target===this) this.remove()">
+          <div class="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <h3 class="font-semibold text-slate-100">${escapeHtml(title)}</h3>
+              <button onclick="document.getElementById('modal-container').innerHTML=''" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <pre class="p-5 overflow-auto text-xs text-slate-300 font-mono whitespace-pre-wrap">${escapeHtml(pretty)}</pre>
+          </div>
+        </div>`;
+    }
+
+    // --- Generic sortable/filterable DataTable renderer ---
+    // columns: [{ key, label, sortable=true, render(row) -> html string, sortValue(row) -> comparable }]
+    function renderDataTable(tabId, columns, extraFilterHtml = '') {
+      const state = tableState[tabId];
+      return `
+        <div class="flex flex-wrap gap-3 justify-between items-center mb-4">
+          <div class="flex gap-2 items-center flex-wrap">
+            <input id="${tabId}-search" type="text" placeholder="Search / filter..."
+                   value="${escapeHtml(state.query)}"
+                   oninput="onTableSearch('${tabId}', this.value)"
+                   class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm w-56 focus:border-blue-500 outline-none" />
+            ${extraFilterHtml}
+          </div>
+          <button onclick="refreshTab('${tabId}')" class="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors">Refresh</button>
+        </div>
+        <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+          <div class="overflow-x-auto">
+            <table id="${tabId}-table" class="w-full text-sm text-left">
+              <thead class="text-xs text-slate-400 uppercase bg-slate-850/50 border-b border-slate-700">
+                <tr>
+                  ${columns.map(c => `
+                    <th class="px-6 py-3 font-medium ${c.sortable === false ? '' : 'sortable'} ${state.sortKey === c.key ? 'sort-active' : ''}"
+                        ${c.sortable === false ? '' : `onclick="onTableSort('${tabId}', '${c.key}')"`}>
+                      ${escapeHtml(c.label)}${c.sortable === false ? '' : `<span class="sort-arrow">${state.sortKey === c.key ? (state.sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>`}
+                    </th>`).join('')}
+                </tr>
+              </thead>
+              <tbody id="${tabId}-tbody" class="divide-y divide-slate-700/50"></tbody>
+            </table>
+          </div>
+        </div>
+        <p id="${tabId}-count" class="text-xs text-slate-500 mt-2"></p>`;
+    }
+
+    function matchesQuery(row, query) {
+      if (!query) return true;
+      const q = query.toLowerCase();
+      return JSON.stringify(row).toLowerCase().includes(q);
+    }
+
+    function getSortValue(col, row) {
+      if (col.sortValue) return col.sortValue(row);
+      const v = row[col.key];
+      return v === null || v === undefined ? '' : v;
+    }
+
+    function renderTableBody(tabId, columns, extraFilter) {
+      const state = tableState[tabId];
+      let rows = state.rows.filter(r => matchesQuery(r, state.query));
+      if (extraFilter) rows = rows.filter(extraFilter);
+
+      const col = columns.find(c => c.key === state.sortKey);
+      if (col) {
+        rows = rows.slice().sort((a, b) => {
+          const av = getSortValue(col, a), bv = getSortValue(col, b);
+          if (av < bv) return state.sortDir === 'asc' ? -1 : 1;
+          if (av > bv) return state.sortDir === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+
+      const tbody = document.getElementById(`${tabId}-tbody`);
+      if (!tbody) return;
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${columns.length}" class="px-6 py-8 text-center text-slate-500">No matching rows.</td></tr>`;
+      } else {
+        tbody.innerHTML = rows.map(r => `<tr class="hover:bg-slate-750 transition-colors">${
+          columns.map(c => `<td class="px-6 py-4 align-top ${c.className || ''}">${c.render ? c.render(r) : escapeHtml(r[c.key])}</td>`).join('')
+        }</tr>`).join('');
+      }
+      const countEl = document.getElementById(`${tabId}-count`);
+      if (countEl) countEl.textContent = `${rows.length} of ${state.rows.length} row(s) shown`;
+
+      // refresh header sort indicators
+      document.querySelectorAll(`#${tabId}-table thead th.sortable`).forEach(th => th.classList.remove('sort-active'));
+    }
+
+    function onTableSearch(tabId, value) {
+      tableState[tabId].query = value;
+      rerenderTab(tabId);
+    }
+
+    function onTableSort(tabId, key) {
+      const state = tableState[tabId];
+      if (state.sortKey === key) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortKey = key;
+        state.sortDir = 'asc';
+      }
+      render(); // re-render whole tab so header arrows/sort-active classes update too
+      switchTab(activeTab, /*skipReload*/ true);
+    }
+
+    function rerenderTab(tabId) {
+      const renderers = {
+        clients: () => renderTableBody('clients', clientsColumns()),
+        licenses: () => renderTableBody('licenses', licensesColumns()),
+        users: () => renderTableBody('users', usersColumns()),
+        sessions: () => renderTableBody('sessions', sessionsColumns(), sessionsExtraFilter()),
+        patients: () => renderTableBody('patients', patientsColumns(), patientsExtraFilter()),
+        files: () => renderTableBody('files', filesColumns()),
+      };
+      if (renderers[tabId]) renderers[tabId]();
+    }
+
+    // --- Rendering Logic ---
     function render() {
       const el = document.getElementById('app');
       if (!sessionToken || !currentUser) {
-        el.innerHTML = `
-          <div class="login-box">
-            <h1>Admin Console</h1>
-            <p class="sub">Sign in with an admin account</p>
-            <div class="card">
-              <div class="row"><input id="email" placeholder="Email" style="flex:1" /></div>
-              <div class="row"><input id="password" type="password" placeholder="Password" style="flex:1" /></div>
-              <button onclick="doLogin()">Sign In</button>
-              <div id="login-error" class="error"></div>
-            </div>
-          </div>`;
+        el.innerHTML = renderLogin();
         return;
       }
-
-      el.innerHTML = `
-        <h1>VRTelemetry Admin Console</h1>
-        <p class="sub">Signed in as ${currentUser.email} · <a href="#" onclick="doLogout()" style="color:#93c5fd">Sign out</a></p>
-
-        <div class="card">
-          <h2>Issue New License</h2>
-            <div class="row" style="align-items:flex-end;">
-            <div class="field">
-                <label>Researcher Email</label>
-                <input id="lic-email" placeholder="researcher@lab.edu" />
-            </div>
-            <div class="field">
-                <label>Organization</label>
-                <input id="lic-org" placeholder="Lab name" />
-            </div>
-            <div class="field">
-                <label>Seats</label>
-                <input id="lic-seats" type="number" value="1" style="width:70px" />
-            </div>
-            <div class="field">
-                <label>Days Valid</label>
-                <input id="lic-days" type="number" value="365" style="width:90px" />
-            </div>
-            <button onclick="createLicense()">Issue License</button>
-            </div>
-            <div id="issue-result"></div>
-        </div>
-
-        <div class="card">
-          <h2>Licenses</h2>
-          <table id="licenses-table"><thead><tr>
-            <th>Key</th><th>Owner</th><th>Org</th><th>Seats</th><th>Status</th><th>Expires</th><th></th>
-          </tr></thead><tbody></tbody></table>
-        </div>
-
-        <div class="card">
-          <h2>Users</h2>
-          <table id="users-table"><thead><tr>
-            <th>Email</th><th>Name</th><th>Org</th><th>Role</th><th>Joined</th><th></th>
-          </tr></thead><tbody></tbody></table>
-        </div>
-
-        <div class="card">
-          <h2>Uploaded Sessions</h2>
-          <table id="sessions-table"><thead><tr>
-            <th>Session ID</th><th>Subject</th><th>Machine</th><th>Frames</th><th>Received</th><th></th>
-          </tr></thead><tbody></tbody></table>
-        </div>
-      `;
-      loadLicenses();
-      loadUsers();
-      loadSessions();
+      el.innerHTML = renderLayout();
     }
 
-    async function doLogin() {
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
+    function renderLogin() {
+      return `
+        <div class="m-auto w-full max-w-md p-8 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl">
+          <div class="mb-8 text-center">
+            <h1 class="text-2xl font-bold text-white mb-2">VRTelemetry Admin</h1>
+            <p class="text-slate-400 text-sm">Sign in to access the control panel</p>
+          </div>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Email</label>
+              <input id="email" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="admin@vrtelemetry.com" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Password</label>
+              <input id="password" type="password" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="••••••••" />
+            </div>
+            <button onclick="doLogin()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg transition-colors mt-2">Sign In</button>
+            <div id="login-error" class="text-red-400 text-sm text-center mt-4 hidden"></div>
+          </div>
+        </div>`;
+    }
+
+    function renderLayout() {
+      return `
+        <!-- Sidebar -->
+        <aside class="w-64 bg-slate-850 border-r border-slate-800 flex flex-col">
+          <div class="p-6 border-b border-slate-800">
+            <h1 class="text-lg font-bold text-white tracking-tight">VRTelemetry</h1>
+            <p class="text-xs text-slate-400 mt-1 truncate">${escapeHtml(currentUser.email)}</p>
+          </div>
+          <nav class="flex-1 p-4 space-y-1">
+            ${renderNavBtn('clients', 'Active Clients')}
+            ${renderNavBtn('licenses', 'Licenses & Issuance')}
+            ${renderNavBtn('users', 'User Management')}
+            ${renderNavBtn('sessions', 'Telemetry Sessions')}
+            ${renderNavBtn('patients', 'Patient Registry')}
+            ${renderNavBtn('files', 'Raw Data Files')}
+          </nav>
+          <div class="p-4 border-t border-slate-800">
+            <button onclick="doLogout()" class="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">Sign Out</button>
+          </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col bg-slate-900 overflow-hidden">
+          <header class="h-16 border-b border-slate-800 flex items-center px-8 bg-slate-900/50 backdrop-blur-sm z-10">
+            <h2 id="page-title" class="text-lg font-semibold text-slate-100"></h2>
+          </header>
+          <div class="flex-1 overflow-auto p-8">
+            <div id="tab-clients" class="tab-content hidden space-y-6">${renderClientsTab()}</div>
+            <div id="tab-licenses" class="tab-content hidden space-y-6">${renderLicensesTab()}</div>
+            <div id="tab-users" class="tab-content hidden space-y-6">${renderUsersTab()}</div>
+            <div id="tab-sessions" class="tab-content hidden space-y-6">${renderSessionsTab()}</div>
+            <div id="tab-patients" class="tab-content hidden space-y-6">${renderPatientsTab()}</div>
+            <div id="tab-files" class="tab-content hidden space-y-6">${renderFilesTab()}</div>
+          </div>
+        </main>`;
+    }
+
+    function renderNavBtn(id, label) {
+      return `<button id="nav-${id}" onclick="switchTab('${id}')" class="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-400 hover:bg-slate-800 hover:text-slate-200">${label}</button>`;
+    }
+
+    // ==========================================================
+    // --- Active Clients Tab ---
+    // ==========================================================
+    function renderClientsTab() {
+      return `
+        <div class="flex items-center gap-2 text-sm text-slate-400 mb-2">
+          <span class="dot bg-emerald-400"></span> Online (heartbeat within 90s)
+          <span class="dot bg-slate-500 ml-4"></span> Offline
+          <span class="ml-auto text-xs text-slate-500">Auto-refreshes every 10s while this tab is open</span>
+        </div>
+        ${renderDataTable('clients', clientsColumns())}`;
+    }
+
+    function clientsColumns() {
+      return [
+        { key: 'online', label: 'Status', sortValue: r => r.online ? 1 : 0, render: r => r.online
+            ? `<span class="flex items-center gap-2">${badge('Online', 'green')}</span>`
+            : `<span class="flex items-center gap-2">${badge('Offline', 'slate')}</span>` },
+        { key: 'machine_label', label: 'Machine', render: r => `
+            <div class="font-medium text-slate-200">${escapeHtml(r.machine_label) || '<span class="text-slate-500">Unlabeled</span>'}</div>
+            <div class="font-mono text-[10px] text-slate-500 mt-0.5">${escapeHtml(r.activation_id)}</div>` },
+        { key: 'org_name', label: 'Org / Owner', render: r => `
+            <div>${escapeHtml(r.org_name) || '<span class="text-slate-500">—</span>'}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(r.owner_email) || ''}</div>` },
+        { key: 'license_key', label: 'License', render: r => `<span class="font-mono text-xs text-blue-300">${escapeHtml(r.license_key) || '—'}</span>` },
+        { key: 'status', label: 'App State', render: r => badge(r.status || 'unknown', r.status === 'recording' ? 'amber' : (r.status === 'idle' ? 'blue' : 'slate')) },
+        { key: 'pending_sync_count', label: 'Pending Sync', render: r => r.pending_sync_count > 0 ? badge(r.pending_sync_count, 'amber') : '0' },
+        { key: 'os_platform', label: 'OS' },
+        { key: 'app_version', label: 'Version' },
+        { key: 'ip_address', label: 'IP Address' },
+        { key: 'last_seen_at', label: 'Last Seen', render: r => `
+            <div>${relativeTime(r.seconds_since_seen)}</div>
+            <div class="text-xs text-slate-500">${fmtDate(r.last_seen_at)}</div>` },
+        { key: 'is_revoked', label: 'Revoked', sortValue: r => r.is_revoked ? 1 : 0, render: r => r.is_revoked ? badge('Revoked', 'red') : '' },
+      ];
+    }
+
+    async function loadClients() {
       try {
-        const data = await api('/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ email, password }),
-        });
-        if (data.role !== 'admin') {
-          document.getElementById('login-error').textContent = 'This account does not have admin privileges.';
-          return;
-        }
-        sessionToken = data.session_token;
-        currentUser = data;
-        localStorage.setItem('admin_session_token', sessionToken);
-        render();
-      } catch (e) {
-        document.getElementById('login-error').textContent = e.message;
-      }
+        tableState.clients.rows = await api('/admin/clients');
+        rerenderTab('clients');
+      } catch (e) { showToast('Failed to load active clients', 'error'); }
     }
 
-    function doLogout() {
-      sessionToken = null;
-      currentUser = null;
-      localStorage.removeItem('admin_session_token');
-      render();
+    // ==========================================================
+    // --- Licenses Tab ---
+    // ==========================================================
+    function renderLicensesTab() {
+      return `
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Issue New License</h3>
+          <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+            <div class="col-span-1 md:col-span-2">
+              <label class="block text-xs text-slate-400 mb-1">Researcher Email</label>
+              <input id="lic-email" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none" placeholder="researcher@lab.edu" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Organization</label>
+              <input id="lic-org" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none" placeholder="Lab Name" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Seats / Days</label>
+              <div class="flex gap-2">
+                <input id="lic-seats" type="number" value="1" class="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-sm focus:border-blue-500 outline-none text-center" />
+                <input id="lic-days" type="number" value="365" class="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-sm focus:border-blue-500 outline-none text-center" />
+              </div>
+            </div>
+            <button onclick="createLicense()" class="bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg transition-colors h-[38px]">Issue Key</button>
+          </div>
+        </div>
+        ${renderDataTable('licenses', licensesColumns())}`;
+    }
+
+    function licensesColumns() {
+      return [
+        { key: 'license_key', label: 'License Key', render: r => `<span class="font-mono text-xs text-blue-300">${escapeHtml(r.license_key)}</span>` },
+        { key: 'owner_email', label: 'Owner', render: r => escapeHtml(r.owner_email) || '<span class="text-slate-500">—</span>' },
+        { key: 'org_name', label: 'Org', render: r => escapeHtml(r.org_name) || '<span class="text-slate-500">—</span>' },
+        { key: 'plan', label: 'Plan' },
+        { key: 'active_seats', label: 'Seats', sortValue: r => r.active_seats, render: r => `${r.active_seats} / ${r.max_seats}` },
+        { key: 'status', label: 'Status', render: r => badge(r.status, r.status === 'active' ? 'green' : 'red') },
+        { key: 'issued_at', label: 'Issued', render: r => fmtDate(r.issued_at) },
+        { key: 'expires_at', label: 'Expires', render: r => fmtDate(r.expires_at) },
+        { key: 'revoked_reason', label: 'Revoked Reason', render: r => escapeHtml(r.revoked_reason) || '<span class="text-slate-500">—</span>' },
+        { key: 'license_id', label: 'License ID', render: r => `<span class="font-mono text-[10px] text-slate-500">${escapeHtml(r.license_id)}</span>` },
+        { key: '_actions', label: 'Actions', sortable: false, render: r => `
+            <div class="text-right space-x-2 whitespace-nowrap">
+              <button onclick="extendLicense('${r.license_key}')" class="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded transition-colors">Extend</button>
+              ${r.status === 'active' ? `<button onclick="revokeLicense('${r.license_key}')" class="text-xs bg-red-900/80 hover:bg-red-800 text-red-100 px-2 py-1 rounded transition-colors">Revoke</button>` : ''}
+            </div>` },
+      ];
+    }
+
+    async function loadLicenses() {
+      try {
+        tableState.licenses.rows = await api('/admin/licenses');
+        allLicenses = tableState.licenses.rows;
+        rerenderTab('licenses');
+        populateLicenseFilters();
+      } catch (e) { showToast('Failed to load licenses', 'error'); }
     }
 
     async function createLicense() {
@@ -161,92 +446,381 @@
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ email, org_name, max_seats, expires_in_days }),
         });
-        document.getElementById('issue-result').innerHTML =
-          `<p style="color:#6ee7b7">Issued: <code>${data.license_key}</code></p>`;
+        showToast(`License created: ${data.license_key}`);
+        document.getElementById('lic-email').value = '';
         loadLicenses();
-      } catch (e) {
-        document.getElementById('issue-result').innerHTML = `<p class="error">${e.message}</p>`;
-      }
-    }
-
-    async function loadLicenses() {
-      const rows = await api('/admin/licenses');
-      document.querySelector('#licenses-table tbody').innerHTML = rows.map(l => `
-        <tr>
-          <td><code>${l.license_key}</code></td>
-          <td>${l.owner_email || '—'}</td>
-          <td>${l.org_name || '—'}</td>
-          <td>${l.active_seats}/${l.max_seats}</td>
-          <td><span class="badge ${l.status === 'active' ? 'active' : 'revoked'}">${l.status}</span></td>
-          <td>${l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never'}</td>
-          <td>${l.status === 'active' ? `<button class="danger" onclick="revokeLicense('${l.license_key}')">Revoke</button>` : ''}<button onclick="extendLicense('${l.license_key}')" style="margin-left:6px;background:#334155">Extend</button></td>
-        </tr>`).join('');
+      } catch (e) { showToast(e.message, 'error'); }
     }
 
     async function revokeLicense(key) {
-      const reason = prompt('Reason for revoking this license?') || '';
-      await api('/admin/license/revoke', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ license_key: key, reason }),
-      });
-      loadLicenses();
+      const reason = prompt('Reason for revoking this license?');
+      if (reason === null) return;
+      try {
+        await api('/admin/license/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ license_key: key, reason }),
+        });
+        showToast('License revoked');
+        loadLicenses();
+      } catch (e) { showToast(e.message, 'error'); }
     }
+
     async function extendLicense(key) {
-        const days = prompt('How many days to add to this license?', '30');
-        if (!days || isNaN(parseInt(days))) return;
-        try {
-            await api('/admin/license/extend', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ license_key: key, additional_days: days }),
-            });
-            loadLicenses();
-        } catch (e) {
-            alert('Failed to extend license: ' + e.message);
-        }
+      const days = prompt('How many days to add to this license?', '30');
+      if (!days || isNaN(parseInt(days))) return;
+      try {
+        await api('/admin/license/extend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ license_key: key, additional_days: days }),
+        });
+        showToast(`License extended by ${days} days`);
+        loadLicenses();
+      } catch (e) { showToast(e.message, 'error'); }
+    }
+
+    // ==========================================================
+    // --- Users Tab ---
+    // ==========================================================
+    function renderUsersTab() {
+      return renderDataTable('users', usersColumns());
+    }
+
+    function usersColumns() {
+      return [
+        { key: 'email', label: 'Email', render: r => `<span class="font-medium text-slate-200">${escapeHtml(r.email)}</span>` },
+        { key: 'display_name', label: 'Name', render: r => escapeHtml(r.display_name) || '<span class="text-slate-500">—</span>' },
+        { key: 'org_name', label: 'Org', render: r => escapeHtml(r.org_name) || '<span class="text-slate-500">—</span>' },
+        { key: 'role', label: 'Role', render: r => badge(r.role, r.role === 'admin' ? 'purple' : 'slate') },
+        { key: 'user_id', label: 'User ID', render: r => `<span class="font-mono text-[10px] text-slate-500">${escapeHtml(r.user_id)}</span>` },
+        { key: 'created_at', label: 'Joined', render: r => fmtDate(r.created_at) },
+        { key: '_actions', label: 'Actions', sortable: false, render: r => `
+            <div class="text-right whitespace-nowrap">
+              ${r.role === 'admin'
+                ? `<button onclick="setRole('${r.user_id}','researcher')" class="text-xs text-slate-400 hover:text-white">Demote</button>`
+                : `<button onclick="setRole('${r.user_id}','admin')" class="text-xs text-purple-400 hover:text-purple-300">Promote to Admin</button>`}
+            </div>` },
+      ];
     }
 
     async function loadUsers() {
-      const rows = await api('/admin/users');
-      document.querySelector('#users-table tbody').innerHTML = rows.map(u => `
-        <tr>
-          <td>${u.email}</td>
-          <td>${u.display_name || '—'}</td>
-          <td>${u.org_name || '—'}</td>
-          <td><span class="badge ${u.role}">${u.role}</span></td>
-          <td>${new Date(u.created_at).toLocaleDateString()}</td>
-          <td>${u.role === 'admin'
-            ? `<button onclick="setRole('${u.user_id}','researcher')">Demote</button>`
-            : `<button onclick="setRole('${u.user_id}','admin')">Promote to Admin</button>`}</td>
-        </tr>`).join('');
+      try {
+        tableState.users.rows = await api('/admin/users');
+        rerenderTab('users');
+      } catch (e) { showToast('Failed to load users', 'error'); }
     }
 
     async function setRole(userId, role) {
-      await api('/admin/users/set-role', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ target_user_id: userId, role }),
+      try {
+        await api('/admin/users/set-role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ target_user_id: userId, role }),
+        });
+        showToast(`User role updated to ${role}`);
+        loadUsers();
+      } catch (e) { showToast(e.message, 'error'); }
+    }
+
+    // ==========================================================
+    // --- Sessions Tab ---
+    // ==========================================================
+    function renderSessionsTab() {
+      const filterHtml = `
+        <select id="sessions-license-filter" onchange="onSessionsLicenseFilter(this.value)"
+                class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:border-blue-500 outline-none">
+          <option value="">All licenses</option>
+        </select>`;
+      return renderDataTable('sessions', sessionsColumns(), filterHtml);
+    }
+
+    function sessionsColumns() {
+      return [
+        { key: 'session_id', label: 'Session ID', render: r => `<span class="font-mono text-xs text-slate-400">${escapeHtml(r.session_id)}</span>` },
+        { key: 'subject_id', label: 'Subject', render: r => escapeHtml(r.subject_id) || '<span class="text-slate-500">—</span>' },
+        { key: 'patient_id', label: 'Patient ID', render: r => r.patient_id ? `<span class="font-mono text-[10px] text-blue-300">${escapeHtml(r.patient_id)}</span>` : '<span class="text-slate-500">—</span>' },
+        { key: 'machine_label', label: 'Machine', render: r => escapeHtml(r.machine_label) || '<span class="text-slate-500">—</span>' },
+        { key: 'license_id', label: 'License', render: r => licenseBadgeFor(r.license_id) },
+        { key: 'total_frames', label: 'Frames', render: r => r.total_frames ?? '<span class="text-slate-500">—</span>' },
+        { key: 'duration_sec', label: 'Duration', render: r => r.duration_sec != null ? `${Number(r.duration_sec).toFixed(1)}s` : '<span class="text-slate-500">—</span>' },
+        { key: 'file_size_bytes', label: 'File Size', render: r => formatBytes(r.file_size_bytes) },
+        { key: 'verified', label: 'Verified', sortValue: r => r.verified ? 1 : 0, render: r => r.verified ? badge('OK', 'green') : badge('Unverified', 'amber') },
+        { key: 'received_at', label: 'Received', render: r => fmtDate(r.received_at) },
+        { key: '_actions', label: 'Actions', sortable: false, render: r => `
+            <div class="text-right space-x-3 whitespace-nowrap">
+              <button onclick='showDetailModal("Session metadata — ${escapeHtml(r.session_id)}", ${escapeHtml(JSON.stringify(safeParseJson(r.metadata_json)))})' class="text-slate-300 hover:text-white text-sm font-medium">Metadata</button>
+              <a href="${API}/admin/sessions/${r.upload_id}/download" class="text-blue-400 hover:text-blue-300 text-sm font-medium">Parquet</a>
+              <a href="${API}/admin/sessions/${r.session_id}/log?license_id=${encodeURIComponent(r.license_id)}" class="text-blue-400 hover:text-blue-300 text-sm font-medium">Log</a>
+            </div>` },
+      ];
+    }
+
+    function safeParseJson(s) {
+      if (!s) return {};
+      try { return JSON.parse(s); } catch (e) { return { raw: s }; }
+    }
+
+    function licenseBadgeFor(licenseId) {
+      const lic = allLicenses.find(l => l.license_id === licenseId);
+      const label = lic ? lic.license_key : (licenseId || '—');
+      return `<span class="font-mono text-xs text-slate-400" title="${escapeHtml(licenseId || '')}">${escapeHtml(label)}</span>`;
+    }
+
+    function populateLicenseFilters() {
+      const opts = allLicenses.map(l => `<option value="${escapeHtml(l.license_id)}">${escapeHtml(l.license_key)} (${escapeHtml(l.org_name || l.owner_email || '')})</option>`).join('');
+      ['sessions-license-filter', 'patients-license-filter'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          const current = el.value;
+          el.innerHTML = `<option value="">All licenses</option>${opts}`;
+          el.value = current;
+        }
       });
-      loadUsers();
     }
 
-    async function loadSessions() {
-      const rows = await api('/admin/sessions');
-      document.querySelector('#sessions-table tbody').innerHTML = rows.map(s => `
-        <tr>
-          <td><code>${s.session_id}</code></td>
-          <td>${s.subject_id || '—'}</td>
-          <td>${s.machine_label || '—'}</td>
-          <td>${s.total_frames ?? '—'}</td>
-          <td>${new Date(s.received_at).toLocaleString()}</td>
-          <td><a href="${API}/admin/sessions/${s.upload_id}/download" style="color:#93c5fd">Download</a></td>
-        </tr>`).join('');
+    function onSessionsLicenseFilter(value) {
+      tableState.sessions.filterLicense = value;
+      rerenderTab('sessions');
     }
 
+    function sessionsExtraFilter() {
+      const lic = tableState.sessions.filterLicense;
+      return lic ? (r => r.license_id === lic) : null;
+    }
+
+    async function loadSessions(filterPatientId = null) {
+      try {
+        tableState.sessions.rows = await api('/admin/sessions');
+        if (filterPatientId) {
+          tableState.sessions.query = filterPatientId;
+          const searchEl = document.getElementById('sessions-search');
+          if (searchEl) searchEl.value = filterPatientId;
+        }
+        rerenderTab('sessions');
+      } catch (e) { showToast('Failed to load sessions', 'error'); }
+    }
+
+    function viewPatientSessions(patientId) {
+      switchTab('sessions');
+      loadSessions(patientId);
+      document.getElementById('page-title').textContent = `Telemetry Sessions (Filtered: ${patientId})`;
+    }
+
+    // ==========================================================
+    // --- Patients Tab ---
+    // ==========================================================
+    function renderPatientsTab() {
+      const filterHtml = `
+        <select id="patients-license-filter" onchange="onPatientsLicenseFilter(this.value)"
+                class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:border-blue-500 outline-none">
+          <option value="">All licenses</option>
+        </select>`;
+      return `
+        <p class="text-sm text-slate-400 mb-4">Every subject synced centrally from any researcher machine — GDPR consent/erasure status plus the self-reported health &amp; demographic profile (age, height/weight, dominant hand, VR/gaming experience, vision, motion-sickness susceptibility) used to enrich telemetry analysis. Click "Full Record" on any row for everything, including free-text health notes.</p>
+        ${renderDataTable('patients', patientsColumns(), filterHtml)}`;
+    }
+
+    function patientsColumns() {
+      return [
+        { key: 'display_name', label: 'Patient', render: r => `
+            <div class="font-medium text-slate-200">${escapeHtml(r.is_anonymized ? '[Erased Patient]' : (r.display_name || 'Unknown'))}</div>
+            <div class="font-mono text-[10px] text-blue-300 mt-0.5">${escapeHtml(r.patient_id)}</div>` },
+        { key: 'external_ref', label: 'External Ref', render: r => escapeHtml(r.external_ref) || '<span class="text-slate-500">—</span>' },
+        { key: 'date_of_birth', label: 'DOB', render: r => escapeHtml(r.date_of_birth) || '<span class="text-slate-500">—</span>' },
+        { key: 'age_years', label: 'Age', render: r => r.age_years ?? '<span class="text-slate-500">—</span>' },
+        { key: 'biological_sex', label: 'Sex', render: r => escapeHtml(r.biological_sex) || '<span class="text-slate-500">—</span>' },
+        { key: 'height_cm', label: 'Height / Weight', render: r => {
+            const h = r.height_cm != null ? `${r.height_cm} cm` : '—';
+            const w = r.weight_kg != null ? `${r.weight_kg} kg` : '—';
+            return `<span class="text-slate-300">${h} / ${w}</span>`;
+          } },
+        { key: 'dominant_hand', label: 'Hand', render: r => escapeHtml(r.dominant_hand) || '<span class="text-slate-500">—</span>' },
+        { key: 'vr_experience_level', label: 'VR Experience', render: r => {
+            if (!r.vr_experience_level) return '<span class="text-slate-500">—</span>';
+            const hrs = r.vr_experience_hours_estimate != null ? ` (~${r.vr_experience_hours_estimate}h)` : '';
+            return `${badge(r.vr_experience_level, 'blue')}<span class="text-xs text-slate-500 ml-1">${hrs}</span>`;
+          } },
+        { key: 'vision_correction', label: 'Vision', render: r => {
+            const corr = escapeHtml(r.vision_correction) || 'unknown';
+            const imp = r.vision_impairment ? ` · ${escapeHtml(r.vision_impairment)}` : '';
+            return `<span class="text-slate-300">${corr}${imp}</span>`;
+          } },
+        { key: 'motion_sickness_susceptibility', label: 'Motion Sickness', render: r => {
+            if (!r.motion_sickness_susceptibility) return '<span class="text-slate-500">—</span>';
+            const colorMap = { none: 'green', mild: 'blue', moderate: 'amber', severe: 'red' };
+            return badge(r.motion_sickness_susceptibility, colorMap[r.motion_sickness_susceptibility] || 'slate');
+          } },
+        { key: 'relevant_health_conditions', label: 'Health Notes', render: r => r.relevant_health_conditions
+            ? `<span class="text-xs text-amber-300" title="${escapeHtml(r.relevant_health_conditions)}">${escapeHtml(r.relevant_health_conditions.slice(0, 40))}${r.relevant_health_conditions.length > 40 ? '…' : ''}</span>`
+            : '<span class="text-slate-500">—</span>' },
+        { key: 'license_id', label: 'License', render: r => licenseBadgeFor(r.license_id) },
+        { key: 'gdpr_consent_given', label: 'Consent', sortValue: r => r.gdpr_consent_given ? 1 : 0, render: r => {
+            if (r.gdpr_consent_withdrawn_at) return badge('Withdrawn', 'red');
+            return r.gdpr_consent_given ? badge('Given', 'green') : badge('Not Given', 'amber');
+          } },
+        { key: 'is_anonymized', label: 'Status', sortValue: r => r.is_anonymized ? 1 : 0, render: r => r.is_anonymized ? badge('Anonymized', 'slate') : badge('Active', 'green') },
+        { key: 'session_count', label: 'Sessions', render: r => r.session_count || 0 },
+        { key: 'last_session_at', label: 'Last Session', render: r => fmtDate(r.last_session_at) },
+        { key: 'last_updated_at', label: 'Last Synced', render: r => fmtDate(r.last_updated_at) },
+        { key: '_actions', label: 'Actions', sortable: false, render: r => `
+            <div class="text-right space-x-3 whitespace-nowrap">
+              <button onclick="viewPatientSessions('${r.patient_id}')" class="text-blue-400 hover:text-blue-300 text-sm font-medium">View Sessions</button>
+              <button onclick='showDetailModal("Patient record — ${escapeHtml(r.patient_id)}", ${escapeHtml(JSON.stringify(safeParseJson(r.raw_json)))})' class="text-slate-300 hover:text-white text-sm font-medium">Full Record</button>
+            </div>` },
+      ];
+    }
+
+    function onPatientsLicenseFilter(value) {
+      tableState.patients.filterLicense = value;
+      rerenderTab('patients');
+    }
+
+    function patientsExtraFilter() {
+      const lic = tableState.patients.filterLicense;
+      return lic ? (r => r.license_id === lic) : null;
+    }
+
+    async function loadPatients() {
+      try {
+        tableState.patients.rows = await api('/admin/patients');
+        rerenderTab('patients');
+      } catch (e) {
+        showToast('Failed to load patients', 'error');
+      }
+    }
+
+    // ==========================================================
+    // --- Files Tab ---
+    // ==========================================================
+    function renderFilesTab() {
+      return `
+        <p class="text-sm text-slate-400 mb-4">Every raw file stored on the server — recorded Parquet telemetry, session logs, and anything else under central storage.</p>
+        ${renderDataTable('files', filesColumns())}`;
+    }
+
+    function filesColumns() {
+      return [
+        { key: 'filename', label: 'Filename', render: r => `
+            <div class="flex items-center gap-2 font-medium text-slate-200">
+              <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+              ${escapeHtml(r.filename)}
+            </div>
+            <div class="font-mono text-[10px] text-slate-500 mt-0.5">${escapeHtml(r.id)}</div>` },
+        { key: 'license_id', label: 'License', render: r => licenseBadgeFor(r.license_id) },
+        { key: 'type', label: 'Type', render: r => escapeHtml(r.type) || 'unknown' },
+        { key: 'size', label: 'Size', render: r => formatBytes(r.size) },
+        { key: 'last_modified', label: 'Last Modified', render: r => fmtDate(r.last_modified) },
+        { key: '_actions', label: 'Actions', sortable: false, render: r => `
+            <div class="text-right space-x-3 whitespace-nowrap">
+              <a href="${API}/admin/files/${r.id}/download" target="_blank" class="text-blue-400 hover:text-blue-300 text-sm font-medium">Download</a>
+              <button onclick="deleteFile('${r.id}')" class="text-red-400 hover:text-red-300 text-sm font-medium">Delete</button>
+            </div>` },
+      ];
+    }
+
+    async function loadFiles() {
+      try {
+        tableState.files.rows = await api('/admin/files');
+        rerenderTab('files');
+      } catch (e) {
+        const tbody = document.getElementById('files-tbody');
+        if (tbody) {
+          tbody.innerHTML = `
+            <tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">
+              Failed to load <code>/admin/files</code>.<br>
+              <span class="text-xs mt-1 block">${escapeHtml(e.message)}</span>
+            </td></tr>`;
+        }
+      }
+    }
+
+    async function deleteFile(fileId) {
+      if (!confirm('Are you sure you want to permanently delete this file from the server?')) return;
+      try {
+        await api(`/admin/files/${fileId}`, { method: 'DELETE' });
+        showToast('File deleted successfully');
+        loadFiles();
+      } catch (e) { showToast(e.message, 'error'); }
+    }
+
+    // ==========================================================
+    // --- Tab switching / bootstrapping ---
+    // ==========================================================
+    function switchTab(tabId, skipReload = false) {
+      activeTab = tabId;
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+      document.querySelectorAll('nav button').forEach(btn => {
+        btn.classList.remove('bg-blue-600/10', 'text-blue-400');
+        btn.classList.add('text-slate-400', 'hover:bg-slate-800');
+      });
+      const activeBtn = document.getElementById(`nav-${tabId}`);
+      activeBtn.classList.remove('text-slate-400', 'hover:bg-slate-800');
+      activeBtn.classList.add('bg-blue-600/10', 'text-blue-400');
+      document.getElementById('page-title').textContent = activeBtn.textContent;
+
+      if (clientsAutoRefresh) { clearInterval(clientsAutoRefresh); clientsAutoRefresh = null; }
+
+      if (skipReload) { rerenderTab(tabId); return; }
+      refreshTab(tabId);
+
+      if (tabId === 'clients') {
+        clientsAutoRefresh = setInterval(loadClients, 10000);
+      }
+    }
+
+    function refreshTab(tabId) {
+      const loaders = {
+        clients: loadClients,
+        licenses: loadLicenses,
+        users: loadUsers,
+        sessions: () => loadSessions(),
+        patients: loadPatients,
+        files: loadFiles,
+      };
+      if (loaders[tabId]) loaders[tabId]();
+      // Licenses power the filter dropdowns on Sessions/Patients — keep them warm.
+      if (tabId !== 'licenses' && allLicenses.length === 0) loadLicenses();
+    }
+
+    // --- Auth ---
+    async function doLogin() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const errEl = document.getElementById('login-error');
+      try {
+        const data = await api('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ email, password }),
+        });
+        if (data.role !== 'admin') throw new Error('This account does not have admin privileges.');
+        sessionToken = data.session_token;
+        currentUser = data;
+        localStorage.setItem('admin_session_token', sessionToken);
+        showToast('Logged in successfully');
+        render();
+        switchTab(activeTab);
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    function doLogout() {
+      sessionToken = null;
+      currentUser = null;
+      localStorage.removeItem('admin_session_token');
+      if (clientsAutoRefresh) { clearInterval(clientsAutoRefresh); clientsAutoRefresh = null; }
+      render();
+    }
+
+    // --- Bootstrapping ---
     if (sessionToken) {
       api('/auth/session?session_token=' + sessionToken)
-        .then(u => { currentUser = u; render(); })
+        .then(u => { currentUser = u; render(); switchTab(activeTab); })
         .catch(() => { sessionToken = null; render(); });
     } else {
       render();

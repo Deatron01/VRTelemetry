@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Database, Search, User, HardDrive, AlertCircle, X, Activity, Cpu, Edit2, Save } from 'lucide-react';
+import { Database, Search, User, AlertCircle, X, Cpu, Edit2, Save, PlayCircle, ClipboardList, Loader2 } from 'lucide-react';
+import { useTelemetryStore } from '../store/useTelemetryStore';
+import { TelemetryParser } from '../services/TelemetryParser';
+import { PostSessionQuestionnaire } from '../components/PostSessionQuestionnaire';
+
+interface SessionExplorerProps {
+  onNavigate?: (route: string) => void;
+}
 
 interface SessionRecord {
   session_id: string;
@@ -13,14 +20,19 @@ interface SessionRecord {
   session_rating: number;
 }
 
-export const SessionExplorer = () => {
+export const SessionExplorer: React.FC<SessionExplorerProps> = ({ onNavigate }) => {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+  const [isLoadingAnalysis, setIsLoadingAnalysis] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [questionnaireSessionId, setQuestionnaireSessionId] = useState<string | null>(null);
   
+  const [query, setQuery] = useState('');
+
   // Edit State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -29,6 +41,20 @@ export const SessionExplorer = () => {
     subject_vr_exp: '',
     session_rating: 0
   });
+
+  const handleLoadForAnalysis = async (sessionId: string) => {
+    setIsLoadingAnalysis(sessionId);
+    setAnalysisError(null);
+    try {
+      const { frames, metadata, metrics } = await TelemetryParser.parseSessionId(sessionId);
+      useTelemetryStore.getState().loadSession(frames, metadata, metrics);
+      onNavigate?.('overview');
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : 'Failed to load session telemetry.');
+    } finally {
+      setIsLoadingAnalysis(null);
+    }
+  };
 
   const fetchSessions = async () => {
     try {
@@ -91,166 +117,228 @@ export const SessionExplorer = () => {
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const visible = sessions.filter(session => {
+    if (!q) return true;
+    return [session.subject_id, session.patient_display_name, session.hmd_model, session.session_id]
+      .some(field => (field || '').toLowerCase().includes(q));
+  });
+  const unlinked = sessions.filter(s => !s.patient_display_name).length;
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6 flex flex-col h-[calc(100vh-140px)] relative">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-3">
-          <Database className="w-8 h-8 text-research-graphite" />
-          <div>
-            <h1 className="text-2xl font-semibold text-research-graphite">Session Explorer</h1>
-            <p className="text-sm text-research-muted">Relational query interface for subject and hardware metadata.</p>
-          </div>
-        </div>
+    <div className="relative mx-auto flex h-full max-w-[1360px] flex-col gap-4">
+      <div>
+        <h1 className="page-title">Session Explorer</h1>
+        <p className="page-sub">Relational query interface for subject and hardware metadata.</p>
       </div>
 
-      <div className="glass-panel overflow-hidden flex flex-col flex-1">
-        {isLoading ? (
-          <div className="flex-1 flex items-center justify-center text-research-muted">
-            Loading...
+      {analysisError && (
+        <div className="notice tone-2 items-start text-[13px]">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-none text-tone" />
+          <p className="m-0 flex-1 text-ink-2">{analysisError}</p>
+        </div>
+      )}
+
+      <div className="clay flex min-h-0 flex-1 flex-col gap-3 p-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="clay-press flex max-w-[380px] flex-1 items-center gap-2 px-3 py-[7px]" style={{ borderRadius: 11 }}>
+            <Search className="h-4 w-4 flex-none text-ink-3" aria-hidden="true" />
+            <label htmlFor="session-search" className="sr-only">Filter sessions</label>
+            <input
+              id="session-search"
+              placeholder="Filter by subject, patient or hardware"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="min-w-0 flex-1 border-none bg-transparent text-[13px] outline-none"
+            />
           </div>
-        ) : error ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-red-500 gap-2">
-            <AlertCircle className="w-8 h-8" />
-            <p className="font-medium">Backend Connection Error</p>
-          </div>
-        ) : (
-          <div className="overflow-auto flex-1 p-0">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-research-muted uppercase bg-slate-50/50 sticky top-0 backdrop-blur-md border-b border-research-border">
-                <tr>
-                  <th className="px-6 py-4 font-medium tracking-wider">Session UUID</th>
-                  <th className="px-6 py-4 font-medium tracking-wider">Patient</th>
-                  <th className="px-6 py-4 font-medium tracking-wider">Date (UTC)</th>
-                  <th className="px-6 py-4 font-medium tracking-wider">Subject</th>
-                  <th className="px-6 py-4 font-medium tracking-wider">Hardware</th>
-                  <th className="px-6 py-4 font-medium tracking-wider text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-research-border">
-                {sessions.map(session => (
-                  <tr key={session.session_id} className="hover:bg-slate-50/50 transition-colors group">
-                    <td className="px-6 py-4 font-mono text-xs">{session.session_id.split('-')[0]}...</td>
-                    <td className="px-6 py-4 font-medium">
-                      {session.patient_display_name ? (
-                        <span className="text-research-graphite">{session.patient_display_name}</span>
-                      ) : (
-                        <span className="text-research-muted italic">Unlinked</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">{session.start_timestamp_utc}</td>
-                    <td className="px-6 py-4 font-medium">{session.subject_id}</td>
-                    <td className="px-6 py-4 text-research-muted">{session.hmd_model}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => handleViewDetails(session.session_id)}
-                        disabled={isDetailsLoading}
-                        className="text-research-blue text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        View Details &rarr;
-                      </button>
-                    </td>
+          <div className="flex-1" />
+          <span className="section-note">
+            {sessions.length} session{sessions.length === 1 ? '' : 's'}
+            {unlinked > 0 ? ` · ${unlinked} unlinked` : ''}
+          </span>
+        </div>
+
+        <div className="well min-h-0 flex-1 overflow-hidden" style={{ borderRadius: 12 }}>
+          {isLoading ? (
+            <p className="py-10 text-center text-[13px] text-ink-3">Loading sessions…</p>
+          ) : error ? (
+            <div className="flex flex-col items-center gap-2 py-10" style={{ color: 'var(--s2)' }}>
+              <AlertCircle className="h-7 w-7" />
+              <p className="m-0 text-[13px] font-medium">Backend connection error</p>
+            </div>
+          ) : visible.length === 0 ? (
+            <p className="py-10 text-center text-[13px] text-ink-3">
+              {sessions.length === 0 ? 'No sessions recorded yet.' : 'No sessions match this filter.'}
+            </p>
+          ) : (
+            <div className="h-full overflow-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Session UUID</th>
+                    <th>Patient</th>
+                    <th>Date (UTC)</th>
+                    <th>Subject</th>
+                    <th>Hardware</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {visible.map(session => (
+                    <tr key={session.session_id}>
+                      <td className="num text-ink-3">{session.session_id.split('-')[0]}…</td>
+                      <td>
+                        {session.patient_display_name
+                          ? <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{session.patient_display_name}</span>
+                          : <span className="italic text-ink-3">Unlinked</span>}
+                      </td>
+                      <td className="num">{session.start_timestamp_utc}</td>
+                      <td className="num" style={{ color: 'var(--ink)' }}>{session.subject_id}</td>
+                      <td>{session.hmd_model}</td>
+                      <td>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleLoadForAnalysis(session.session_id)}
+                            disabled={isLoadingAnalysis === session.session_id}
+                            aria-label={`Load session ${session.session_id} for analysis`}
+                            className="btn-clay"
+                            style={{ color: 'var(--s6)', fontWeight: 600 }}
+                          >
+                            {isLoadingAnalysis === session.session_id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <PlayCircle className="h-3.5 w-3.5" />}
+                            Analyze
+                          </button>
+                          <button
+                            onClick={() => setQuestionnaireSessionId(session.session_id)}
+                            aria-label={`Complete post-session questionnaire for ${session.session_id}`}
+                            className="btn-clay"
+                            style={{ color: 'var(--s5)', fontWeight: 600 }}
+                          >
+                            <ClipboardList className="h-3.5 w-3.5" /> Questionnaire
+                          </button>
+                          <button
+                            onClick={() => handleViewDetails(session.session_id)}
+                            disabled={isDetailsLoading}
+                            aria-label={`View details for session ${session.session_id}`}
+                            className="btn-clay"
+                            style={{ color: 'var(--s1)', fontWeight: 600 }}
+                          >
+                            Details →
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Details & Edit Modal */}
       {selectedSession && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/20 backdrop-blur-sm">
-          <div className="bg-white/90 backdrop-blur-xl border border-research-border shadow-2xl rounded-2xl w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
+        <div className="modal-backdrop" style={{ position: 'absolute' }} role="dialog" aria-modal="true" aria-labelledby="session-record-title">
+          <div className="modal-card flex max-w-3xl flex-col overflow-hidden p-0">
             
-            <div className="px-6 py-4 border-b border-research-border flex justify-between items-center bg-white/50">
+            <div className="flex items-center justify-between gap-4 px-5 py-4" style={{ borderBottom: '1px solid var(--hair)' }}>
               <div>
-                <h2 className="text-lg font-semibold text-research-graphite flex items-center gap-2">
-                  <Database className="w-5 h-5 text-research-blue" /> Session Record
+                <h2 id="session-record-title" className="m-0 flex items-center gap-2 text-[16px] font-semibold">
+                  <Database className="h-[18px] w-[18px]" style={{ color: 'var(--s1)' }} /> Session Record
                 </h2>
-                <p className="text-xs font-mono text-research-muted mt-1">{selectedSession.session_id}</p>
+                <p className="mono m-0 mt-1 text-[11px] text-ink-3">{selectedSession.session_id}</p>
               </div>
               <div className="flex items-center gap-2">
                 {!isEditing ? (
-                  <button onClick={() => setIsEditing(true)} className="glass-button py-1 px-3 bg-blue-50 text-research-blue border-blue-200">
+                  <button onClick={() => setIsEditing(true)} className="btn-clay" style={{ color: 'var(--s1)', fontWeight: 600 }}>
                     <Edit2 className="w-4 h-4" /> Edit Parameters
                   </button>
                 ) : (
-                  <button onClick={handleSaveChanges} className="glass-button py-1 px-3 bg-green-50 text-research-green border-green-200">
+                  <button onClick={handleSaveChanges} className="btn-accent">
                     <Save className="w-4 h-4" /> Save Changes
                   </button>
                 )}
-                <button onClick={() => setSelectedSession(null)} className="p-2 hover:bg-slate-100 rounded-full">
-                  <X className="w-5 h-5 text-research-graphite" />
+                <button onClick={() => setSelectedSession(null)} aria-label="Close session record" className="btn-ghost">
+                  <X className="h-[18px] w-[18px]" />
                 </button>
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+            <div className="flex-1 space-y-5 overflow-y-auto p-5">
               {/* Editable Profile Data */}
-              <div className={`p-4 rounded-xl border ${isEditing ? 'bg-blue-50/30 border-blue-200' : 'border-transparent'}`}>
-                <h3 className="text-sm font-semibold text-research-graphite uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-slate-200 pb-1">
-                  <User className="w-4 h-4" /> Subject Profile & Timing
+              <div className={isEditing ? 'well p-4' : 'p-0'}>
+                <h3 className="section-title mb-3 flex items-center gap-2 pb-1.5" style={{ borderBottom: '1px solid var(--hair)' }}>
+                  <User className="h-4 w-4" /> Subject Profile &amp; Timing
                 </h3>
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
-                    <span className="block text-xs text-research-muted mb-1">Subject ID</span>
+                    <span className="summary-key mb-1.5 block">Subject ID</span>
                     {isEditing ? (
                       <input 
-                        className="w-full text-sm border border-research-border rounded px-2 py-1 bg-white" 
+                        className="field" 
                         value={editForm.subject_id} 
                         onChange={e => setEditForm({...editForm, subject_id: e.target.value})} 
                       />
                     ) : <span className="font-medium">{selectedSession.subject_id}</span>}
                   </div>
                   <div>
-                    <span className="block text-xs text-research-muted mb-1">Date / Timestamp (UTC)</span>
+                    <span className="summary-key mb-1.5 block">Date / Timestamp (UTC)</span>
                     {isEditing ? (
                       <input 
-                        className="w-full text-sm border border-research-border rounded px-2 py-1 bg-white" 
+                        className="field" 
                         value={editForm.start_timestamp_utc} 
                         onChange={e => setEditForm({...editForm, start_timestamp_utc: e.target.value})} 
                       />
                     ) : <span className="font-medium">{selectedSession.start_timestamp_utc}</span>}
                   </div>
                   <div>
-                    <span className="block text-xs text-research-muted mb-1">VR Experience Level</span>
+                    <span className="summary-key mb-1.5 block">VR Experience Level</span>
                     {isEditing ? (
                       <input 
-                        className="w-full text-sm border border-research-border rounded px-2 py-1 bg-white" 
+                        className="field" 
                         value={editForm.subject_vr_exp} 
                         onChange={e => setEditForm({...editForm, subject_vr_exp: e.target.value})} 
                       />
                     ) : <span className="font-medium">{selectedSession.subject_vr_exp}</span>}
                   </div>
                   <div>
-                    <span className="block text-xs text-research-muted mb-1">Overall Session Rating (0-10)</span>
+                    <span className="summary-key mb-1.5 block">Overall Session Rating (0-10)</span>
                     {isEditing ? (
                       <input 
                         type="number"
-                        className="w-full text-sm border border-research-border rounded px-2 py-1 bg-white" 
+                        className="field" 
                         value={editForm.session_rating} 
                         onChange={e => setEditForm({...editForm, session_rating: Number(e.target.value)})} 
                       />
-                    ) : <span className="font-medium text-research-blue">{selectedSession.session_rating} / 10</span>}
+                    ) : <span className="font-medium" style={{ color: 'var(--s1)' }}>{selectedSession.session_rating} / 10</span>}
                   </div>
                 </div>
               </div>
 
               {/* Read-Only Hardware Data */}
               <div>
-                <h3 className="text-sm font-semibold text-research-graphite uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-slate-200 pb-1">
-                  <Cpu className="w-4 h-4" /> Hardware & Telemetry (Read-Only)
+                <h3 className="section-title mb-3 flex items-center gap-2 pb-1.5" style={{ borderBottom: '1px solid var(--hair)' }}>
+                  <Cpu className="h-4 w-4" /> Hardware &amp; Telemetry <span className="font-normal normal-case tracking-normal text-ink-3">— read only</span>
                 </h3>
-                <div className="grid grid-cols-3 gap-4 opacity-75">
-                  <div><span className="block text-xs text-research-muted">HMD Model</span><span className="font-medium">{selectedSession.hmd_model}</span></div>
-                  <div><span className="block text-xs text-research-muted">Refresh Rate</span><span className="font-medium">{selectedSession.hmd_refresh_rate} Hz</span></div>
-                  <div><span className="block text-xs text-research-muted">Eye Tracking</span><span className="font-medium text-research-green">Enabled</span></div>
+                <div className="well grid grid-cols-1 gap-4 p-3.5 sm:grid-cols-3">
+                  <div><span className="summary-key mb-1.5 block">HMD Model</span><span className="font-medium">{selectedSession.hmd_model}</span></div>
+                  <div><span className="summary-key mb-1.5 block">Refresh Rate</span><span className="font-medium">{selectedSession.hmd_refresh_rate} Hz</span></div>
+                  <div><span className="summary-key mb-1.5 block">Eye Tracking</span><span className="font-medium" style={{ color: 'var(--s6)' }}>Enabled</span></div>
                 </div>
               </div>
 
             </div>
           </div>
         </div>
+      )}
+      {questionnaireSessionId && (
+        <PostSessionQuestionnaire
+          sessionId={questionnaireSessionId}
+          onClose={() => setQuestionnaireSessionId(null)}
+          onSaved={() => { setQuestionnaireSessionId(null); fetchSessions(); }}
+        />
       )}
     </div>
   );

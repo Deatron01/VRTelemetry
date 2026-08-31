@@ -24,6 +24,70 @@ export class TelemetryParser {
   }
 
   /**
+   * Loads a previously recorded session straight from the local backend by
+   * session_id (GET /api/sessions/{id}/telemetry), instead of requiring the
+   * researcher to manually drag-drop the .parquet file. This is what makes
+   * "View Details" / "Load for Analysis" in Session Explorer actually work —
+   * before this existed, browsing to a session there never loaded its
+   * telemetry into any analysis page. Also merges in the real session_metadata
+   * DB row (calibration/anthropometrics + questionnaire scores), which a raw
+   * dropped file can never carry since that data doesn't live in the Parquet.
+   */
+  static async parseSessionId(sessionId: string): Promise<{ frames: TelemetryFrame[], metadata: SessionMetadata, metrics: DerivedMetrics }> {
+    const response = await fetch(`http://localhost:8000/api/sessions/${sessionId}/telemetry`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `Failed to load session ${sessionId}`);
+    }
+    const data = await response.json();
+    const frames = data.frames as TelemetryFrame[];
+    const colNames = data.columns as string[];
+    const originalFrameCount = data.original_frames as number;
+
+    const result = this.processData(frames, `${sessionId}.parquet`, colNames, originalFrameCount);
+    return { ...result, metadata: this.mergeSessionRecord(result.metadata, data.session_record) };
+  }
+
+  /** Maps session_metadata's DB column names onto the SessionMetadata shape the rest of the app reads. */
+  private static mergeSessionRecord(metadata: SessionMetadata, record: Record<string, any> | undefined): SessionMetadata {
+    if (!record) return metadata;
+    return {
+      ...metadata,
+      session_id: record.session_id ?? metadata.session_id,
+      patient_id: record.patient_id ?? metadata.patient_id,
+      subject_id: record.subject_id || metadata.subject_id,
+      hmd_model: record.hmd_model || metadata.hmd_model,
+      subject_ipd_mm: record.subject_ipd_mm || metadata.subject_ipd_mm,
+      total_dropped_frames: record.total_dropped_frames ?? metadata.total_dropped_frames,
+      height_cm: record.subject_height_cm || undefined,
+      weight_kg: record.subject_weight_kg || undefined,
+      age_years: record.subject_age || undefined,
+      dominant_hand: record.dominant_hand || undefined,
+      arm_length_left: record.arm_length_left || undefined,
+      arm_length_right: record.arm_length_right || undefined,
+      shoulder_width_est: record.shoulder_width_est || undefined,
+      neutral_head_height: record.neutral_head_height || undefined,
+      nasa_tlx_mental: record.nasa_tlx_mental || undefined,
+      nasa_tlx_physical: record.nasa_tlx_physical || undefined,
+      nasa_tlx_temporal: record.nasa_tlx_temporal || undefined,
+      nasa_tlx_performance: record.nasa_tlx_performance || undefined,
+      nasa_tlx_effort: record.nasa_tlx_effort || undefined,
+      nasa_tlx_frustration: record.nasa_tlx_frustration || undefined,
+      nasa_tlx_rtlx: record.nasa_tlx_rtlx || undefined,
+      nasa_tlx_band: record.nasa_tlx_band || undefined,
+      ssq_nausea_score: record.ssq_nausea_score || undefined,
+      ssq_oculomotor_score: record.ssq_oculomotor_score || undefined,
+      ssq_disorientation: record.ssq_disorientation || undefined,
+      ssq_total_severity: record.ssq_total_severity || undefined,
+      ssq_severity_band: record.ssq_severity_band || undefined,
+      thermal_comfort: record.thermal_comfort || undefined,
+      perceived_temp_c: record.perceived_temp_c || undefined,
+      session_rating: record.session_rating || undefined,
+      questionnaire_completed_at: record.questionnaire_completed_at ?? null,
+    };
+  }
+
+  /**
    * The raw Parquet file carries no subject/hardware record (that lives in the
    * SQLite session table, keyed off a session UUID we don't have here when a
    * file is dropped in directly). Best-effort recovery from the filename itself.

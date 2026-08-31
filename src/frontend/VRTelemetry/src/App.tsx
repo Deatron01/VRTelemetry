@@ -12,6 +12,7 @@ import { Metadata } from './pages/Metadata';
 import { Export } from './pages/Export';
 import { SpatialViewer } from './components/visualizations/SpatialViewer';
 import { SessionExplorer } from './pages/SessionExplorer';
+import { ResearchInsights } from './pages/ResearchInsights';
 import { NewSession } from './pages/NewSession';
 import { Login } from './pages/Login';
 import { Activation } from './pages/Activation';
@@ -23,6 +24,20 @@ interface AuthedUser {
 }
 
 type LicenseState = 'checking' | 'active' | 'inactive';
+
+/** Pre-shell states (auth check, license check) get the same canvas treatment
+    as the app proper, so startup doesn't flash an unstyled white page. */
+const BootScreen: React.FC<{ message: string }> = ({ message }) => (
+  <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+    <div className="clay flex h-14 w-14 items-center justify-center" style={{ color: 'var(--s1)' }}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1"
+           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
+      </svg>
+    </div>
+    <p className="m-0 text-[13px] text-ink-2" role="status">{message}…</p>
+  </div>
+);
 
 function App() {
   const [route, setRoute] = useState('overview');
@@ -72,7 +87,7 @@ function App() {
   };
 
   if (!authChecked) {
-    return <div className="min-h-screen flex items-center justify-center text-research-muted">Loading...</div>;
+    return <BootScreen message="Loading workspace" />;
   }
 
   if (!user) {
@@ -80,7 +95,7 @@ function App() {
   }
 
   if (licenseState === 'checking') {
-    return <div className="min-h-screen flex items-center justify-center text-research-muted">Verifying license...</div>;
+    return <BootScreen message="Verifying license" />;
   }
 
   if (licenseState === 'inactive') {
@@ -89,23 +104,31 @@ function App() {
 
   const renderContent = () => {
     switch (route) {
-      case 'overview': return <Overview />;
+      case 'overview': return <Overview onNavigate={setRoute} />;
       case 'patients': return <Patients />;
       case 'record': return <NewSession />;
-      case 'explorer': return <SessionExplorer />;
+      case 'explorer': return <SessionExplorer onNavigate={setRoute} />;
       case 'eye': return <EyeTracking />;
       case 'physiology': return <Physiology />;
       case 'quality': return <DataQuality />;
       case 'metadata': return <Metadata />;
       case 'raw': return <RawDataExplorer />;
+      case 'insights': return <ResearchInsights />;
       case 'export': return <Export />;
       case 'spatial': return (
-        <div className="h-full w-full flex flex-col">
-          <h1 className="text-2xl font-semibold text-research-graphite mb-4">3D Spatial & Gaze Analysis</h1>
-          <div className="flex-1"><SpatialViewer /></div>
+        <div className="mx-auto flex h-full max-w-[1360px] flex-col gap-4">
+          <div>
+            <h1 className="page-title">Spatial &amp; Gaze Analysis</h1>
+            <p className="page-sub">
+              Reconstructed head, hand and gaze geometry for the loaded session, scrubbed by the transport bar below.
+            </p>
+          </div>
+          <div className="clay flex-1 overflow-hidden p-1.5">
+            <div className="h-full w-full overflow-hidden rounded-[12px]"><SpatialViewer /></div>
+          </div>
         </div>
       );
-      default: return <Overview />;
+      default: return <Overview onNavigate={setRoute} />;
     }
   };
 

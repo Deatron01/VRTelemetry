@@ -25,6 +25,10 @@ export interface TelemetryFrame {
   right_pos_x?: number; right_pos_y?: number; right_pos_z?: number;
   right_rot_x?: number; right_rot_y?: number; right_rot_z?: number; right_rot_w?: number;
   right_tracking_valid?: number;
+
+  // Present when the recorder tags frames with the active scene/task. Used by
+  // ScienceMetrics to baseline pupil size per scene (PLR-proxy compensation).
+  scene_id?: number | string;
 }
 
 export interface SessionMetadata {
@@ -43,9 +47,40 @@ export interface SessionMetadata {
   total_dropped_frames?: number;
 
   // Genuinely subjective/self-reported values — not derivable from telemetry.
-  // Left optional; populate via a post-session survey form when one exists.
+  // Populated by the post-session questionnaire (components/PostSessionQuestionnaire.tsx)
+  // via POST /api/sessions/{id}/questionnaire, or left undefined until it's completed.
   nasa_tlx_mental?: number;
+  nasa_tlx_physical?: number;
+  nasa_tlx_temporal?: number;
+  nasa_tlx_performance?: number;
+  nasa_tlx_effort?: number;
+  nasa_tlx_frustration?: number;
+  nasa_tlx_rtlx?: number;
+  nasa_tlx_band?: string;
   ssq_nausea_score?: number;
+  ssq_oculomotor_score?: number;
+  ssq_disorientation?: number;
+  ssq_total_severity?: number;
+  ssq_severity_band?: string;
+  thermal_comfort?: string;
+  perceived_temp_c?: number;
+  session_rating?: number;
+  questionnaire_completed_at?: string | null;
+
+  // Present when the session was loaded via Session Explorer (backed by the
+  // real session_metadata row) rather than a raw drag-dropped .parquet file —
+  // arm length / shoulder width / neutral head height are the anthropometric
+  // baseline used by ScienceMetrics to normalize kinematic reach & motion.
+  session_id?: string;
+  patient_id?: string | null;
+  height_cm?: number;
+  weight_kg?: number;
+  age_years?: number;
+  dominant_hand?: string;
+  arm_length_left?: number;
+  arm_length_right?: number;
+  shoulder_width_est?: number;
+  neutral_head_height?: number;
 }
 
 export interface DerivedMetrics {

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import {
   createColumnHelper,
@@ -21,7 +21,7 @@ export const RawDataExplorer = () => {
     }),
     columnHelper.accessor('timestamp_ns', {
       header: 'Timestamp (ns)',
-      cell: info => <span className="font-mono text-xs">{info.getValue()}</span>,
+      cell: info => <span className="mono text-[11px]">{info.getValue()}</span>,
     }),
     columnHelper.accessor('hmd_pos_x', {
       header: 'HMD Pos X',
@@ -38,7 +38,7 @@ export const RawDataExplorer = () => {
     columnHelper.accessor('hmd_tracking_valid', {
       header: 'HMD Valid',
       cell: info => (
-        <span className={info.getValue() > 0 ? 'text-research-green' : 'text-red-500'}>
+        <span className="mono text-[11px]" style={{ color: info.getValue() > 0 ? 'var(--s6)' : 'var(--s2)' }}>
           {info.getValue() > 0 ? 'TRUE' : 'FALSE'}
         </span>
       ),
@@ -63,34 +63,44 @@ export const RawDataExplorer = () => {
 
   if (!frames.length) return null;
 
+  const pagination = table.getState().pagination;
+  const firstRow = pagination.pageIndex * pagination.pageSize + 1;
+  const lastRow = Math.min(firstRow + pagination.pageSize - 1, frames.length);
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6 flex flex-col h-[calc(100vh-140px)]">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-semibold text-research-graphite">Engineering Diagnostics</h1>
-          <p className="text-sm text-research-muted mt-1">Direct inspection of the underlying telemetry schema.</p>
-        </div>
+    <div className="mx-auto flex h-full max-w-[1360px] flex-col gap-4">
+      <div>
+        <h1 className="page-title">Raw Telemetry</h1>
+        <p className="page-sub">Direct inspection of the underlying telemetry schema, frame by frame.</p>
       </div>
 
-      <div className="glass-panel overflow-hidden flex flex-col flex-1">
-        <div className="overflow-auto flex-1 p-0">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-research-muted uppercase bg-slate-50/50 sticky top-0 backdrop-blur-md border-b border-research-border">
+      <div className="clay flex min-h-0 flex-1 flex-col gap-3 p-3.5">
+        <div className="section-head mb-0">
+          <h2 className="section-title">Frame table</h2>
+          <div className="section-rule" />
+          <span className="section-note">
+            {frames.length.toLocaleString()} frames · showing {firstRow.toLocaleString()}–{lastRow.toLocaleString()}
+          </span>
+        </div>
+
+        <div className="well min-h-0 flex-1 overflow-auto" style={{ borderRadius: 12 }}>
+          <table className="data-table">
+            <thead>
               {table.getHeaderGroups().map(headerGroup => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map(header => (
-                    <th key={header.id} className="px-4 py-3 font-medium tracking-wider">
+                    <th key={header.id}>
                       {flexRender(header.column.columnDef.header, header.getContext())}
                     </th>
                   ))}
                 </tr>
               ))}
             </thead>
-            <tbody className="divide-y divide-research-border">
+            <tbody>
               {table.getRowModel().rows.map(row => (
-                <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                <tr key={row.id}>
                   {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="px-4 py-2 text-research-graphite">
+                    <td key={cell.id} className="num">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -99,26 +109,17 @@ export const RawDataExplorer = () => {
             </tbody>
           </table>
         </div>
-        
-        {/* Pagination Controls */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-research-border bg-white/40">
-          <div className="text-sm text-research-muted">
-            Showing Page <span className="font-medium text-research-graphite">{table.getState().pagination.pageIndex + 1}</span> of{' '}
-            <span className="font-medium text-research-graphite">{table.getPageCount()}</span>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[12px] text-ink-3">
+            Page <span className="mono" style={{ color: 'var(--ink)' }}>{pagination.pageIndex + 1}</span> of{' '}
+            <span className="mono" style={{ color: 'var(--ink)' }}>{table.getPageCount()}</span>
           </div>
           <div className="flex gap-2">
-            <button
-              className="glass-button px-3 py-1 text-xs"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
+            <button className="btn-clay" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
               Previous
             </button>
-            <button
-              className="glass-button px-3 py-1 text-xs"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
+            <button className="btn-clay" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
               Next
             </button>
           </div>
