@@ -2,25 +2,721 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer components {
-  .glass-panel {
-    @apply bg-research-card backdrop-blur-xl border border-research-border shadow-glass rounded-2xl;
-  }
-  
-  .glass-button {
-    @apply flex items-center justify-center gap-2 px-4 py-2 bg-white/60 hover:bg-white/90 backdrop-blur-md border border-research-border rounded-lg text-sm font-medium text-research-text transition-all duration-200 shadow-sm active:scale-95;
-  }
+/* ============================================================================
+   VRTelemetry Studio — "Vitrum" design system
+   Ported from the Claude Design canvas `VRTelemetry Studio.dc.html`.
 
-  .metric-label {
-    @apply text-xs font-medium text-research-muted tracking-wide uppercase;
-  }
+   Two surface languages sit on one token set:
+     · CLAY  — extruded, soft-shadowed panels (cards, buttons, rails)
+     · GLASS — translucent, blurred chrome (header, sidebar, footer, summary strips)
+   plus WELL, the recessed inset used to hold charts and meters.
 
-  .metric-value {
-    @apply text-2xl font-semibold text-research-text;
-  }
+   Dark mode is driven by the `.dark` class on <html> (see store/useThemeStore.ts),
+   with `[data-theme="dark"]` accepted as an alias so markup copied straight out of
+   the design canvas keeps working.
+   ========================================================================= */
+
+:root {
+  --canvas: #e8ecf4;
+  --canvas-glow: rgba(255, 255, 255, .85);
+
+  --clay-a: #fcfdff;
+  --clay-b: #eaeef6;
+  --clay-shadow: 8px 8px 20px rgba(20, 29, 48, .10), -6px -6px 16px rgba(255, 255, 255, .95);
+  --clay-lip: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --clay-press: inset 4px 4px 10px rgba(20, 29, 48, .13), inset -3px -3px 8px rgba(255, 255, 255, .85);
+
+  --well: #f3f5fa;
+  --well-line: rgba(20, 29, 48, .10);
+  --well-grid: rgba(20, 29, 48, .055);
+
+  --glass: rgba(255, 255, 255, .58);
+  --glass-edge: rgba(255, 255, 255, .75);
+  --glass-shadow: 0 10px 30px -14px rgba(20, 29, 48, .28);
+  --blur: 22px;
+
+  --ink: #0f1729;
+  --ink-2: #3f4a5e;
+  --ink-3: #5c6880;
+  --hair: rgba(20, 29, 48, .10);
+
+  /* Six-channel semantic scale. s1 blue (derived/primary), s2 orange,
+     s3 cyan, s4 amber (warning), s5 violet (reported), s6 green (measured/ok). */
+  --s1: oklch(0.47 0.17 258);  --s1-soft: oklch(0.94 0.03 258);
+  --s2: oklch(0.50 0.17 38);   --s2-soft: oklch(0.94 0.04 38);
+  --s3: oklch(0.46 0.10 200);  --s3-soft: oklch(0.94 0.03 200);
+  --s4: oklch(0.52 0.12 70);   --s4-soft: oklch(0.94 0.05 80);
+  --s5: oklch(0.43 0.16 305);  --s5-soft: oklch(0.94 0.03 305);
+  --s6: oklch(0.48 0.12 150);  --s6-soft: oklch(0.94 0.04 150);
+
+  --act-a: oklch(0.56 0.17 258);
+  --act-b: oklch(0.46 0.17 258);
+  --act-glow: 6px 6px 14px rgba(20, 29, 48, .18), -3px -3px 10px rgba(255, 255, 255, .5), inset 0 1px 0 rgba(255, 255, 255, .35);
+  --act-glow-lg: 8px 8px 18px rgba(20, 29, 48, .20), -4px -4px 12px rgba(255, 255, 255, .5), inset 0 1px 0 rgba(255, 255, 255, .35);
+
+  color-scheme: light;
+
+  /* --- Legacy `research.*` Tailwind aliases -------------------------------
+     Pages not yet re-skinned keep resolving through these, so nothing goes
+     unstyled mid-migration. They now point at the Vitrum palette. */
+  --research-bg: 232 236 244;
+  --research-card: var(--glass);
+  --research-border: var(--hair);
+  --research-text: 15 23 41;
+  --research-muted: 92 104 128;
+  --research-blue: 47 87 184;
+  --research-green: 34 122 84;
+  --research-graphite: 63 74 94;
+  --research-surface: #fcfdff;
 }
+
+.dark,
+[data-theme="dark"] {
+  --canvas: #0a0e18;
+  --canvas-glow: rgba(90, 130, 220, .10);
+
+  --clay-a: #1b2334;
+  --clay-b: #121a29;
+  --clay-shadow: 8px 8px 22px rgba(0, 0, 0, .55), -6px -6px 16px rgba(255, 255, 255, .035);
+  --clay-lip: inset 0 1px 0 rgba(255, 255, 255, .07);
+  --clay-press: inset 4px 4px 12px rgba(0, 0, 0, .6), inset -3px -3px 8px rgba(255, 255, 255, .045);
+
+  --well: #080c14;
+  --well-line: rgba(255, 255, 255, .12);
+  --well-grid: rgba(255, 255, 255, .06);
+
+  --glass: rgba(24, 32, 49, .58);
+  --glass-edge: rgba(255, 255, 255, .10);
+  --glass-shadow: 0 12px 34px -16px rgba(0, 0, 0, .75);
+
+  --ink: #eef2fa;
+  --ink-2: #b3bfd4;
+  --ink-3: #93a1ba;
+  --hair: rgba(255, 255, 255, .10);
+
+  --s1: oklch(0.79 0.13 258);  --s1-soft: oklch(0.33 0.07 258);
+  --s2: oklch(0.80 0.13 38);   --s2-soft: oklch(0.32 0.07 38);
+  --s3: oklch(0.83 0.09 200);  --s3-soft: oklch(0.32 0.05 200);
+  --s4: oklch(0.85 0.12 88);   --s4-soft: oklch(0.33 0.06 88);
+  --s5: oklch(0.76 0.13 305);  --s5-soft: oklch(0.32 0.07 305);
+  --s6: oklch(0.81 0.11 150);  --s6-soft: oklch(0.31 0.06 150);
+
+  --act-a: oklch(0.52 0.14 258);
+  --act-b: oklch(0.42 0.13 258);
+  --act-glow: 6px 6px 16px rgba(0, 0, 0, .5), -3px -3px 10px rgba(255, 255, 255, .04), inset 0 1px 0 rgba(255, 255, 255, .13);
+  --act-glow-lg: 8px 8px 20px rgba(0, 0, 0, .55), -4px -4px 12px rgba(255, 255, 255, .045), inset 0 1px 0 rgba(255, 255, 255, .13);
+
+  color-scheme: dark;
+
+  --research-bg: 10 14 24;
+  --research-card: var(--glass);
+  --research-border: var(--hair);
+  --research-text: 238 242 250;
+  --research-muted: 147 161 186;
+  --research-blue: 143 175 255;
+  --research-green: 122 213 168;
+  --research-graphite: 179 191 212;
+  --research-surface: #1b2334;
+}
+
+/* ---------------------------------------------------------------- base --- */
 
 body {
-  @apply bg-[#f1f5f9] text-research-text antialiased overflow-hidden;
-  background-image: radial-gradient(circle at 50% 0%, #ffffff 0%, transparent 70%);
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  text-wrap: pretty;
 }
+
+a { color: var(--s1); text-decoration: none; }
+a:hover { color: var(--ink); }
+button, select, input, textarea { font: inherit; color: inherit; }
+
+:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+
+/* The canvas is opaque, so a page-level glow reads as ambient light rather
+   than as a gradient panel. */
+#root {
+  min-height: 100vh;
+  background-image: radial-gradient(120% 60% at 50% 0%, var(--canvas-glow) 0%, transparent 70%);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root { --glass: #f4f6fb; --blur: 0px; }
+  .dark, [data-theme="dark"] { --glass: #141b29; --blur: 0px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ---------------------------------------------------------- components --- */
+
+@layer components {
+
+  /* --- CLAY: extruded surfaces ----------------------------------------- */
+
+  .clay {
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip);
+    border-radius: 16px;
+  }
+  .clay-md { border-radius: 14px; }
+  .clay-sm { border-radius: 12px; }
+  .clay-xs { border-radius: 10px; }
+
+  /* Recessed track — note the reversed gradient, which is what sells the
+     "pressed into the surface" read rather than just a darker fill. */
+  .clay-press {
+    background: linear-gradient(145deg, var(--clay-b), var(--clay-a));
+    box-shadow: var(--clay-press);
+    border-radius: 12px;
+  }
+
+  /* --- GLASS: translucent chrome --------------------------------------- */
+
+  .glass {
+    background: var(--glass);
+    backdrop-filter: blur(var(--blur)) saturate(170%);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(170%);
+    border: 1px solid var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+    border-radius: 16px;
+  }
+  .glass-bare {
+    background: var(--glass);
+    backdrop-filter: blur(var(--blur)) saturate(170%);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(170%);
+  }
+
+  /* --- WELL: recessed holder for charts, meters, readouts --------------- */
+
+  .well {
+    background: var(--well);
+    border: 1px solid var(--well-line);
+    border-radius: 10px;
+  }
+  .well-sm { border-radius: 8px; }
+
+  /* --- Buttons ---------------------------------------------------------- */
+
+  .btn-clay {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+    cursor: pointer;
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip);
+    transition: box-shadow .16s ease, transform .16s ease;
+  }
+  .btn-clay:hover:not(:disabled) { color: var(--ink); }
+  .btn-clay:active:not(:disabled) {
+    box-shadow: var(--clay-press);
+    transform: translateY(1px);
+  }
+  .btn-clay:disabled { opacity: .5; cursor: not-allowed; }
+
+  .btn-accent {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border: none;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    background: linear-gradient(145deg, var(--act-a), var(--act-b));
+    box-shadow: var(--act-glow);
+    transition: box-shadow .16s ease, transform .16s ease;
+  }
+  .btn-accent:active:not(:disabled) {
+    box-shadow: inset 3px 3px 8px rgba(0, 0, 0, .28);
+    transform: translateY(1px);
+  }
+  .btn-accent:disabled { opacity: .55; cursor: not-allowed; }
+
+  .btn-accent-lg { padding: 10px 18px; font-size: 13px; box-shadow: var(--act-glow-lg); }
+
+  /* Icon-only circular clay button (transport controls, row actions). */
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    color: var(--ink-2);
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip);
+    transition: box-shadow .16s ease, color .16s ease;
+  }
+  .btn-icon:hover:not(:disabled) { color: var(--ink); }
+  .btn-icon:active:not(:disabled) { box-shadow: var(--clay-press); }
+  .btn-icon:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-icon-lg { width: 36px; height: 36px; color: var(--s1); }
+
+  /* Bare icon button — no surface, used inside already-elevated containers. */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    padding: 4px;
+    border-radius: 7px;
+    color: var(--ink-3);
+    cursor: pointer;
+    transition: color .16s ease, background .16s ease;
+  }
+  .btn-ghost:hover:not(:disabled) { color: var(--ink); background: var(--well-grid); }
+  .btn-ghost:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* --- Segmented control ------------------------------------------------ */
+
+  .seg {
+    display: inline-flex;
+    gap: 5px;
+    padding: 4px;
+    border-radius: 12px;
+    background: linear-gradient(145deg, var(--clay-b), var(--clay-a));
+    box-shadow: var(--clay-press);
+  }
+  .seg-item {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 9px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--ink-3);
+    background: transparent;
+    transition: color .16s ease;
+  }
+  .seg-item:hover { color: var(--ink); }
+  .seg-item[aria-selected="true"],
+  .seg-item.is-active {
+    font-weight: 600;
+    color: var(--ink);
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip);
+  }
+  .seg-mono .seg-item { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; padding: 4px 9px; border-radius: 7px; }
+
+  /* --- Sidebar rail ----------------------------------------------------- */
+
+  .rail-section {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 12px 10px 6px;
+  }
+  .rail-section:first-child { padding-top: 4px; }
+
+  .rail-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 11px;
+    border: none;
+    border-radius: 11px;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    color: var(--ink-2);
+    background: transparent;
+    transition: all .16s ease;
+  }
+  .rail-btn:hover { color: var(--ink); }
+  .rail-btn[aria-current="page"] {
+    font-weight: 600;
+    color: var(--s1);
+    background: linear-gradient(145deg, var(--clay-b), var(--clay-a));
+    box-shadow: var(--clay-press);
+  }
+
+  /* --- Section headers -------------------------------------------------- */
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .section-title {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .section-rule { flex: 1; height: 1px; background: var(--hair); }
+  .section-note {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+
+  .page-title {
+    margin: 0 0 3px;
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .page-sub {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-2);
+    max-width: 62ch;
+  }
+
+  /* --- Metric typography ------------------------------------------------ */
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .stat-value {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .stat-value-lg { font-size: 30px; letter-spacing: -0.03em; }
+  .stat-unit {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--ink-3);
+    margin-left: 4px;
+  }
+  .stat-value-lg .stat-unit { font-size: 15px; }
+  .stat-empty {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ink-3);
+    line-height: 1;
+    padding: 7px 0;
+  }
+  .stat-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--ink-3);
+  }
+
+  /* --- Meters ----------------------------------------------------------- */
+
+  .bar {
+    height: 7px;
+    border-radius: 4px;
+    background: var(--well-grid);
+    overflow: hidden;
+  }
+  .bar-sm { height: 6px; border-radius: 3px; }
+  .bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--tone, var(--s1));
+    transition: width .3s ease;
+  }
+  .bar-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    margin-bottom: 4px;
+  }
+
+  /* --- Chips / badges --------------------------------------------------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 7px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--tone, var(--s1));
+    background: var(--tone-soft, var(--s1-soft));
+  }
+  .chip-lg { padding: 5px 10px; font-size: 11px; }
+
+  /* Round icon tile that sits inside a card header. */
+  .icon-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px;
+    border-radius: 10px;
+    flex: none;
+    color: var(--tone, var(--s1));
+    background: var(--tone-soft, var(--s1-soft));
+  }
+
+  /* --- Data tables ------------------------------------------------------ */
+
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .data-table thead th {
+    text-align: left;
+    padding: 9px 12px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--hair);
+    white-space: nowrap;
+  }
+  .data-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--hair);
+    color: var(--ink-2);
+    vertical-align: middle;
+  }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+  .data-table tbody tr:hover td { background: var(--well-grid); }
+  .data-table .num {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Form controls ---------------------------------------------------- */
+
+  .field-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+  .field {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--well-line);
+    background: var(--well);
+    color: var(--ink);
+    font-size: 13px;
+    box-shadow: var(--clay-press);
+    transition: border-color .16s ease;
+  }
+  .field::placeholder { color: var(--ink-3); }
+  .field:focus { outline: 2px solid var(--s1); outline-offset: 1px; border-color: transparent; }
+  .field-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 0.04em; }
+
+  /* --- Notice banner ---------------------------------------------------- */
+
+  .notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip);
+    border-left: 3px solid var(--tone, var(--s4));
+  }
+
+  /* --- Summary strip (glass, divided columns) --------------------------- */
+
+  .summary-strip {
+    display: flex;
+    align-items: stretch;
+    padding: 12px 4px;
+    border-radius: 16px;
+    background: var(--glass);
+    backdrop-filter: blur(var(--blur)) saturate(170%);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(170%);
+    border: 1px solid var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+  }
+  .summary-cell {
+    flex: 1;
+    min-width: 0;
+    padding: 0 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .summary-cell + .summary-cell { border-left: 1px solid var(--hair); }
+  .summary-key {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .summary-val { font-size: 15px; font-weight: 500; }
+
+  /* --- Modal ------------------------------------------------------------ */
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(10, 14, 24, .45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .modal-card {
+    width: 100%;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 20px;
+    border-radius: 18px;
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip), 0 30px 70px -30px rgba(0, 0, 0, .6);
+  }
+
+  /* --- Legacy aliases kept so un-migrated markup still renders ---------- */
+
+  .glass-panel {
+    background: var(--glass);
+    backdrop-filter: blur(var(--blur)) saturate(170%);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(170%);
+    border: 1px solid var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+    border-radius: 16px;
+  }
+  .glass-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+    cursor: pointer;
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip);
+    transition: box-shadow .16s ease, transform .16s ease;
+  }
+  .glass-button:hover:not(:disabled) { color: var(--ink); }
+  .glass-button:active:not(:disabled) { box-shadow: var(--clay-press); transform: translateY(1px); }
+  .glass-button:disabled { opacity: .5; cursor: not-allowed; }
+  .metric-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .metric-value {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+}
+
+/* ------------------------------------------------------------- utilities --- */
+
+@layer utilities {
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Tone helpers — set --tone/--tone-soft on any element and every child
+     using var(--tone) (chips, bars, icon tiles, notices) follows suit. */
+  .tone-1 { --tone: var(--s1); --tone-soft: var(--s1-soft); }
+  .tone-2 { --tone: var(--s2); --tone-soft: var(--s2-soft); }
+  .tone-3 { --tone: var(--s3); --tone-soft: var(--s3-soft); }
+  .tone-4 { --tone: var(--s4); --tone-soft: var(--s4-soft); }
+  .tone-5 { --tone: var(--s5); --tone-soft: var(--s5-soft); }
+  .tone-6 { --tone: var(--s6); --tone-soft: var(--s6-soft); }
+  .text-tone { color: var(--tone, var(--s1)); }
+  .bg-tone-soft { background: var(--tone-soft, var(--s1-soft)); }
+  .border-tone { border-color: var(--tone, var(--s1)); }
+
+  .text-ink { color: var(--ink); }
+  .text-ink-2 { color: var(--ink-2); }
+  .text-ink-3 { color: var(--ink-3); }
+  .border-hair { border-color: var(--hair); }
+  .lift { transition: transform .18s ease; }
+  .lift:hover { transform: translateY(-2px); }
+}
+
+/* ------------------------------------------------------ transport scrubber --- */
+/* A native range input restyled as the design's recessed track + clay thumb, so
+   keyboard scrubbing and screen-reader semantics survive the re-skin. The filled
+   portion is driven by an inline `--pct` set from React. */
+
+.scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  background:
+    linear-gradient(to right,
+      var(--s1) 0%, var(--s1) var(--pct, 0%),
+      var(--well-grid) var(--pct, 0%), var(--well-grid) 100%);
+  box-shadow: var(--clay-press);
+}
+.scrub::-webkit-slider-runnable-track { height: 12px; border-radius: 6px; background: transparent; }
+.scrub::-moz-range-track { height: 12px; border-radius: 6px; background: transparent; }
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -2px;
+  border-radius: 50%;
+  border: 1px solid var(--hair);
+  background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+  box-shadow: var(--clay-shadow), var(--clay-lip);
+}
+.scrub::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--hair);
+  background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+  box-shadow: var(--clay-shadow), var(--clay-lip);
+}
+
+/* Scrollbars, so the rail and main column don't punch a bright hole in dark mode. */
+* { scrollbar-width: thin; scrollbar-color: var(--well-line) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--well-line); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: content-box; }

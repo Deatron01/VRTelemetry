@@ -36,26 +36,16 @@ class TelemetryEngine:
                  hardware_metadata: Optional[Dict[str, Any]] = None,
                  central_server_url: str = "http://192.168.1.X:9000"):
         DEFAULT_MAX_SAMPLING_HZ = 120.0
-        self.synchronizer = BiometricSynchronizer(
-            writer=self.writer,
-            hardware_monitor=self.hardware,
-            max_hz=DEFAULT_MAX_SAMPLING_HZ,
-        )
+        
+        if not gdpr_consent:
+            raise GDPRConsentError("CRITICAL: Biometric tracking initialization aborted. Explicit user GDPR consent missing.")
+            
         self.is_running = False
         self.frames_recorded = 0
         self.gdpr_consent = gdpr_consent
         self.live_state = LiveExperimentState()
         self._last_frame_ts_ns: Optional[int] = None
         
-        self.local_license_cache = LocalLicenseCache()
-        self.uploader = SessionUploader(central_server_url, self.local_license_cache)
-        self.synchronizer = BiometricSynchronizer(
-            writer=self.writer, hardware_monitor=self.hardware,
-            max_hz=DEFAULT_MAX_SAMPLING_HZ, live_state=self.live_state,
-        )
-        if not self.gdpr_consent:
-            raise GDPRConsentError("CRITICAL: Biometric tracking initialization aborted. Explicit user GDPR consent missing.")
-            
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -65,14 +55,22 @@ class TelemetryEngine:
         self.session_id = time.strftime("%Y%m%d_%H%M%S")
         self.parquet_path = self.output_dir / f"vr_telemetry_{self.session_id}.parquet"
         
+        # 1. Initialize core storage and hardware monitors FIRST
         self.db_manager = DatabaseManager()
         self.hardware = HardwareMonitor()
-        
-        self.backend = None
-        
-        # Target 120Hz capacity for modern headsets, AsyncParquetWriter will batch accordingly
         self.writer = AsyncParquetWriter(output_path=self.parquet_path, target_hz=120)
-        self.synchronizer = BiometricSynchronizer(writer=self.writer, hardware_monitor=self.hardware)
+        
+        # 2. Initialize license cache and uploader
+        self.local_license_cache = LocalLicenseCache()
+        self.uploader = SessionUploader(central_server_url, self.local_license_cache)
+        
+        # 3. Initialize synchronizer AFTER its dependencies (writer, hardware, live_state) exist
+        self.synchronizer = BiometricSynchronizer(
+            writer=self.writer, 
+            hardware_monitor=self.hardware,
+            max_hz=DEFAULT_MAX_SAMPLING_HZ, 
+            live_state=self.live_state,
+        )
         
         self._async_loop: Optional[asyncio.AbstractEventLoop] = None
         self._async_thread: Optional[threading.Thread] = None
@@ -297,6 +295,10 @@ class TelemetryEngine:
             summary_metadata = {
                 "session_id": session_id,
                 "subject_id": static_meta.get("subject_id"),
+                # Links this upload back to the patient record centrally, so the
+                # admin dashboard's patient view can show real session counts
+                # instead of only what's visible in the researcher's local DB.
+                "patient_id": static_meta.get("patient_id"),
                 "total_frames": self.frames_recorded,
                 "duration_sec": duration_sec,
             }
@@ -306,15 +308,19 @@ class TelemetryEngine:
                 logger.info(f"Session {session_id} synced to central server.")
             else:
                 logger.warning(f"Session {session_id} could not be synced now "
-                                f"(reason: {result.get('reason')}) — queued for retry.")
+                                f"(reason: {result.get('reason')}) — queued for automatic retry.")
 
             # Log upload is best-effort and independent of the Parquet upload outcome —
             # even a session whose data upload failed should still get its diagnostic
             # log shipped if possible, since that log might explain *why* it failed.
+            # queue_on_failure=True (the default) means a failure here is queued
+            # in pending_session_logs and retried by the BackgroundSyncScheduler,
+            # rather than being silently lost.
             if getattr(self, "session_log_path", None) and self.session_log_path.exists():
                 log_result = self.uploader.upload_log(self.session_log_path, session_id)
                 if not log_result.get("ok"):
-                    logger.warning(f"Session log upload failed for {session_id}: {log_result.get('reason')}")
+                    logger.warning(f"Session log upload failed for {session_id}: "
+                                    f"{log_result.get('reason')} — queued for retry.")
 
         except Exception as e:
             logger.error(f"Unexpected error during post-session upload: {e}")

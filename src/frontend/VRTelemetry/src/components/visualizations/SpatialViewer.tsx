@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useState } from 'react';
+import { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
@@ -335,7 +335,6 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
     const heatmapColors = new Float32Array(voxelCount * 3);
 
     let idx = 0;
-    const colorHelper = new THREE.Color();
     
     voxelMap.forEach(voxel => {
       dummy.position.copy(voxel.pos);

@@ -76,6 +76,17 @@ class DatabaseManager:
             nasa_tlx_mental REAL,
             nasa_tlx_physical REAL,
             nasa_tlx_frustration REAL,
+            nasa_tlx_temporal REAL,
+            nasa_tlx_effort REAL,
+            nasa_tlx_performance REAL,
+            nasa_tlx_rtlx REAL,
+            nasa_tlx_band TEXT,
+            nasa_tlx_raw_items_json TEXT,
+            ssq_total_severity REAL,
+            ssq_severity_band TEXT,
+            ssq_raw_items_json TEXT,
+            thermal_comfort TEXT,
+            questionnaire_completed_at TEXT,
             perceived_temp_c REAL,
             session_rating INTEGER,
 
@@ -117,10 +128,91 @@ class DatabaseManager:
                     conn.commit()
                 except sqlite3.OperationalError:
                     pass
+
+                # Post-session subjective questionnaire columns (SSQ + NASA-TLX + thermal
+                # comfort) — added when the questionnaire capture pipeline was built; every
+                # session recorded before this migration silently had ssq_*/nasa_tlx_* default
+                # to whatever persist_experiment's INSERT used (0.0), never a real measurement.
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_temporal REAL")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_effort REAL")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_performance REAL")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_rtlx REAL")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_band TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_raw_items_json TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN ssq_total_severity REAL")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN ssq_severity_band TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN ssq_raw_items_json TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN thermal_comfort TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    conn.execute("ALTER TABLE session_metadata ADD COLUMN questionnaire_completed_at TEXT")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
             logger.info("SQLite Schema Initialization Successful with full specification mapping.")
         except sqlite3.Error as e:
             logger.critical(...)
             raise
+
+    def list_all_sessions(self) -> list:
+        """
+        Every recorded session known to this machine's local metadata DB,
+        regardless of patient linkage — the source of truth the sync backfill
+        sweep uses to find sessions that have a local recording but were never
+        (successfully) pushed to the central server.
+        """
+        query = """
+        SELECT session_id, patient_id, subject_id, start_timestamp_utc,
+               total_dropped_frames, created_at
+        FROM session_metadata
+        ORDER BY created_at ASC
+        """
+        try:
+            with self._get_connection() as conn:
+                rows = conn.execute(query).fetchall()
+                return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to list all sessions: {e}")
+            return []
 
     def get_sessions_for_patient(self, patient_id: str) -> list:
         """
@@ -290,3 +382,55 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Failed to persist static metadata for session {session_id}: {e}")
             return False
+    # Fixed, whitelisted set of columns the post-session questionnaire is
+    # allowed to write. Deliberately not a free-form dict->SQL builder off
+    # user input — this whitelist is the only thing standing between the
+    # /api/sessions/{id}/questionnaire endpoint and an arbitrary column write.
+    QUESTIONNAIRE_FIELDS = (
+        "ssq_nausea_score", "ssq_oculomotor_score", "ssq_disorientation",
+        "ssq_total_severity", "ssq_severity_band", "ssq_raw_items_json",
+        "nasa_tlx_mental", "nasa_tlx_physical", "nasa_tlx_temporal",
+        "nasa_tlx_performance", "nasa_tlx_effort", "nasa_tlx_frustration",
+        "nasa_tlx_rtlx", "nasa_tlx_band", "nasa_tlx_raw_items_json",
+        "thermal_comfort", "perceived_temp_c", "session_rating",
+        "questionnaire_completed_at",
+    )
+
+    def save_subjective_questionnaire(self, session_id: str, fields: Dict[str, Any]) -> bool:
+        """
+        Persists a scored post-session questionnaire (SSQ + NASA-TLX +
+        thermal comfort) onto an already-recorded session row. Called after
+        recording stops — the engine that ran persist_experiment() no longer
+        exists by the time a researcher fills this in, so this is a plain
+        UPDATE keyed on session_id rather than another INSERT.
+        """
+        clean = {k: v for k, v in fields.items() if k in self.QUESTIONNAIRE_FIELDS}
+        if not clean:
+            return False
+
+        set_clause = ", ".join(f"{col} = ?" for col in clean)
+        values = list(clean.values()) + [session_id]
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    f"UPDATE session_metadata SET {set_clause} WHERE session_id = ?",
+                    values,
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"Failed to save questionnaire for session {session_id}: {e}")
+            return False
+
+    def get_session_row(self, session_id: str) -> Dict[str, Any]:
+        """Full flat session_metadata row, used to rebuild the sync payload after a questionnaire update."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT * FROM session_metadata WHERE session_id = ?", (session_id,)
+                ).fetchone()
+                return dict(row) if row else {}
+        except sqlite3.Error as e:
+            logger.error(f"Failed to fetch session row {session_id}: {e}")
+            return {}

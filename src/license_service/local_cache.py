@@ -74,6 +74,35 @@ class LocalLicenseCache:
                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                             )
                         """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_session_logs (
+                    session_id TEXT PRIMARY KEY,
+                    log_path TEXT NOT NULL,
+                    attempts INTEGER DEFAULT 0,
+                    last_attempt_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # Confirmed-synced ledgers. Without these, the backfill sweep (which
+            # scans every session ever recorded locally, not just ones that went
+            # through the live pending_uploads queue) would have no way to know
+            # a session was already pushed successfully and would re-upload it
+            # — harmless server-side (checksum dedup), but a waste of bandwidth
+            # on every app boot for machines with a lot of history.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS synced_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    upload_id TEXT,
+                    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS synced_session_logs (
+                    session_id TEXT PRIMARY KEY,
+                    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
 
     def save(self, activation_id: str, license_key: str, hardware_fingerprint: str,
@@ -177,6 +206,71 @@ class LocalLicenseCache:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT * FROM pending_patient_syncs ORDER BY created_at ASC").fetchall()
             return [dict(r) for r in rows]
+
+    # --- Pending session log queue (mirrors pending_uploads) ---
+    # The original upload_log() path had no retry queue at all — a log upload
+    # that failed was simply lost. This closes that gap so logs get the same
+    # "automatically retries in the background" guarantee as sessions/patients.
+
+    def queue_pending_session_log(self, session_id: str, log_path: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO pending_session_logs (session_id, log_path)
+                VALUES (?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET log_path=excluded.log_path
+            """, (session_id, log_path))
+            conn.commit()
+
+    def record_session_log_attempt_failure(self, session_id: str, error: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE pending_session_logs
+                SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP, last_error = ?
+                WHERE session_id = ?
+            """, (error, session_id))
+            conn.commit()
+
+    def clear_pending_session_log(self, session_id: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM pending_session_logs WHERE session_id = ?", (session_id,))
+            conn.commit()
+
+    def list_pending_session_logs(self) -> List[Dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM pending_session_logs ORDER BY created_at ASC").fetchall()
+            return [dict(r) for r in rows]
+
+    # --- Confirmed-synced ledgers (used by the historical backfill sweep) ---
+
+    def mark_session_synced(self, session_id: str, upload_id: str = "") -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO synced_sessions (session_id, upload_id, synced_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    upload_id=excluded.upload_id, synced_at=CURRENT_TIMESTAMP
+            """, (session_id, upload_id))
+            conn.commit()
+
+    def is_session_synced(self, session_id: str) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT 1 FROM synced_sessions WHERE session_id = ?", (session_id,)).fetchone()
+            return row is not None
+
+    def mark_session_log_synced(self, session_id: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO synced_session_logs (session_id, synced_at)
+                VALUES (?, CURRENT_TIMESTAMP)
+                ON CONFLICT(session_id) DO UPDATE SET synced_at=CURRENT_TIMESTAMP
+            """, (session_id,))
+            conn.commit()
+
+    def is_session_log_synced(self, session_id: str) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT 1 FROM synced_session_logs WHERE session_id = ?", (session_id,)).fetchone()
+            return row is not None
         
     # --- Account session (login state) ---
     # Single-row table, same pattern as license_state — one desktop install,

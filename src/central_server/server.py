@@ -1,5 +1,5 @@
 # src/central_server/server.py — full updated file
-
+import os
 import logging
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request, Depends
 from fastapi.responses import FileResponse
@@ -50,11 +50,17 @@ def require_admin(x_session_token: str = Header(...)) -> dict:
     return session
 
 
-def _authorize_activation(activation_id: str, ip_address: str) -> dict:
-    result = license_mgr.heartbeat(activation_id, ip_address)
+def _authorize_activation(activation_id: str, ip_address: str, machine_label: Optional[str] = None) -> dict:
+    result = license_mgr.heartbeat(activation_id, ip_address, machine_label=machine_label)
     if not result["ok"]:
         raise HTTPException(status_code=403, detail=f"Unauthorized activation: {result['reason']}")
     return result
+
+
+# Heartbeats older than this are considered offline in the Active Clients view.
+# 3x the client's 30s ping interval gives headroom for one or two missed beats
+# (a brief network blip) before flipping a machine to "Offline".
+CLIENT_ONLINE_THRESHOLD_SECONDS = 90
 
 
 # --- Auth routes (unchanged from before) ---
@@ -117,11 +123,45 @@ def activate_license(
 
 
 @app.post("/license/heartbeat")
-def heartbeat(request: Request, activation_id: str = Form(...)):
-    result = license_mgr.heartbeat(activation_id, _client_ip(request))
+def heartbeat(request: Request, activation_id: str = Form(...), machine_label: Optional[str] = Form(None)):
+    result = license_mgr.heartbeat(activation_id, _client_ip(request), machine_label=machine_label)
     if not result["ok"]:
         raise HTTPException(status_code=403, detail=result["reason"])
     return result
+
+
+@app.post("/client/heartbeat")
+def client_heartbeat(
+    request: Request,
+    activation_id: str = Form(...),
+    license_id: str = Form(""),
+    machine_label: str = Form(""),
+    app_version: str = Form(""),
+    os_platform: str = Form(""),
+    status: str = Form("idle"),
+    pending_sync_count: int = Form(0),
+):
+    """
+    Dedicated presence/liveness ping — separate from /license/heartbeat so the
+    Active Clients admin view has richer, purpose-built data (app_version,
+    os_platform, current status, how much is still queued locally) without
+    overloading the license-validity endpoint. Still goes through the same
+    activation authorization, so a revoked/expired machine can't keep showing
+    up as "online".
+    """
+    ip = _client_ip(request)
+    auth = _authorize_activation(activation_id, ip, machine_label=machine_label or None)
+    data_mgr.record_heartbeat(
+        activation_id=activation_id,
+        license_id=license_id or auth.get("license_id") or "",
+        machine_label=machine_label,
+        app_version=app_version,
+        os_platform=os_platform,
+        status=status,
+        pending_sync_count=pending_sync_count,
+        ip_address=ip,
+    )
+    return {"ok": True, "expires_at": auth.get("expires_at")}
 
 
 # --- Data intake (existing) ---
@@ -160,6 +200,34 @@ async def upload_session(
     )
     if not result["ok"]:
         raise HTTPException(status_code=409, detail=result["reason"])
+    return result
+
+
+@app.post("/data/update-session-metadata")
+async def update_session_metadata(
+    request: Request,
+    activation_id: str = Form(...),
+    license_id: str = Form(...),
+    session_id: str = Form(...),
+    metadata_json: str = Form(...),
+):
+    """
+    Metadata-only update for a session that already uploaded its Parquet file —
+    used when a post-session questionnaire (SSQ/NASA-TLX/thermal comfort) is
+    completed after the fact. See CentralDataManager.update_session_metadata
+    for why this can't just reuse /data/upload-session.
+    """
+    ip = _client_ip(request)
+    _authorize_activation(activation_id, ip)
+
+    try:
+        metadata = json.loads(metadata_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="metadata_json is not valid JSON")
+
+    result = data_mgr.update_session_metadata(license_id=license_id, session_id=session_id, metadata=metadata)
+    if not result["ok"]:
+        raise HTTPException(status_code=404, detail=result["reason"])
     return result
 
 
@@ -222,6 +290,65 @@ def admin_revoke_machine(activation_id: str = Form(...), reason: str = Form(""),
 def admin_list_all_sessions(license_id: Optional[str] = None, admin=Depends(require_admin)):
     return data_mgr.list_sessions(license_id)
 
+
+@app.get("/admin/clients")
+def admin_list_clients(admin=Depends(require_admin)):
+    """
+    Merges every machine ever activated (LicenseManager, licenses.db) with the
+    live presence data reported via /client/heartbeat (CentralDataManager,
+    central_data.db). A machine shows up here even if it has never sent an
+    app-level heartbeat yet (e.g. an older client build) — it just falls back
+    to the license heartbeat's last_heartbeat_at and reads as Offline/Unknown
+    once that ages past the threshold.
+    """
+    import datetime as _dt
+
+    activations = {a["activation_id"]: a for a in license_mgr.list_activations()}
+    heartbeats = {h["activation_id"]: h for h in data_mgr.list_client_heartbeats()}
+
+    now = _dt.datetime.utcnow()
+    clients = []
+    for aid in set(activations) | set(heartbeats):
+        act = activations.get(aid, {})
+        hb = heartbeats.get(aid, {})
+        last_seen = hb.get("last_seen_at") or act.get("last_heartbeat_at")
+
+        seconds_since_seen = None
+        online = False
+        if last_seen:
+            try:
+                last_dt = _dt.datetime.fromisoformat(str(last_seen))
+                seconds_since_seen = (now - last_dt).total_seconds()
+                online = 0 <= seconds_since_seen <= CLIENT_ONLINE_THRESHOLD_SECONDS
+            except ValueError:
+                pass
+
+        clients.append({
+            "activation_id": aid,
+            "machine_label": hb.get("machine_label") or act.get("machine_label"),
+            "hardware_fingerprint": act.get("hardware_fingerprint"),
+            "license_key": act.get("license_key"),
+            "license_id": act.get("license_id") or hb.get("license_id"),
+            "license_status": act.get("license_status"),
+            "plan": act.get("plan"),
+            "org_name": act.get("org_name"),
+            "owner_email": act.get("owner_email"),
+            "os_platform": hb.get("os_platform") or act.get("os_platform"),
+            "app_version": hb.get("app_version") or act.get("app_version"),
+            "status": hb.get("status") or ("unknown" if act else "unknown"),
+            "pending_sync_count": hb.get("pending_sync_count", 0),
+            "ip_address": hb.get("ip_address"),
+            "is_revoked": bool(act.get("is_revoked", 0)),
+            "activated_at": act.get("activated_at"),
+            "first_seen_at": hb.get("first_seen_at"),
+            "last_seen_at": last_seen,
+            "seconds_since_seen": seconds_since_seen,
+            "online": online,
+        })
+
+    clients.sort(key=lambda c: c["last_seen_at"] or "", reverse=True)
+    return clients
+
 @app.post("/admin/license/extend")
 def admin_extend_license(license_key: str = Form(...), additional_days: int = Form(...), admin=Depends(require_admin)):
     result = license_mgr.extend_license(license_key, additional_days)
@@ -264,7 +391,11 @@ async def upload_patient(request: Request, payload: dict):
     activation_id = payload.get("activation_id")
     license_id = payload.get("license_id")
     patient = payload.get("patient")
-    if not activation_id or not license_id or not patient or not patient.get("patient_id"):
+    
+    # Check for None explicitly rather than truthiness, to allow empty strings if necessary
+    if activation_id is None or license_id is None or patient is None or not patient.get("patient_id"):
+        # Optional: Print to backend console to see exactly what is missing
+        logger.error(f"Sync rejected. Payload received: {payload}") 
         raise HTTPException(status_code=400, detail="activation_id, license_id, and patient are required")
 
     _authorize_activation(activation_id, ip)
@@ -281,3 +412,66 @@ def admin_download_session_log(session_id: str, license_id: str, admin=Depends(r
     if not path or not path.exists():
         raise HTTPException(status_code=404, detail="Log not found")
     return FileResponse(path, filename=path.name, media_type="text/plain")
+
+# ============================================================
+# --- DATABASE FILES ROUTES ---
+# ============================================================
+
+def _get_storage_root() -> Path:
+    # Safely extract the root path from data_mgr. 
+    # Change 'storage_dir' to match whatever attribute CentralDataManager uses.
+    root = getattr(data_mgr, 'storage_dir', None) or getattr(data_mgr, 'base_dir', Path("data"))
+    return Path(root)
+
+@app.get("/admin/files")
+def admin_list_files(admin=Depends(require_admin)):
+    files = []
+    storage_root = _get_storage_root()
+    
+    if storage_root.exists():
+        for file_path in storage_root.rglob("*"):
+            if file_path.is_file():
+                stat = file_path.stat()
+                # Use the relative path as the ID so it's clean in the frontend
+                rel_path = file_path.relative_to(storage_root)
+                rel_str = str(rel_path).replace("\\", "/")
+                parts = rel_str.split("/")
+                files.append({
+                    "id": rel_str,
+                    "filename": file_path.name,
+                    "size": stat.st_size,
+                    "type": file_path.suffix.lstrip('.') or "unknown",
+                    "last_modified": stat.st_mtime * 1000,
+                    # Files are stored namespaced by license (CentralDataManager.ingest_session /
+                    # ingest_log) — surfacing that top-level segment lets the admin UI filter/group
+                    # raw files by license without a second lookup.
+                    "license_id": parts[0] if len(parts) > 1 else None,
+                    "relative_dir": "/".join(parts[:-1]) if len(parts) > 1 else "",
+                })
+    return files
+
+@app.get("/admin/files/{file_id:path}/download")
+def admin_download_raw_file(file_id: str, admin=Depends(require_admin)):
+    storage_root = _get_storage_root()
+    path = (storage_root / file_id).resolve()
+    
+    # Security check: prevent directory traversal attacks (e.g., ../../../etc/passwd)
+    if not path.exists() or not path.is_file() or storage_root.resolve() not in path.parents:
+        raise HTTPException(status_code=404, detail="File not found or access denied")
+    
+    return FileResponse(path, filename=path.name, media_type="application/octet-stream")
+
+@app.delete("/admin/files/{file_id:path}")
+def admin_delete_raw_file(file_id: str, admin=Depends(require_admin)):
+    storage_root = _get_storage_root()
+    path = (storage_root / file_id).resolve()
+    
+    if not path.exists() or not path.is_file() or storage_root.resolve() not in path.parents:
+        raise HTTPException(status_code=404, detail="File not found or access denied")
+    
+    try:
+        path.unlink()
+        logger.warning(f"Admin {admin['email']} deleted raw file: {file_id}")
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")

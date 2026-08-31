@@ -85,12 +85,12 @@ class CentralDataManager:
             conn.execute(
                 """INSERT INTO uploaded_sessions
                    (upload_id, session_id, license_id, activation_id, machine_label,
-                    subject_id, original_filename, storage_path, file_size_bytes,
+                    subject_id, patient_id, original_filename, storage_path, file_size_bytes,
                     sha256_checksum, total_frames, duration_sec, metadata_json, verified)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     upload_id, session_id, license_id, activation_id, machine_label,
-                    metadata.get("subject_id"), original_filename,
+                    metadata.get("subject_id"), metadata.get("patient_id"), original_filename,
                     str(dest_path.relative_to(self.storage_root)),
                     len(file_bytes), checksum,
                     metadata.get("total_frames"), metadata.get("duration_sec"),
@@ -115,6 +115,27 @@ class CentralDataManager:
                     "SELECT * FROM uploaded_sessions ORDER BY received_at DESC"
                 ).fetchall()
             return [dict(r) for r in rows]
+
+    def update_session_metadata(self, *, license_id: str, session_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Overwrites metadata_json on an already-ingested session without touching
+        the stored Parquet bytes or its checksum. Exists for the post-session
+        questionnaire flow: SSQ/NASA-TLX scores are captured client-side *after*
+        recording stops (and often after the session already synced), so there's
+        no new file to upload — just an updated metadata record. ingest_session()
+        can't be reused for this because it's checksum-gated on file bytes: a
+        second call with identical parquet bytes short-circuits as "already
+        received" and never looks at the metadata argument again.
+        """
+        with self._conn() as conn:
+            cursor = conn.execute(
+                "UPDATE uploaded_sessions SET metadata_json = ? WHERE license_id = ? AND session_id = ?",
+                (json.dumps(metadata), license_id, session_id),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return {"ok": False, "reason": "session_not_found"}
+            return {"ok": True, "status": "metadata_updated"}
 
     def get_file_path(self, upload_id: str) -> Optional[Path]:
         with self._conn() as conn:
@@ -163,15 +184,31 @@ class CentralDataManager:
             ).fetchone()
             return (self.storage_root / row["storage_path"]) if row else None
         
+    # Mirrors PatientManager.HEALTH_PROFILE_FIELDS on the client.
+    _HEALTH_PROFILE_FIELDS = (
+        "age_years", "height_cm", "weight_kg", "dominant_hand",
+        "vr_experience_level", "vr_experience_hours_estimate",
+        "gaming_experience_hours_per_week", "vision_correction",
+        "vision_impairment", "motion_sickness_susceptibility",
+        "relevant_health_conditions",
+    )
+
     def upsert_patient(self, *, license_id: str, activation_id: str, patient: Dict[str, Any]) -> Dict[str, Any]:
+        health_columns = ", ".join(self._HEALTH_PROFILE_FIELDS)
+        health_placeholders = ", ".join("?" for _ in self._HEALTH_PROFILE_FIELDS)
+        health_updates = ", ".join(f"{col}=excluded.{col}" for col in self._HEALTH_PROFILE_FIELDS)
+        health_values = tuple(patient.get(col) for col in self._HEALTH_PROFILE_FIELDS)
+
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO synced_patients (
+                f"""INSERT INTO synced_patients (
                     patient_id, license_id, activation_id, display_name, external_ref,
-                    date_of_birth, biological_sex, notes, gdpr_consent_given,
+                    date_of_birth, biological_sex, notes,
+                    {health_columns},
+                    gdpr_consent_given,
                     gdpr_consent_version, gdpr_consent_timestamp, gdpr_consent_withdrawn_at,
                     is_anonymized, raw_json, last_updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, {health_placeholders}, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(license_id, patient_id) DO UPDATE SET
                     activation_id=excluded.activation_id,
                     display_name=excluded.display_name,
@@ -179,6 +216,7 @@ class CentralDataManager:
                     date_of_birth=excluded.date_of_birth,
                     biological_sex=excluded.biological_sex,
                     notes=excluded.notes,
+                    {health_updates},
                     gdpr_consent_given=excluded.gdpr_consent_given,
                     gdpr_consent_version=excluded.gdpr_consent_version,
                     gdpr_consent_timestamp=excluded.gdpr_consent_timestamp,
@@ -190,6 +228,7 @@ class CentralDataManager:
                     patient["patient_id"], license_id, activation_id,
                     patient.get("display_name"), patient.get("external_ref"),
                     patient.get("date_of_birth"), patient.get("biological_sex"), patient.get("notes"),
+                    *health_values,
                     patient.get("gdpr_consent_given"), patient.get("gdpr_consent_version"),
                     patient.get("gdpr_consent_timestamp"), patient.get("gdpr_consent_withdrawn_at"),
                     patient.get("is_anonymized", 0), json.dumps(patient),
@@ -200,12 +239,70 @@ class CentralDataManager:
         return {"ok": True}
 
     def list_patients(self, license_id: Optional[str] = None) -> list:
+        """
+        Returns every synced patient enriched with a live session_count and
+        last_session_at computed from uploaded_sessions — the admin dashboard's
+        patient table shouldn't have to guess this from a separate call.
+        """
+        base_query = """
+            SELECT p.*,
+                   COUNT(s.upload_id) AS session_count,
+                   MAX(s.received_at) AS last_session_at
+            FROM synced_patients p
+            LEFT JOIN uploaded_sessions s
+                ON s.patient_id = p.patient_id AND s.license_id = p.license_id
+            {where}
+            GROUP BY p.license_id, p.patient_id
+            ORDER BY p.last_updated_at DESC
+        """
         with self._conn() as conn:
             if license_id:
                 rows = conn.execute(
-                    "SELECT * FROM synced_patients WHERE license_id = ? ORDER BY last_updated_at DESC",
-                    (license_id,)
+                    base_query.format(where="WHERE p.license_id = ?"), (license_id,)
                 ).fetchall()
             else:
-                rows = conn.execute("SELECT * FROM synced_patients ORDER BY last_updated_at DESC").fetchall()
+                rows = conn.execute(base_query.format(where="")).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- Client presence / heartbeats (Active Clients admin tab) ---
+
+    def record_heartbeat(
+        self,
+        *,
+        activation_id: str,
+        license_id: str = "",
+        machine_label: str = "",
+        app_version: str = "",
+        os_platform: str = "",
+        status: str = "unknown",
+        pending_sync_count: int = 0,
+        ip_address: str = "",
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO client_heartbeats (
+                    activation_id, license_id, machine_label, app_version, os_platform,
+                    status, pending_sync_count, ip_address, first_seen_at, last_seen_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(activation_id) DO UPDATE SET
+                    license_id=excluded.license_id,
+                    machine_label=excluded.machine_label,
+                    app_version=excluded.app_version,
+                    os_platform=excluded.os_platform,
+                    status=excluded.status,
+                    pending_sync_count=excluded.pending_sync_count,
+                    ip_address=excluded.ip_address,
+                    last_seen_at=CURRENT_TIMESTAMP""",
+                (
+                    activation_id, license_id, machine_label, app_version, os_platform,
+                    status, pending_sync_count, ip_address,
+                )
+            )
+            conn.commit()
+
+    def list_client_heartbeats(self) -> list:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_heartbeats ORDER BY last_seen_at DESC"
+            ).fetchall()
             return [dict(r) for r in rows]

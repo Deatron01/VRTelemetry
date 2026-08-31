@@ -64,47 +64,71 @@ export const Login: React.FC<LoginProps> = ({ onAuthenticated }) => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#f1f5f9]">
-      <div className="glass-panel p-8 w-full max-w-md">
-        <div className="flex items-center gap-2 text-research-graphite font-semibold text-lg mb-1">
-          <Activity className="w-6 h-6 text-research-blue" />
-          VRTelemetry <span className="font-light text-research-muted ml-1">Research Studio</span>
+    <div className="flex min-h-screen w-full items-center justify-center p-6">
+      <div className="clay w-full max-w-md p-7">
+        <div className="mb-1 flex items-center gap-2.5">
+          <div className="clay-xs flex h-[34px] w-[34px] flex-none items-center justify-center"
+               style={{ color: 'var(--s1)', borderRadius: 11 }}>
+            <Activity className="h-[17px] w-[17px]" strokeWidth={2.1} />
+          </div>
+          <div className="text-[15px] font-semibold">
+            VRTelemetry <span className="font-normal text-ink-3">Research Studio</span>
+          </div>
         </div>
-        <p className="text-sm text-research-muted mb-6">
+        <p className="mb-5 mt-2 text-[13px] text-ink-2">
           {mode === 'login' ? 'Sign in to access your telemetry workspace.' : 'Register your lab to get started.'}
         </p>
 
+        <div className="seg mb-5 w-full" role="group" aria-label="Authentication mode">
+          <button
+            onClick={() => { setMode('login'); setError(null); }}
+            aria-pressed={mode === 'login'}
+            className={`flex-1 ${mode === 'login' ? 'seg-item is-active' : 'seg-item'}`}
+          >
+            Sign in
+          </button>
+          <button
+            onClick={() => { setMode('register'); setError(null); }}
+            aria-pressed={mode === 'register'}
+            className={`flex-1 ${mode === 'register' ? 'seg-item is-active' : 'seg-item'}`}
+          >
+            Register a lab
+          </button>
+        </div>
+
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <p>{error}</p>
+          <div className="notice tone-2 mb-4 items-start text-[13px]" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-none text-tone" />
+            <p className="m-0 flex-1 text-ink-2">{error}</p>
           </div>
         )}
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Mail className="w-3 h-3" /> Email
+            <label htmlFor="auth-email" className="field-label flex items-center gap-1.5">
+              <Mail className="h-3 w-3" /> Email
             </label>
             <input
+              id="auth-email"
               type="email"
               value={form.email}
               onChange={e => setForm({ ...form, email: e.target.value })}
-              className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors"
+              className="field"
               placeholder="researcher@university.edu"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Lock className="w-3 h-3" /> Password
+            <label htmlFor="auth-password" className="field-label flex items-center gap-1.5">
+              <Lock className="h-3 w-3" /> Password
             </label>
             <input
+              id="auth-password"
               type="password"
               value={form.password}
               onChange={e => setForm({ ...form, password: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors"
+              className="field"
               placeholder="••••••••"
             />
           </div>
@@ -112,26 +136,28 @@ export const Login: React.FC<LoginProps> = ({ onAuthenticated }) => {
           {mode === 'register' && (
             <>
               <div>
-                <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <Building2 className="w-3 h-3" /> Organization / Lab
+                <label htmlFor="auth-org" className="field-label flex items-center gap-1.5">
+                  <Building2 className="h-3 w-3" /> Organization / Lab
                 </label>
                 <input
+                  id="auth-org"
                   type="text"
                   value={form.org_name}
                   onChange={e => setForm({ ...form, org_name: e.target.value })}
-                  className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors"
+                  className="field"
                   placeholder="Cognitive Systems Lab"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-research-muted uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <User className="w-3 h-3" /> Display Name (optional)
+                <label htmlFor="auth-name" className="field-label flex items-center gap-1.5">
+                  <User className="h-3 w-3" /> Principal Investigator (optional)
                 </label>
                 <input
+                  id="auth-name"
                   type="text"
                   value={form.display_name}
                   onChange={e => setForm({ ...form, display_name: e.target.value })}
-                  className="w-full text-sm border border-research-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-research-blue transition-colors"
+                  className="field"
                   placeholder="Dr. Jane Smith"
                 />
               </div>
@@ -141,28 +167,28 @@ export const Login: React.FC<LoginProps> = ({ onAuthenticated }) => {
           <button
             onClick={handleSubmit}
             disabled={isLoading}
-            className="w-full py-3 rounded-lg font-medium bg-research-blue text-white shadow-sm hover:shadow hover:bg-blue-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="btn-accent btn-accent-lg w-full justify-center"
           >
-            {isLoading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
-            {!isLoading && <ArrowRight className="w-4 h-4" />}
+            {isLoading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
+            {!isLoading && <ArrowRight className="h-4 w-4" />}
           </button>
         </div>
 
-        <div className="mt-5 text-center text-sm text-research-muted">
+        <p className="mt-5 text-center text-[12.5px] text-ink-3">
           {mode === 'login' ? (
-            <>Don't have an account?{' '}
-              <button onClick={() => { setMode('register'); setError(null); }} className="text-research-blue font-medium hover:underline">
+            <>No account yet?{' '}
+              <button onClick={() => { setMode('register'); setError(null); }} className="font-medium" style={{ color: 'var(--s1)' }}>
                 Register your lab
               </button>
             </>
           ) : (
             <>Already registered?{' '}
-              <button onClick={() => { setMode('login'); setError(null); }} className="text-research-blue font-medium hover:underline">
+              <button onClick={() => { setMode('login'); setError(null); }} className="font-medium" style={{ color: 'var(--s1)' }}>
                 Sign in
               </button>
             </>
           )}
-        </div>
+        </p>
       </div>
     </div>
   );

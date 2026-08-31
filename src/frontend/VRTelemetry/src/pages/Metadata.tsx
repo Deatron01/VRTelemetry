@@ -1,6 +1,6 @@
 import React from 'react';
+import { Cpu, Database, Activity } from 'lucide-react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
-import { FileText, Cpu, Database, Activity } from 'lucide-react';
 
 export const Metadata = () => {
   const { metadata, frames } = useTelemetryStore();
@@ -10,88 +10,81 @@ export const Metadata = () => {
   // Extract actual schema columns from the first frame's keys
   const schemaColumns = Object.keys(frames[0]);
 
+  const sensors: { label: string; channel: string }[] = [
+    { label: 'Eye tracking sensor', channel: 'left_eye_pos_x' },
+    { label: 'Pupillometry sensor', channel: 'left_pupil_size' },
+    { label: 'Cardiovascular sensor', channel: 'heart_rate_bpm' },
+    { label: 'Controller tracking', channel: 'left_pos_x' },
+  ];
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6 flex flex-col h-[calc(100vh-140px)]">
-      <div className="flex items-center gap-3 mb-4">
-        <FileText className="w-8 h-8 text-research-graphite" />
-        <div>
-          <h1 className="text-2xl font-semibold text-research-graphite">Session & Device Metadata</h1>
-          <p className="text-sm text-research-muted">Hardware diagnostics, schema definitions, and file context.</p>
-        </div>
+    <div className="mx-auto flex h-full max-w-[1360px] flex-col gap-4">
+      <div>
+        <h1 className="page-title">Session &amp; Device Metadata</h1>
+        <p className="page-sub">Hardware diagnostics, schema definitions, and file context.</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        <div className="space-y-6">
-          <div className="glass-panel p-6">
-            <h3 className="font-semibold text-research-graphite mb-4 flex items-center gap-2 border-b border-research-border pb-2">
-              <Database className="w-4 h-4 text-research-blue" /> File Information
-            </h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Filename</span>
-                <span className="text-sm font-mono bg-slate-100 px-2 rounded border border-slate-200">{metadata.filename}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Total Frames</span>
-                <span className="text-sm font-mono">{metadata.total_frames.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Session Duration</span>
-                <span className="text-sm font-mono">{metadata.duration_sec.toFixed(2)} seconds</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Start Timestamp</span>
-                <span className="text-sm font-mono">{frames[0].timestamp_ns} ns</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">End Timestamp</span>
-                <span className="text-sm font-mono">{frames[frames.length - 1].timestamp_ns} ns</span>
-              </div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3.5 lg:grid-cols-2">
+        <div className="flex flex-col gap-3.5">
+
+          <div className="clay p-4">
+            <div className="section-head">
+              <span style={{ color: 'var(--s1)' }}><Database className="h-4 w-4" /></span>
+              <h2 className="section-title">File Information</h2>
+              <div className="section-rule" />
+            </div>
+            <div className="well flex flex-col gap-2.5 p-3">
+              <Row label="Filename" value={metadata.filename} mono truncate />
+              <Row label="Total frames" value={metadata.total_frames.toLocaleString()} mono />
+              <Row label="Session duration" value={`${metadata.duration_sec.toFixed(2)} seconds`} mono />
+              <Row label="Start timestamp" value={`${frames[0].timestamp_ns} ns`} mono />
+              <Row label="End timestamp" value={`${frames[frames.length - 1].timestamp_ns} ns`} mono />
             </div>
           </div>
 
-          <div className="glass-panel p-6">
-            <h3 className="font-semibold text-research-graphite mb-4 flex items-center gap-2 border-b border-research-border pb-2">
-              <Cpu className="w-4 h-4 text-research-green" /> Hardware Capabilities Detected
-            </h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Sampling Frequency</span>
-                <span className="text-sm font-mono">~{metadata.avg_sampling_hz.toFixed(1)} Hz</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Eye Tracking Sensor</span>
-                <span className={`text-sm font-mono ${metadata.channels_detected.includes('left_eye_pos_x') ? 'text-research-green' : 'text-research-muted'}`}>
-                  {metadata.channels_detected.includes('left_eye_pos_x') ? 'DETECTED' : 'NOT AVAILABLE'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Pupillometry Sensor</span>
-                <span className={`text-sm font-mono ${metadata.channels_detected.includes('left_pupil_size') ? 'text-research-green' : 'text-research-muted'}`}>
-                  {metadata.channels_detected.includes('left_pupil_size') ? 'DETECTED' : 'NOT AVAILABLE'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-research-muted">Cardiovascular Sensor</span>
-                <span className={`text-sm font-mono ${metadata.channels_detected.includes('heart_rate_bpm') ? 'text-research-green' : 'text-research-muted'}`}>
-                  {metadata.channels_detected.includes('heart_rate_bpm') ? 'DETECTED' : 'NOT AVAILABLE'}
-                </span>
-              </div>
+          <div className="clay p-4">
+            <div className="section-head">
+              <span style={{ color: 'var(--s6)' }}><Cpu className="h-4 w-4" /></span>
+              <h2 className="section-title">Hardware Capabilities Detected</h2>
+              <div className="section-rule" />
+            </div>
+            <div className="well flex flex-col gap-2.5 p-3">
+              <Row label="Sampling frequency" value={`~${metadata.avg_sampling_hz.toFixed(1)} Hz`} mono />
+              {sensors.map(s => {
+                const present = metadata.channels_detected.includes(s.channel);
+                return (
+                  <div key={s.channel} className="flex items-center justify-between gap-3 text-[12px]">
+                    <span className="text-ink-3">{s.label}</span>
+                    <span className="mono text-[11px]" style={{ color: present ? 'var(--s6)' : 'var(--ink-3)' }}>
+                      {present ? 'DETECTED' : 'NOT AVAILABLE'}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="glass-panel p-6 flex flex-col h-full">
-          <h3 className="font-semibold text-research-graphite mb-4 flex items-center gap-2 border-b border-research-border pb-2">
-            <Activity className="w-4 h-4 text-purple-500" /> Parquet Schema Extractor
-          </h3>
-          <p className="text-xs text-research-muted mb-4">
-            The following physical telemetry channels were successfully mapped into the processing layer from the source file.
+        <div className="clay flex min-h-0 flex-col p-4">
+          <div className="section-head">
+            <span style={{ color: 'var(--s5)' }}><Activity className="h-4 w-4" /></span>
+            <h2 className="section-title">Parquet Schema Extractor</h2>
+            <div className="section-rule" />
+            <span className="section-note">{schemaColumns.length} channels</span>
+          </div>
+          <p className="m-0 mb-3 text-[12px] text-ink-3">
+            The following physical telemetry channels were successfully mapped into the processing layer from the
+            source file.
           </p>
-          <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded border border-research-border p-2">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              {schemaColumns.map((col) => (
-                <div key={col} className="text-[11px] font-mono text-slate-600 truncate py-1 border-b border-slate-100 last:border-0">
+          <div className="well min-h-0 flex-1 overflow-y-auto p-2.5">
+            <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">
+              {schemaColumns.map(col => (
+                <div
+                  key={col}
+                  className="mono truncate py-1.5 text-[11px] text-ink-2"
+                  style={{ borderBottom: '1px solid var(--well-line)' }}
+                  title={col}
+                >
                   {col}
                 </div>
               ))}
@@ -102,3 +95,10 @@ export const Metadata = () => {
     </div>
   );
 };
+
+const Row: React.FC<{ label: string; value: string; mono?: boolean; truncate?: boolean }> = ({ label, value, mono, truncate }) => (
+  <div className="flex items-center justify-between gap-3 text-[12px]">
+    <span className="flex-none text-ink-3">{label}</span>
+    <span className={`${mono ? 'mono' : ''} ${truncate ? 'min-w-0 truncate' : ''} text-[11.5px]`} title={value}>{value}</span>
+  </div>
+);
