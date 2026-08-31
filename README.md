@@ -1,126 +1,189 @@
-# VRTelemetry: Headless Biometric Acquisition Framework
+# VRTelemetry
 
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://python.org)
-[![OpenXR](https://img.shields.io/badge/OpenXR-1.0-green.svg)](https://www.khronos.org/openxr/)
-[![Data Storage](https://img.shields.io/badge/Storage-Apache%20Parquet-orange.svg)](https://parquet.apache.org/)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
-[![Compliance](https://img.shields.io/badge/Compliance-GDPR%20Ready-brightgreen.svg)]()
+A research instrument for recording what happens to a person inside a VR
+headset — eye tracking, pose, physiology, hardware state — and turning it into
+data you can defend in a paper.
 
-**VRTelemetry** is an enterprise-grade, zero-interference OpenXR telemetry system architected for virtual reality biometric research, cognitive load analysis, and Deep Learning time-series dataset generation. 
+It is a desktop application a researcher runs at a workstation, plus a central
+hub that collects sessions from every workstation in a lab. It records to
+Parquet at the headset's sampling rate, links each session to a consented
+patient record, scores the standard post-session questionnaires (SSQ, NASA-TLX),
+and syncs to the hub when the network allows — queueing locally when it does not.
 
-By operating entirely in the background via OpenXR API Layers (`XR_MND_headless`), the framework harvests stereoscopic eye vectors, pupil dilations, high-frequency spatial kinematics, and hardware states while external commercial or experimental VR applications remain fully in focus and undisturbed.
-
----
-
-## 🧠 Core Architectural Features
-
-- **Zero-Interference Background Execution:** Utilizes `XR_MND_headless` to run concurrently with any primary VR application (Unity, Unreal, Custom Engines) without stealing graphics context or rendering resources.
-- **Asynchronous Producer-Consumer Topology:** Bypasses Python GIL restrictions via `asyncio` and `threading`, strictly separating high-frequency hardware data acquisition from disk I/O to guarantee **0% frame drops**.
-- **Hardware-Locked Pacing:** Relies exclusively on OpenXR's `xrWaitFrame` prediction timers for deterministic, sub-millisecond polling cycles (90Hz - 120Hz), eliminating software sleep jitter.
-- **Zero-Copy Flat Tensors:** Data structures map natively to 1D `Float32` primitives and are flushed directly to **Apache Parquet** columnar binaries. This halves VRAM requirements and allows instant ingestion into PyTorch or TensorFlow DataLoader pipelines.
-- **Vendor-Agnostic Eye Tracking Factory:** Autonomously detects and binds the highest-fidelity biometric extensions available at runtime (supports HTC Vive Pro Eye, Meta Quest Pro, and generic OpenXR gaze extensions).
-- **Strict Biometric Consent Enforcement:** Hard-coded GDPR safety blocks prevent data harvesting without explicit, actively maintained user consent flags.
+**Working offline is a supported state, not a failure mode.** A researcher with a
+laptop in a room without the lab LAN can record a full session; everything
+queues and drains when the hub comes back.
 
 ---
 
-## ⚙️ Installation & Setup
+## Quick start
 
-### Prerequisites
-* Windows 10/11 (Required for current OpenXR graphics context abstractions).
-* Python 3.10, 3.11, or 3.12.
-* An active OpenXR-compatible runtime (Meta Quest Link, SteamVR, Vive Console, or Varjo Base).
-
-### Deployment
-Clone the repository and run the automated framework bootstrapper, which verifies system compliance and installs all necessary memory-aligned C-extensions (PyArrow, Numpy) and API wrappers (PyOpenXR).
+Requires **Python 3.10+** and Node 20+ for the frontend.
 
 ```bash
-git clone [https://github.com/Deatron01/VRTelemetry.git](https://github.com/Deatron01/VRTelemetry.git)
-cd VRTelemetry
-python -m src.tert_runner
+pip install -e ".[dev]"
+pytest -m "not hardware"          # 197 tests, no headset required
 ```
 
-Alternatively, install dependencies manually:
+Run the backend the desktop shell talks to:
+
 ```bash
-pip install -r requirements.txt
+vrtelemetry-server                # or: uvicorn src.main:app --port 8000
 ```
+
+Record from the command line, without the UI:
+
+```bash
+python -m src.interfaces.cli.record --backend openxr --gdpr-consent
+```
+
+The `hardware` marker separates tests that need a headset plugged in from the
+ones that do not. CI runs `-m "not hardware"`; you should too, unless you have
+one connected.
 
 ---
 
-## 🚀 Usage
+## Configuration
 
-### 1. Initiating a Telemetry Session
-To capture biometric data safely alongside your target VR applications, initiate the runner. The framework will **hard-abort** unless subject consent is explicitly passed via the CLI.
-
-```bash
-python -m src.main --gdpr-consent --subject-id "SUB_001_ALPHA" --output "./Sessions"
-```
-
-* **`--gdpr-consent`**: (Required) Acknowledges explicit biometric collection consent.
-* **`--subject-id`**: (Optional) Anonymized UUID for the active participant. Defaults to `SUB_UNKN_01`.
-* **`--output`**: (Optional) Target directory for Parquet matrices and SQLite relational metadata.
-
-### 2. Inspecting the Acquired Data
-Verify the integrity, float32 compliance, and frame validity of your recorded sessions instantly using the built-in diagnostic tool.
+Nothing is hardcoded. Configuration is typed (`pydantic-settings`) and resolved
+in one place, `src/config/settings.py`. Every path derives from a single data
+root, so behaviour does not depend on which directory you launched from.
 
 ```bash
-python read_data.py Sessions/vr_telemetry_20260626_130232.parquet
+export VRT_PATHS__DATA_ROOT=/srv/vrtelemetry     # env, VRT_ prefix, __ nests
 ```
 
-### 3. Deep Learning Pre-Processing
-Before feeding the telemetry into predictive models (e.g., RNNs or LSTMs for cyber-sickness prediction or cognitive load classification), run the AI post-processor. This pipeline executes exponential moving average smoothing, forward-fill validation for sensor dropouts, and Z-Score standardization.
+or copy `config.example.toml` to `config.toml` and edit it. Environment wins.
+
+An unconfigured central server URL is **empty**, not a guessed default. That is
+deliberate: a placeholder address makes an unconfigured install fail with a
+connection error instead of saying it is unconfigured.
+
+---
+
+## Architecture
+
+Layered, with dependencies pointing inward. Nothing in `domain/` knows that
+FastAPI or SQLite exist.
+
+```
+src/
+  domain/          Session profiles, anthropometrics, health profile mapping
+  core/            TelemetryEngine, the acquisition loop, synchroniser
+  backends/        OpenXR · SteamVR · Oculus · Quest-over-UDP · discovery
+  analytics/       SSQ and NASA-TLX scoring
+  infrastructure/
+    persistence/   Connection policy, versioned migrations, repositories
+  storage/         Parquet writer, uploaders, sync scheduler, heartbeat
+  patients/        Patient registry and the GDPR consent lifecycle
+  license_service/ Activation, offline grace, local cache
+  interfaces/
+    api/           create_app(), 8 routers / 29 routes, container, schemas
+    cli/           The acquisition CLI
+  central_server/  The hub: ingest, admin API, tenancy
+  frontend/        React + Three.js analysis UI
+electron/          Desktop shell
+```
+
+### The composition root
+
+Every collaborator is built in exactly one place —
+`src/interfaces/api/container.py` — and injected. **Importing a module performs
+no I/O**, and there is a test that enforces it: `tests/unit/test_no_import_time_io.py`
+imports every module under `src/` with `sqlite3.connect`, `open` and socket
+`connect` guarded, and fails the build on any I/O attributable to our own code.
+
+That constraint is what makes the rest testable. Two applications can coexist in
+one process against separate data roots; a test injects a fake rather than
+patching a name in a module namespace and hoping every caller reaches for it the
+same way.
 
 ```python
-from src.storage.ai_preprocessor import AIPostProcessor
+from src.interfaces.api.app import create_app
+from src.interfaces.api.container import build_container
+from src.config import PathSettings, Settings
 
-processor = AIPostProcessor(input_parquet_path="Sessions/vr_telemetry_20260626_130232.parquet")
-processor.process()
-# Outputs: Sessions/vr_telemetry_20260626_130232_ai_ready.parquet
+app = create_app(build_container(Settings(paths=PathSettings(data_root=tmp))))
+app.dependency_overrides[dependencies.get_patients] = lambda: FakeRegistry()
 ```
 
----
+### Storage
 
-## 📂 Project Structure
+Four SQLite databases, all opened through one policy in
+`infrastructure/persistence/connection.py`: WAL journalling, a 5-second busy
+timeout, foreign keys on. There is a sync thread and a heartbeat thread writing
+while the API reads; the defaults SQLite ships with are wrong for that.
 
-```text
-VRTelemetry/
-├── src/
-│   ├── main.py                     # CLI Orchestrator and Bootstrapper
-│   ├── tert_runner.py              # Environment Validation Entrypoint
-│   ├── core/                       # 1D Tensors, Sync Queues, Orchestration Loop
-│   ├── backends/                   # Headless OpenXR HAL & Capability Discovery
-│   ├── eye_tracking/               # Polymorphic Biometric Extension Drivers
-│   ├── storage/                    # Async Parquet Writer & SQLite Schema Managers
-│   └── utils/                      # Thread-Safe Logging & Low-Hz System Polling
-├── tests/
-│   ├── integration/                # End-to-End Pipeline Validation
-│   ├── performance/                # 10,000-Frame Zero-Loss Stress Tests
-│   └── unit/                       # Component Isolation Testing
-├── requirements.txt
-├── pytest.ini
-└── tox.ini
-```
+Schema changes are **numbered, forward-only migrations** recorded in a
+`schema_version` table. A failure raises. The previous idiom — `ALTER TABLE`
+wrapped in `except sqlite3.OperationalError: pass` — cannot distinguish "already
+applied" from "genuinely failed", and silently discarded every session's
+metadata for three days before anyone noticed.
+
+Telemetry frames go to Parquet, not SQLite. Metadata goes to SQLite, not Parquet.
 
 ---
 
-## 🛡️ Privacy & GDPR Compliance
+## Data protection
 
-This framework is built for human-subject scientific research. It handles highly sensitive biometric data, including real-time pupillometry, stereoscopic convergence, and micro-movements. 
-* **Data Isolation:** No data is transmitted externally. All Parquet matrices and SQLite ledgers are stored strictly on the local disk.
-* **Consent Gates:** The `TelemetryEngine` features runtime checks verifying the `--gdpr-consent` flag at both instantiation and iteratively during the hardware loop.
-* **Anonymization:** UUIDs are utilized in place of personally identifiable information.
+The subjects are people, and the recordings are special-category health data.
+
+- **Consent is enforced at the boundary.** Recording refuses to start for a
+  patient whose consent was never given or has been withdrawn, and the
+  questionnaire route applies the same rule — a session cannot accrue new health
+  data against a patient who has since withdrawn.
+- **Erasure is real.** Deleting a patient anonymises the local record and pushes
+  the anonymised version to the hub, so the hub's copy reflects the erasure
+  instead of keeping the pre-erasure PII forever.
+- **PII never reaches the logs.** A redaction filter is installed on every sink.
+- **Tenancy is derived from the authenticated account**, never from a client-
+  supplied `license_id`.
 
 ---
 
-## 🧪 Testing
+## Development
 
-The repository uses `pytest` for unit and integration testing, and `tox` for cross-environment verification.
+The gates are not advisory. CI runs all of them.
 
-Run the standard test suite:
 ```bash
-pytest tests/
+ruff check && ruff format --check
+mypy
+pytest -m "not hardware"
+python tools/check_repo_hygiene.py
+pre-commit install
 ```
 
-To run tests without requiring an active VR headset connected to the host machine:
-```bash
-pytest tests/ -m "not hardware"
+`pyproject.toml` holds a **per-file lint ratchet**. Every rule stays selected
+globally, so new and newly-touched code is held to the full standard; the
+`per-file-ignores` block records exactly which existing file violates which rule
+today, each against the ticket that will remove it. Entries are deleted as
+tickets land. Nothing is ever added without one.
+
+Tests are organised by what they are for:
+
 ```
+tests/unit/             Fast, isolated, no I/O beyond tmp_path
+tests/integration/      Real applications, real databases, real lifespans
+tests/characterisation/ Pins existing behaviour so it can be safely moved
+tests/performance/      Throughput and zero-loss guarantees
+```
+
+**Characterisation tests describe what the code does today, bugs included.**
+Where a route is wrong, the test says so in its docstring and names the ticket
+that will change it. Nothing in that directory is an endorsement. When a ticket
+lands and inverts one, the docstring explains why — that is the audit trail.
+
+### Conventions
+
+- Docstrings say *why*, not *what*. The code already says what.
+- A comment that explains a non-obvious decision earns its place; one that
+  narrates the next line does not.
+- Refactors are proven mechanically, not asserted. Moving the API surface means
+  generating the OpenAPI document before and after and diffing it.
+- One ticket, one commit, with the reasoning in the message.
+
+---
+
+## Licence
+
+Proprietary. All rights reserved.
