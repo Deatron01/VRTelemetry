@@ -27,7 +27,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
+.node_modules/
 # Telemetry Datasets & SQLite Metadata Databases
 Sessions/
 Logs/
