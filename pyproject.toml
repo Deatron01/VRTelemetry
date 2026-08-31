@@ -129,10 +129,6 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning:pyarrow.*",
     "ignore::DeprecationWarning:pkg_resources.*",
-    # FastAPI's @app.on_event is deprecated in favour of lifespan handlers.
-    # src/main.py still uses it; VRT-12 replaces it. Scoped narrowly so it does
-    # not mask other Starlette deprecations.
-    "ignore:.*on_event is deprecated.*:DeprecationWarning",
 ]
 
 markers = [
@@ -214,12 +210,11 @@ ignore = [
 # Tests assert on private state and use hardcoded fixtures by design.
 "tests/*" = ["S105", "S106", "S104", "S108", "ARG001", "SLF001"]
 
-# VRT-10 moved these handlers out of src/main.py unchanged. The exemptions
-# follow the code rather than being new debt -- src.main's own entries shrink
-# to match. Same tickets: BLE001/B904/SIM105 -> VRT-13, S608 -> VRT-11,
-# ARG001 -> VRT-12.
+# VRT-10 moved these handlers out of src/main.py unchanged, so the exemptions
+# followed the code rather than being new debt. VRT-12 then deleted src/main.py's
+# own entry entirely -- the file is 95 lines and clean. What remains here is the
+# error-handling debt: BLE001/B904/SIM105 -> VRT-13, S608 -> VRT-11.
 "src/interfaces/api/app.py" = ["BLE001"]
-"src/interfaces/api/dependencies.py" = ["BLE001"]
 "src/interfaces/api/routers/auth.py" = ["B904", "SIM105"]
 "src/interfaces/api/routers/licence.py" = ["B904"]
 "src/interfaces/api/routers/patients.py" = ["B904"]
@@ -244,9 +239,12 @@ ignore = [
 #           so this is a correctness bug, not a style nit ...... VRT-21 (new)
 #   S608    SQL built by string interpolation (column names
 #           only; values are parameterised) ................... VRT-11
-#   E402    imports below module-level code (main.py lines
-#           632/784/904/1027) ................................. VRT-10
-#   ARG001  unused function arguments ......................... VRT-12
+#   E402    imports below module-level code; src/main.py's four
+#           are gone, the hub's remain ........................ VRT-15
+#   ARG001  unused function arguments -- the hub's admin routes
+#           take `admin=Depends(require_admin)` purely for the
+#           guard's side effect. The fix is to move it to the
+#           decorator's `dependencies=[...]` ................. VRT-15
 #   PTH*    os.path/open instead of pathlib ................... VRT-20
 #   S104    binding 0.0.0.0 -- deliberate for the LAN UDP
 #           receiver and hub; to be made configurable ......... VRT-16
@@ -269,7 +267,6 @@ ignore = [
 "src/license_service/auth_manager.py" = ["DTZ003"]
 "src/license_service/local_cache.py" = ["DTZ003", "RUF013"]
 "src/license_service/manager.py" = ["DTZ003"]
-"src/main.py" = ["B904", "BLE001", "E402", "S608", "SIM105", "W291"]
 "src/patients/patient_manager.py" = ["DTZ003", "DTZ007", "RUF005", "S608"]
 "src/storage/ai_preprocessor.py" = ["RUF012"]
 "src/storage/database_manager.py" = ["RUF005", "S608", "W293"]

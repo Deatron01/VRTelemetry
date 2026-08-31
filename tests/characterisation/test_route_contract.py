@@ -75,43 +75,53 @@ def _operations(app: Any) -> set[tuple[str, str]]:
     }
 
 
-def test_every_expected_route_is_registered(workstation: Any) -> None:
+def test_every_expected_route_is_registered(app: Any) -> None:
     """A route that vanishes during a refactor must fail here, not in the app."""
-    missing = EXPECTED_OPERATIONS - _operations(workstation.app)
+    missing = EXPECTED_OPERATIONS - _operations(app)
 
     assert not missing, f"routes disappeared: {sorted(missing)}"
 
 
-def test_no_route_was_added_unnoticed(workstation: Any) -> None:
+def test_no_route_was_added_unnoticed(app: Any) -> None:
     """New surface is fine, but it should be a decision, not a side effect.
 
     Add it to EXPECTED_OPERATIONS in the same commit that adds the route, and
     add a characterisation test for it while you are there.
     """
-    added = _operations(workstation.app) - EXPECTED_OPERATIONS
+    added = _operations(app) - EXPECTED_OPERATIONS
 
     assert not added, f"undeclared routes: {sorted(added)}"
 
 
-def test_the_app_can_be_built_more_than_once(workstation: Any) -> None:
-    """create_app() is a factory, not a module-level singleton.
+def test_two_applications_coexist_against_separate_data_roots(tmp_path: Any) -> None:
+    """The property the whole decomposition was aimed at (VRT-12).
 
-    This is the property the whole decomposition is aimed at. Before VRT-10 the
-    app was constructed at import, so a process could hold exactly one -- which
-    is why the API had no tests. Two independent instances is the seam VRT-12
-    needs to inject fakes rather than monkeypatch module attributes.
+    Before VRT-10 the app was constructed at import, so a process could hold
+    exactly one -- which is why the API had no tests. VRT-10 made the app a
+    factory but left its collaborators shared, so two apps still fought over
+    one set of databases and one background scheduler. Only now are they
+    genuinely independent: same routes, different everything else.
     """
+    from src.config import PathSettings, Settings
     from src.interfaces.api.app import create_app
+    from src.interfaces.api.container import build_container
 
-    first, second = create_app(), create_app()
+    first = create_app(build_container(Settings(paths=PathSettings(data_root=tmp_path / "a"))))
+    second = create_app(build_container(Settings(paths=PathSettings(data_root=tmp_path / "b"))))
 
     assert first is not second
+    assert first.state.container is not second.state.container
+    assert first.state.container.sessions is not second.state.container.sessions
+    assert (
+        first.state.container.settings.paths.data_root
+        != second.state.container.settings.paths.data_root
+    )
     assert _operations(first) == _operations(second) == EXPECTED_OPERATIONS
 
 
-def test_routes_carry_tags_so_the_docs_group_sensibly(workstation: Any) -> None:
+def test_routes_carry_tags_so_the_docs_group_sensibly(app: Any) -> None:
     """The one intended difference the split made to the OpenAPI document."""
-    schema = workstation.app.openapi()
+    schema = app.openapi()
     tagged = [
         operation.get("tags")
         for path, item in schema["paths"].items()

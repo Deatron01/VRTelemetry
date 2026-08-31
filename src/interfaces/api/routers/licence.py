@@ -1,7 +1,8 @@
 # src/interfaces/api/routers/licence.py
 """Licence activation and status.
 
-Moved from src/main.py. Behaviour is unchanged; the characterisation suite in
+Moved from src/main.py in VRT-10; its collaborators became injected parameters
+in VRT-12. Behaviour is unchanged; the characterisation suite in
 tests/characterisation/ is the proof.
 """
 
@@ -10,12 +11,16 @@ from __future__ import annotations
 import hashlib
 import platform
 import uuid as uuid_lib
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 
-from src.interfaces.api import dependencies as deps
+from src.interfaces.api.dependencies import CentralUrlDep, HttpDep, LocalCacheDep
 from src.interfaces.api.schemas.licence import LicenseActivateRequest
 from src.utils.logger import logger
+
+if TYPE_CHECKING:
+    from src.interfaces.api.container import Container
 
 router = APIRouter(tags=["licence"])
 
@@ -32,17 +37,17 @@ def get_hardware_fingerprint() -> str:
 
 
 @router.get("/api/license/status")
-def license_status():
-    state = deps.local_cache.get_state()
+def license_status(http: HttpDep, central_url: CentralUrlDep, local_cache: LocalCacheDep):
+    state = local_cache.get_state()
     if not state:
         return {"activated": False}
 
-    valid_offline = deps.local_cache.is_valid_offline()
+    valid_offline = local_cache.is_valid_offline()
 
     # Try a live heartbeat if reachable; falls back to cached offline validity if not.
     try:
-        r = deps.http_requests.post(
-            f"{deps.central_url()}/license/heartbeat",
+        r = http.post(
+            f"{central_url}/license/heartbeat",
             data={
                 "activation_id": state["activation_id"],
                 "machine_label": state.get("machine_label") or "",
@@ -51,7 +56,7 @@ def license_status():
         )
         if r.status_code == 200:
             data = r.json()
-            deps.local_cache.save(
+            local_cache.save(
                 activation_id=state["activation_id"],
                 license_key=state.get("license_key"),
                 hardware_fingerprint=state.get("hardware_fingerprint"),
@@ -65,20 +70,25 @@ def license_status():
             )
             return {"activated": True, "status": "active", "offline": False}
         else:
-            deps.local_cache.mark_revoked()
+            local_cache.mark_revoked()
             return {"activated": True, "status": "revoked", "offline": False}
-    except deps.http_requests.RequestException:
+    except http.RequestException:
         if valid_offline:
             return {"activated": True, "status": "active", "offline": True}
         return {"activated": True, "status": "expired_offline_grace", "offline": True}
 
 
 @router.post("/api/license/activate")
-def license_activate(payload: LicenseActivateRequest):
+def license_activate(
+    payload: LicenseActivateRequest,
+    http: HttpDep,
+    central_url: CentralUrlDep,
+    local_cache: LocalCacheDep,
+):
     fingerprint = get_hardware_fingerprint()
     try:
-        r = deps.http_requests.post(
-            f"{deps.central_url()}/license/activate",
+        r = http.post(
+            f"{central_url}/license/activate",
             data={
                 "license_key": payload.license_key,
                 "hardware_fingerprint": fingerprint,
@@ -88,7 +98,7 @@ def license_activate(payload: LicenseActivateRequest):
             },
             timeout=10,
         )
-    except deps.http_requests.RequestException as e:
+    except http.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
 
     if r.status_code != 200:
@@ -97,7 +107,7 @@ def license_activate(payload: LicenseActivateRequest):
         )
 
     data = r.json()
-    deps.local_cache.save(
+    local_cache.save(
         activation_id=data["activation_id"],
         license_key=payload.license_key,
         hardware_fingerprint=fingerprint,
@@ -108,7 +118,7 @@ def license_activate(payload: LicenseActivateRequest):
     return {"ok": True}
 
 
-def repair_missing_license_id() -> None:
+def repair_missing_license_id(container: Container) -> None:
     """
     Self-heal for installs already stuck with license_id=None in the local
     cache — a pre-existing bug where /api/license/activate never forwarded
@@ -117,13 +127,22 @@ def repair_missing_license_id() -> None:
     form field server-side, so a machine in this state 422's on every single
     upload attempt until it re-activates or this repair runs. Safe to call on
     every boot: it's a no-op the instant license_id is already populated.
+
+    Takes the container rather than reading module-level singletons: this runs
+    from the application's lifespan, where there is no request to resolve
+    ``Depends`` against, but there is very much an application (VRT-12).
+
+    Args:
+        container: The collaborators of the application being started.
     """
-    state = deps.local_cache.get_state()
+    local_cache = container.local_cache
+    http = container.http
+    state = local_cache.get_state()
     if not state or state.get("license_id") or not state.get("activation_id"):
         return
     try:
-        r = deps.http_requests.post(
-            f"{deps.central_url()}/license/heartbeat",
+        r = http.post(
+            f"{container.central_url()}/license/heartbeat",
             data={
                 "activation_id": state["activation_id"],
                 "machine_label": state.get("machine_label") or "",
@@ -142,7 +161,7 @@ def repair_missing_license_id() -> None:
                 "uploads will keep failing until this activation is investigated."
             )
             return
-        deps.local_cache.save(
+        local_cache.save(
             activation_id=state["activation_id"],
             license_key=state.get("license_key"),
             hardware_fingerprint=state.get("hardware_fingerprint"),
@@ -153,5 +172,5 @@ def repair_missing_license_id() -> None:
         logger.info(
             f"Repaired missing license_id in local cache ({license_id}) — uploads should work now."
         )
-    except deps.http_requests.RequestException as e:
+    except http.RequestException as e:
         logger.debug(f"license_id repair skipped — central server unreachable: {e}")

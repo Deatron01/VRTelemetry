@@ -376,7 +376,13 @@ class LocalLicenseCache:
             )
             conn.commit()
 
-    def get_config(self, key: str, default: str = None) -> str | None:
+    def get_config(self, key: str, default: str | None = None) -> str | None:
+        """Read a researcher-set config value, falling back to ``default``.
+
+        The annotation used to read ``default: str = None`` -- an implicit
+        Optional that says the opposite of what the body does. mypy flagged it
+        once the composition root started depending on the return type.
+        """
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
             return row[0] if row else default

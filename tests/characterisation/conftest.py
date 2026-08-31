@@ -1,36 +1,48 @@
-"""Fixtures for the workstation API characterisation suite (VRT-9).
+"""Fixtures for the workstation API characterisation suite (VRT-9, rebuilt in VRT-12).
 
-These tests exist to hold the current behaviour of every route in
-``src/main.py`` still while VRT-10 through VRT-14 move nearly every line of it.
-They describe what the API does **today**, bugs included. Where a route is
-wrong, the test says so and names the ticket that will change it; nothing here
-is an endorsement.
+These tests exist to hold the behaviour of every route still while VRT-10
+through VRT-14 move nearly every line beneath them. They describe what the API
+does **today**, bugs included. Where a route is wrong, the test says so and
+names the ticket that will change it; nothing here is an endorsement.
 
-Two constraints shape every fixture below.
+What changed in VRT-12
+----------------------
 
-**Importing ``src.main`` performs I/O.** It opens three SQLite databases,
-constructs an HTTP uploader and reads the licence cache, all at module scope.
-There is no seam to inject a fake, which is precisely why the API has had zero
-test coverage. Rather than bolt a temporary seam onto production code, the
-``workstation`` fixture chdir's into a temp directory and imports the module
-fresh, so every database and output root is created inside ``tmp_path``. It is
-not elegant; it is honest about what the module currently is, and it disappears
-when VRT-12 introduces a composition root.
+The original version of this file was a confession. It read, in part:
 
-**The central server is not running.** ``TestClient`` is deliberately used
-*without* its context manager, so the ``@app.on_event("startup")`` handlers
-never fire -- they kick off a licence repair, a backfill sweep and two
-background threads that would each try to reach ``127.0.0.1:9000``. On top of
-that, ``requests`` is stubbed to raise ``RequestException`` for every call.
-"Central server unreachable" is a documented, supported state for this
-application, so it is the right default for a test: any route that only passes
-with a live server was never offline-safe to begin with.
+    Importing ``src.main`` performs I/O. It opens three SQLite databases,
+    constructs an HTTP uploader and reads the licence cache, all at module
+    scope. There is no seam to inject a fake [...] the ``workstation`` fixture
+    chdir's into a temp directory and imports the module fresh [...] It is not
+    elegant; it is honest about what the module currently is, and it
+    disappears when VRT-12 introduces a composition root.
+
+This is that disappearance. There is no ``chdir``, no deleting entries from
+``sys.modules``, no re-import, and no ``monkeypatch.setattr`` on a module
+namespace. A test builds a :class:`~src.interfaces.api.container.Container`
+against ``tmp_path``, replaces the collaborators it wants faked, and passes it
+to :func:`~src.interfaces.api.app.create_app`.
+
+The difference is not cosmetic. The old approach was capable of passing while
+proving nothing: after VRT-10 split the routers out, the fixture went on
+patching ``src.main.http_requests``, which no longer reached them -- every
+"central server unreachable" test still passed, because CI has no central
+server either. Injection cannot fail that way. There is no name to get wrong;
+if the fake is not in the container, the container has the real thing and the
+test talks to the network, loudly.
+
+**The central server is not running.** ``TestClient`` is still used *without*
+its context manager, so the lifespan never runs -- it kicks off a licence
+repair, a backfill sweep and two background threads. On top of that, the
+container's HTTP client is a stub that raises for every call. "Central server
+unreachable" is a documented, supported state for this application, so it is
+the right default for a test: any route that only passes against a live server
+was never offline-safe to begin with.
 """
 
 from __future__ import annotations
 
-import importlib
-import sys
+import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -38,15 +50,24 @@ from typing import Any
 import pytest
 
 pytest.importorskip("fastapi")
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from src.config import PathSettings, Settings
+from src.interfaces.api.app import create_app
+from src.interfaces.api.container import Container, build_container
 
 
 class _UnreachableServer:
     """Stand-in for ``requests`` that fails every call the way an offline LAN does.
 
-    Only the four verbs ``src.main`` actually uses are provided. The
-    ``RequestException`` attribute is re-exported so the module's own
-    ``except http_requests.RequestException`` clauses still match.
+    Only the four verbs the routers actually use are provided. The
+    ``RequestException`` attribute is re-exported so each router's own
+    ``except http.RequestException`` clause still matches.
+
+    Every call is recorded. ``test_the_offline_stub_is_actually_in_force``
+    asserts against that list, because a stub nothing reaches is worse than no
+    stub at all: it makes a suite that quietly hits the network look green.
     """
 
     def __init__(self, real_requests: Any) -> None:
@@ -70,78 +91,65 @@ class _UnreachableServer:
         self._fail("DELETE", url)
 
 
-def _src_modules() -> dict[str, Any]:
-    return {
-        name: mod for name, mod in sys.modules.items() if name == "src" or name.startswith("src.")
-    }
-
-
 @pytest.fixture
-def workstation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    """Import ``src.main`` against a throwaway data root, with no network.
+def workstation(tmp_path: Path) -> Iterator[Container]:
+    """A container built against a throwaway data root, with no network.
 
-    Yields the module itself, so tests can reach the module-level singletons
-    (``_patients``, ``_db_manager_for_sync``, ``_local_cache``) to seed state
-    directly instead of going through routes that are themselves under test.
+    Yields the container, so tests can reach a collaborator directly
+    (``workstation.patients``, ``workstation.db_manager``) to seed state
+    instead of going through routes that are themselves under test.
+
+    The offline stub is reachable as ``workstation.http`` for the tests that
+    assert on outbound calls.
     """
-    monkeypatch.chdir(tmp_path)
+    import requests as real_requests
 
-    saved = _src_modules()
-    for name in saved:
-        del sys.modules[name]
+    settings = Settings(paths=PathSettings(data_root=tmp_path))
+    stub = _UnreachableServer(real_requests)
+    container = dataclasses.replace(build_container(settings), http=stub)
 
-    try:
-        module = importlib.import_module("src.main")
+    # PatientSyncClient and SessionUploader hold their own reference to
+    # `requests`, reached inside the client rather than through the container's
+    # HTTP attribute. Substituting the two methods the routes call keeps this
+    # suite off the network without pretending the container's `http` covers
+    # more than it does. Folding those clients behind the same port is VRT-14.
+    container.patient_uploader.sync_patient = (  # type: ignore[method-assign]
+        lambda *_a, **_k: {"ok": False, "reason": "stubbed_offline"}
+    )
+    container.session_uploader.update_remote_metadata = (  # type: ignore[method-assign]
+        lambda *_a, **_k: {"ok": False, "reason": "stubbed_offline"}
+    )
 
-        # Patch the alias in `dependencies`, which is where every router
-        # actually reaches for it. Patching `src.main.http_requests` used to be
-        # equivalent and no longer is: since VRT-10 that name resolves through a
-        # module __getattr__ shim, so setattr on it would bind a *new* attribute
-        # that shadows the shim and leaves the routers using the real library --
-        # a test that appears to pass while quietly making live network calls.
-        import requests as real_requests
-
-        from src.interfaces.api import dependencies
-
-        stub = _UnreachableServer(real_requests)
-        monkeypatch.setattr(dependencies, "http_requests", stub)
-        module.request_stub = stub
-
-        # PatientSyncClient holds its own reference to requests, reached through
-        # the uploader singletons rather than through src.main's alias.
-        monkeypatch.setattr(
-            module._patient_uploader,
-            "sync_patient",
-            lambda *_a, **_k: {"ok": False, "reason": "stubbed_offline"},
-        )
-        monkeypatch.setattr(
-            module._session_uploader,
-            "update_remote_metadata",
-            lambda *_a, **_k: {"ok": False, "reason": "stubbed_offline"},
-        )
-        yield module
-    finally:
-        for name in list(_src_modules()):
-            del sys.modules[name]
-        sys.modules.update(saved)
+    yield container
 
 
 @pytest.fixture
-def client(workstation: Any) -> TestClient:
-    """A TestClient with lifespan events deliberately NOT run.
+def app(workstation: Container) -> FastAPI:
+    """An application built from the test's own container.
 
-    Using the context manager here would fire the startup handler, which
-    launches the background sync scheduler and heartbeat threads and performs a
-    licence-repair round trip. None of that is under test, all of it is slow,
-    and the threads outlive the test.
+    Separate from ``client`` because the contract tests assert on the OpenAPI
+    document rather than on responses, and building a TestClient to reach
+    ``client.app`` would be indirection for its own sake.
     """
-    return TestClient(workstation.app)
+    return create_app(workstation)
 
 
 @pytest.fixture
-def patient(workstation: Any) -> dict[str, Any]:
+def client(app: FastAPI) -> TestClient:
+    """A TestClient over an application built from the test's own container.
+
+    Deliberately *not* used as a context manager: entering it runs the lifespan,
+    which performs a licence-repair round trip, a backfill sweep, and starts two
+    background threads that would outlive the test. None of that is under test
+    here; the lifespan has its own test in tests/integration/.
+    """
+    return TestClient(app)
+
+
+@pytest.fixture
+def patient(workstation: Container) -> dict[str, Any]:
     """A consented patient, created directly through PatientManager."""
-    return workstation._patients.create_patient(
+    return workstation.patients.create_patient(
         display_name="Test Subject",
         gdpr_consent_given=True,
         biological_sex="female",
@@ -153,14 +161,14 @@ def patient(workstation: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def session_row(workstation: Any, patient: dict[str, Any]) -> str:
+def session_row(workstation: Container, patient: dict[str, Any]) -> str:
     """A recorded session in vr_metadata.db. Returns its session_id.
 
     Written through DatabaseManager.persist_experiment rather than raw SQL so
-    the fixture keeps working when VRT-11 replaces the storage layer.
+    the fixture keeps working when the storage layer moves again.
     """
     session_id = "20260527_133428"
-    workstation._db_manager_for_sync.persist_experiment(
+    workstation.db_manager.persist_experiment(
         {
             "M-IV_Static_Metadata": {
                 "session_id": session_id,
@@ -180,13 +188,13 @@ def session_row(workstation: Any, patient: dict[str, Any]) -> str:
 
 
 @pytest.fixture
-def parquet_for_session(tmp_path: Path, session_row: str) -> Path:
+def parquet_for_session(workstation: Container, session_row: str) -> Path:
     """A real Parquet file where get_session_telemetry expects to find one."""
     pytest.importorskip("pandas")
     import pandas as pd
 
-    sessions_dir = tmp_path / "Sessions"
-    sessions_dir.mkdir(exist_ok=True)
+    sessions_dir = workstation.settings.paths.sessions_dir
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     path = sessions_dir / f"vr_telemetry_{session_row}.parquet"
     pd.DataFrame(
         {

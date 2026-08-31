@@ -1,25 +1,27 @@
 # src/interfaces/api/app.py
-"""The workstation API application factory (VRT-10).
+"""The workstation API application factory (VRT-10, completed by VRT-12).
 
 ``src/main.py`` built its FastAPI app at module scope, so importing the module
 created the app, opened three databases and registered 29 routes as a side
 effect. One process could hold exactly one app, which is why the API had no
 tests: there was no way to construct a second one against a temporary data root.
 
-:func:`create_app` replaces that. It is still a thin factory -- the
-collaborators it wires in are the same module-level singletons, now collected in
-``dependencies.py`` -- but the app itself is built on demand, and the routers it
-mounts know nothing about how those collaborators came to exist. That is the
-seam VRT-12 needs.
+:func:`create_app` is now a real factory. It builds a
+:class:`~src.interfaces.api.container.Container` -- or accepts one -- stores it
+on ``app.state``, and mounts routers that reach their collaborators through
+``Depends``. Two applications can exist in one process against separate data
+roots, and neither knows anything about the other.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.config import get_settings
-from src.interfaces.api import dependencies as deps
+from src.interfaces.api.container import Container, build_container
 from src.interfaces.api.routers import (
     auth,
     config,
@@ -49,23 +51,37 @@ _ROUTERS = (
 )
 
 
-def create_app() -> FastAPI:
+def create_app(container: Container | None = None) -> FastAPI:
     """Build the workstation API.
 
-    Returns:
-        A FastAPI application with all 29 routes mounted and the startup and
-        shutdown handlers registered.
-    """
-    app = FastAPI(title="VRTelemetry Unified Backend")
+    Args:
+        container: The collaborators to serve requests from. Defaults to a
+            container built from process configuration, which is what
+            production wants. A test passes its own, pointed at a temporary
+            data root and holding whatever fakes it needs -- which is the
+            entire reason this parameter exists.
 
-    settings = get_settings()
+    Returns:
+        A FastAPI application with all 29 routes mounted and its lifespan
+        registered. Nothing has started yet: the background loops start when
+        the application does, not when it is constructed, so building one in a
+        test spawns no threads and reaches no network.
+    """
+    container = container or build_container()
+
+    app = FastAPI(title="VRTelemetry Unified Backend", lifespan=_lifespan)
+    # Every provider in dependencies.py resolves from here. Set before the
+    # routers are mounted so there is no window in which a route exists and its
+    # collaborators do not.
+    app.state.container = container
+
     app.add_middleware(
         CORSMiddleware,
         # Was allow_origins=["*"] with allow_credentials=True -- a combination
         # browsers reject outright, so it was simultaneously over-permissive in
         # intent and non-functional in practice. Now configured, and narrowed
         # properly in VRT-16.
-        allow_origins=list(settings.api.allowed_origins),
+        allow_origins=list(container.settings.api.allowed_origins),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -74,42 +90,46 @@ def create_app() -> FastAPI:
     for router in _ROUTERS:
         app.include_router(router)
 
-    _register_lifecycle(app)
     return app
 
 
-def _register_lifecycle(app: FastAPI) -> None:
-    """Attach the boot sweep and the background loops.
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Start the boot sweep and the background loops; stop them on shutdown.
 
-    Still ``@app.on_event``, which FastAPI deprecates in favour of a lifespan
-    context manager. Converting it is a behaviour change around startup and
-    shutdown ordering, and belongs with VRT-12 where the loops themselves stop
-    being module-level singletons -- not inside a commit whose entire claim is
-    that nothing behaves differently.
+    Replaces the pair of ``@app.on_event`` handlers, which FastAPI deprecates
+    and which had a defect the deprecation is unrelated to: they closed over
+    module-level singletons, so the loops they started belonged to the process
+    rather than to the application. Two apps in one process fought over one
+    scheduler. Here everything comes from ``app.state.container``, so an app
+    starts and stops exactly its own.
+
+    Every boot step is individually guarded. A workstation whose hub is
+    unreachable -- the normal state for a researcher on a laptop away from the
+    lab -- must still come up and serve the local UI.
     """
+    container = app.state.container
+
+    # Imported here rather than at module scope: both modules import the
+    # routers package, and this module is what the routers package is mounted
+    # from. The cycle is real, and this is the seam that breaks it.
     from src.interfaces.api.routers.licence import repair_missing_license_id
     from src.interfaces.api.routers.sync import run_session_backfill
 
-    @app.on_event("startup")
-    def _start_background_sync_and_heartbeat() -> None:
-        # Immediate sweep on boot, then hand off to the periodic scheduler and
-        # heartbeat loop for the rest of the process's lifetime.
+    for label, step in (
+        ("license_id repair", lambda: repair_missing_license_id(container)),
+        ("session backfill sweep", lambda: run_session_backfill(container)),
+        ("initial sync sweep", container.sync_scheduler.sweep_once),
+    ):
         try:
-            repair_missing_license_id()
+            step()
         except Exception as exc:
-            logger.warning(f"license_id repair on boot failed: {exc}")
-        try:
-            run_session_backfill()
-        except Exception as exc:
-            logger.warning(f"Session backfill sweep on boot failed: {exc}")
-        try:
-            deps.sync_scheduler.sweep_once()
-        except Exception as exc:
-            logger.warning(f"Initial sync sweep on boot failed: {exc}")
-        deps.sync_scheduler.start()
-        deps.heartbeat_sender.start()
+            logger.warning(f"{label} on boot failed: {exc}")
 
-    @app.on_event("shutdown")
-    def _stop_background_sync_and_heartbeat() -> None:
-        deps.sync_scheduler.stop()
-        deps.heartbeat_sender.stop()
+    container.sync_scheduler.start()
+    container.heartbeat_sender.start()
+    try:
+        yield
+    finally:
+        container.sync_scheduler.stop()
+        container.heartbeat_sender.stop()

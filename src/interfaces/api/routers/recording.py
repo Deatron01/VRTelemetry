@@ -1,13 +1,20 @@
 # src/interfaces/api/routers/recording.py
 """Recording lifecycle and live experiment state.
 
-Moved from src/main.py. Behaviour is unchanged; the characterisation suite in
+Moved from src/main.py in VRT-10; its collaborators became injected parameters
+in VRT-12. Behaviour is unchanged to every caller; the characterisation suite in
 tests/characterisation/ is the proof.
+
+The one thing that is different is *internal*: starting and stopping now go
+through :class:`~src.interfaces.api.container.RecordingSessionManager` instead
+of two module-level globals mutated without synchronisation. Six routes read
+that state, one writes it, and they can run concurrently on Starlette's
+threadpool. The manager states the contract and holds a lock; the routes below
+are the same routes, with the same status codes and the same bodies.
 """
 
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -16,7 +23,8 @@ from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.core.engine import TelemetryEngine
 from src.core.exceptions import GDPRConsentError
 from src.domain.session_profile import apply_calibration, apply_health_profile
-from src.interfaces.api import dependencies as deps
+from src.interfaces.api.container import RecordingSessionManager
+from src.interfaces.api.dependencies import PatientsDep, RecordingDep, UsageTrackerDep
 from src.interfaces.api.schemas.recording import (
     EventMarkerUpdate,
     HapticTrigger,
@@ -39,11 +47,16 @@ def run_engine_thread(engine: TelemetryEngine):
 
 
 @router.post("/api/recording/start")
-def start_recording(config: SessionStartConfig):
+def start_recording(
+    config: SessionStartConfig,
+    patients: PatientsDep,
+    recording: RecordingDep,
+    usage_tracker: UsageTrackerDep,
+):
 
     setup_logging()
 
-    if deps.recording_state.is_running:
+    if recording.is_running:
         raise HTTPException(status_code=400, detail="A telemetry session is already running.")
 
     if not config.gdpr_consent:
@@ -51,7 +64,7 @@ def start_recording(config: SessionStartConfig):
             status_code=403, detail="Biometric tracking requires explicit GDPR consent."
         )
 
-    patient = deps.patients.get_patient(config.patient_id)
+    patient = patients.get_patient(config.patient_id)
     if not patient or patient["is_anonymized"]:
         raise HTTPException(
             status_code=404, detail="Selected patient not found (or has been erased)."
@@ -92,23 +105,17 @@ def start_recording(config: SessionStartConfig):
         config.subject_id or patient["display_name"]
     )
     engine.subject_metadata["M-IV_Static_Metadata"]["patient_id"] = patient["patient_id"]
-    apply_health_profile(
-        engine.subject_metadata, patient, deps.patients.estimate_age_years(patient)
-    )
+    apply_health_profile(engine.subject_metadata, patient, patients.estimate_age_years(patient))
     apply_calibration(engine.subject_metadata, patient, config)
     engine.configured_backend = config.backend
     engine.network_port = config.port
 
-    # Publish before starting the thread: the four live-state routes and the
-    # heartbeat's status provider all read this, and a caller can hit them the
-    # instant this handler returns.
-    deps.recording_state.engine = engine
-
     try:
-        thread = threading.Thread(target=run_engine_thread, args=(engine,), daemon=True)
-        deps.recording_state.thread = thread
-        thread.start()
-        deps.usage_tracker.log_event(
+        # Publishes the engine and starts the thread under one lock, so the four
+        # live-state routes and the heartbeat's status provider cannot observe a
+        # half-started recording.
+        recording.start(engine, run_engine_thread)
+        usage_tracker.log_event(
             "recording_start", detail=f"backend={config.backend}, patient={patient['patient_id']}"
         )
         return {
@@ -119,55 +126,72 @@ def start_recording(config: SessionStartConfig):
         }
     except GDPRConsentError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except RuntimeError as e:
+        # Two requests raced past the is_running check above. Previously the
+        # second one won: it overwrote the first engine's reference and left it
+        # recording with nothing able to stop it. Now the manager refuses, and
+        # the caller gets the same 400 it would have got a microsecond earlier.
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/api/recording/stop")
-def stop_recording():
-    if not deps.recording_state.is_running:
+def stop_recording(recording: RecordingDep, usage_tracker: UsageTrackerDep):
+    if not recording.stop():
         raise HTTPException(status_code=400, detail="No active recording to stop.")
-
-    # Safely signal the engine to shutdown
-    engine = deps.recording_state.engine
-    if hasattr(engine, "stop"):
-        engine.stop()
-        deps.usage_tracker.log_event("recording_stop")
-    elif hasattr(engine, "is_running"):
-        engine.is_running = False
-
+    # The old code logged this event only on the branch where the engine had a
+    # `stop()` method, and silently skipped it on the `is_running = False`
+    # fallback. TelemetryEngine has always had `stop()`, so that fallback never
+    # ran; the manager collapses the two and the event is now always recorded,
+    # which is what the licence audit trail was supposed to contain anyway.
+    usage_tracker.log_event("recording_stop")
     return {"status": "recording_stopped"}
 
 
-def _require_active_engine():
-    if not deps.recording_state.is_running:
+def _require_active_engine(recording: RecordingSessionManager) -> TelemetryEngine:
+    """The live engine, or the 400 every live-state route returns without one.
+
+    Args:
+        recording: The application's recording manager.
+
+    Returns:
+        The engine currently recording.
+
+    Raises:
+        HTTPException: 400 when nothing is recording.
+    """
+    engine = recording.engine
+    if not recording.is_running or engine is None:
         raise HTTPException(status_code=400, detail="No active recording session.")
-    return deps.recording_state.engine
+    return engine
 
 
 @router.post("/api/session/scene")
-def set_scene(payload: SceneUpdate):
-    _require_active_engine().live_state.set_scene(payload.scene_id)
+def set_scene(payload: SceneUpdate, recording: RecordingDep):
+    _require_active_engine(recording).live_state.set_scene(payload.scene_id)
     return {"ok": True}
 
 
 @router.post("/api/session/mark")
-def set_event_marker(payload: EventMarkerUpdate):
-    _require_active_engine().live_state.set_event_marker(payload.value)
+def set_event_marker(payload: EventMarkerUpdate, recording: RecordingDep):
+    _require_active_engine(recording).live_state.set_event_marker(payload.value)
     return {"ok": True}
 
 
 @router.post("/api/session/haptic")
-def trigger_haptic(payload: HapticTrigger):
+def trigger_haptic(payload: HapticTrigger, recording: RecordingDep):
     if payload.side not in ("left", "right"):
         raise HTTPException(status_code=400, detail="side must be 'left' or 'right'")
-    _require_active_engine().live_state.trigger_haptic(
+    _require_active_engine(recording).live_state.trigger_haptic(
         payload.side, payload.intensity, payload.duration_sec
     )
     return {"ok": True}
 
 
 @router.post("/api/session/target")
-def set_target_position(payload: TargetPosition):
-    _require_active_engine().live_state.set_target_position(payload.x, payload.y, payload.z)
+def set_target_position(payload: TargetPosition, recording: RecordingDep):
+    _require_active_engine(recording).live_state.set_target_position(
+        payload.x, payload.y, payload.z
+    )
     return {"ok": True}

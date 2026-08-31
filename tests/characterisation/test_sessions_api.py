@@ -82,7 +82,7 @@ def test_list_sessions_shows_erased_patients_as_a_placeholder(
     Right-to-erasure anonymises the patient record; the session it produced is
     research data that still exists and still needs to be visible.
     """
-    workstation._patients.delete_patient(patient["patient_id"], hard_delete=False)
+    workstation.patients.delete_patient(patient["patient_id"], hard_delete=False)
 
     assert client.get("/api/sessions").json()[0]["patient_display_name"] == "[Erased Patient]"
 
@@ -335,7 +335,7 @@ def test_questionnaire_is_refused_after_consent_withdrawal(
 ) -> None:
     """New special-category health data must not be accepted against a
     withdrawn patient -- the same rule as starting a new recording."""
-    workstation._patients.withdraw_consent(patient["patient_id"])
+    workstation.patients.withdraw_consent(patient["patient_id"])
 
     response = client.post(f"/api/sessions/{session_row}/questionnaire", json={"nausea": 2})
 

@@ -65,7 +65,7 @@ def test_recording_start_is_refused_after_consent_withdrawal(
     consent; the patient record is the system's own memory of it. When they
     disagree, the record wins.
     """
-    workstation._patients.withdraw_consent(patient["patient_id"])
+    workstation.patients.withdraw_consent(patient["patient_id"])
 
     response = client.post(
         "/api/recording/start", json={**START_BODY, "patient_id": patient["patient_id"]}
@@ -78,7 +78,7 @@ def test_recording_start_is_refused_after_consent_withdrawal(
 def test_recording_start_is_refused_for_an_erased_patient(
     client: TestClient, workstation: Any, patient: dict[str, Any]
 ) -> None:
-    workstation._patients.delete_patient(patient["patient_id"], hard_delete=False)
+    workstation.patients.delete_patient(patient["patient_id"], hard_delete=False)
 
     response = client.post(
         "/api/recording/start", json={**START_BODY, "patient_id": patient["patient_id"]}
@@ -169,7 +169,7 @@ def test_sync_backfill_scans_and_reports(client: TestClient) -> None:
 
 def test_sync_status_counts_a_queued_upload(client: TestClient, workstation: Any) -> None:
     """A queued item must show up in the count the UI badges."""
-    workstation._local_cache.queue_pending_upload("20260527_133428", "s.parquet", "{}")
+    workstation.local_cache.queue_pending_upload("20260527_133428", "s.parquet", "{}")
 
     body = client.get("/api/sync/status").json()
 
@@ -219,7 +219,7 @@ def test_auth_session_trusts_the_local_cache_when_the_server_is_unreachable(
     "simplifies" away without noticing. The `offline: True` flag is how the UI
     knows to show a degraded state rather than a normal one.
     """
-    workstation._local_cache.save_session("tok-123", "user-1", "a@example.test", "Researcher A")
+    workstation.local_cache.save_session("tok-123", "user-1", "a@example.test", "Researcher A")
 
     body = client.get("/api/auth/session").json()
 
@@ -233,7 +233,7 @@ def test_auth_logout_clears_local_state_even_when_the_server_is_unreachable(
 ) -> None:
     """Logging out must always work locally. A user asking to be logged out is
     not making a request that a network failure may decline."""
-    workstation._local_cache.save_session("tok-123", "user-1", "a@example.test", "Researcher A")
+    workstation.local_cache.save_session("tok-123", "user-1", "a@example.test", "Researcher A")
 
     assert client.post("/api/auth/logout").json() == {"ok": True}
     assert client.get("/api/auth/session").json() == {"authenticated": False}
@@ -297,28 +297,30 @@ def test_central_server_url_round_trips_through_the_local_cache(client: TestClie
     assert client.get("/api/config/central-server").json()["central_server_url"] == new_url
 
 
-def test_changing_the_central_url_does_not_repoint_the_live_uploader(
+def test_changing_the_central_url_repoints_the_live_uploaders(
     client: TestClient, workstation: Any
 ) -> None:
-    """A real wart, pinned as current behaviour.
+    """Inverted in VRT-12, deliberately. It used to pin a real wart.
 
-    `_session_uploader` and `_patient_uploader` are constructed at import time
-    with `_central_url()` evaluated once. Changing the URL through this route
-    updates the cache and every subsequent `_central_url()` call, but the two
-    long-lived uploaders keep the address they were born with until the process
-    restarts. A researcher who corrects a mistyped server address and does not
-    restart will watch uploads keep failing against the old one.
+    The uploaders were constructed at import time with the hub address
+    evaluated once. Changing it through this route updated the cache and every
+    subsequent lookup, but the two long-lived uploaders kept the address they
+    were born with until the process restarted -- so a researcher who corrected
+    a mistyped server address and did not restart watched uploads keep failing
+    against the old one, with nothing anywhere saying why.
 
-    Not fixed here -- it is a symptom of import-time construction, which VRT-12
-    removes wholesale. This test documents the current behaviour and will need
-    inverting when it does.
+    The composition root passes the *resolver* rather than its current value,
+    so the address is late-bound everywhere it is used. The previous version of
+    this test asserted the opposite and said, in its docstring, that it would
+    need inverting when VRT-12 landed. This is that inversion.
     """
-    original = workstation._session_uploader.central_server_url
+    new_url = "http://10.0.0.9:9000"
 
-    client.post("/api/config/central-server", json={"central_server_url": "http://10.0.0.9:9000"})
+    client.post("/api/config/central-server", json={"central_server_url": new_url})
 
-    assert workstation._central_url() == "http://10.0.0.9:9000"
-    assert workstation._session_uploader.central_server_url == original
+    assert workstation.central_url() == new_url
+    assert workstation.session_uploader.central_server_url == new_url
+    assert workstation.patient_uploader.central_server_url == new_url
 
 
 def test_the_offline_stub_is_actually_in_force(client: TestClient, workstation: Any) -> None:
@@ -336,7 +338,5 @@ def test_the_offline_stub_is_actually_in_force(client: TestClient, workstation: 
     """
     client.post("/api/auth/login", json={"email": "a@example.test", "password": "hunter22"})
 
-    assert workstation.request_stub.calls, (
-        "the offline stub was never called - patch target is wrong"
-    )
-    assert any("/auth/login" in url for _method, url in workstation.request_stub.calls)
+    assert workstation.http.calls, "the offline stub was never called - patch target is wrong"
+    assert any("/auth/login" in url for _method, url in workstation.http.calls)

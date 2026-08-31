@@ -114,3 +114,10 @@ Thumbs.db
 # ─────────────────────────────────────────────────────────────────────────────
 *.log
 !doc/**/*.log
+
+# Refactor scaffolding: the purged-history bundle and its runbook are
+# working files, not project content. They exist to rewrite this repository;
+# committing them into it defeats the purpose and adds 2.4 MB to every clone.
+*.bundle
+_purge/
+_REFACTOR-STATUS.md

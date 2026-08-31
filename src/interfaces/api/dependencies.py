@@ -1,43 +1,51 @@
 # src/interfaces/api/dependencies.py
-"""The collaborators every router shares (VRT-10).
+"""How a request handler gets hold of a collaborator (VRT-12).
 
-These objects used to be eleven module-level singletons scattered through
-``src/main.py``, constructed at import time between route definitions -- so
-importing the module opened three SQLite databases, built an HTTP uploader and
-read the licence cache before a single request had arrived.
+Every name here resolves out of the :class:`~src.interfaces.api.container.Container`
+that :func:`~src.interfaces.api.app.create_app` stored on ``app.state``. Nothing
+in this module is constructed at import; there are no module-level objects at
+all. That is the whole point of the ticket.
 
-Collecting them here changes nothing about *when* they are built; it only
-stops that construction being interleaved with the API surface. The inversion
--- FastAPI ``Depends`` resolving from a container built in ``create_app()``,
-with nothing constructed at import -- is VRT-12. Until then this module is one
-honest place to look for the seam rather than eleven scattered ones.
+What it used to be
+------------------
 
-Two things are deliberately reachable as *module attributes* rather than
-imported into each router's namespace:
+Eleven module-level singletons. VRT-10 moved them here from ``src/main.py``,
+which stopped construction being interleaved with route definitions but changed
+nothing about *when* it happened: importing this module still opened three
+SQLite databases, built two HTTP uploaders and read the licence cache. The
+consequences were concrete rather than theoretical:
 
-``http_requests``
-    The alias every outbound call goes through. Routers call
-    ``dependencies.http_requests.post(...)``, never a name bound at import, so
-    a test can substitute an unreachable-server stub in one place and have it
-    apply everywhere.
+* A CLI run paid for the API's databases and never used them.
+* Changing the central server address through ``POST /api/config/central-server``
+  did not repoint the live uploaders, because they had captured the URL at
+  import. It took an app restart. That is fixed here -- the uploaders are built
+  from the same resolver the config route writes to, and a container is built
+  per application rather than per process.
+* A test could not substitute a fake. It could only ``monkeypatch.setattr`` a
+  module attribute and hope every caller reached for it by the same path --
+  and one of them did not, which is how VRT-10 shipped a fixture that patched
+  ``src.main.http_requests`` while the routers went on using the real library.
 
-``recording_state``
-    Mutable session state. It replaces the ``global active_engine`` /
-    ``global engine_thread`` pair, which could not survive the routers being
-    split across modules -- ``global`` is module-scoped, and four different
-    routers need to see the same engine.
+Why ``Annotated`` aliases
+-------------------------
+
+Each provider gets a type alias (``SessionsDep``, ``PatientsDep``, ...) so a
+handler's signature reads ``sessions: SessionsDep`` rather than repeating
+``Depends(...)`` at 29 call sites. The aliases are also the override keys: a
+test replaces one collaborator with
+``app.dependency_overrides[dependencies.get_sessions] = lambda: fake``, scoped
+to that test rather than to the process.
 """
 
 from __future__ import annotations
 
-import threading
-from dataclasses import dataclass
+from typing import Annotated, Any
 
-import requests as http_requests
+from fastapi import Depends, Request
 
-from src.config import get_settings
-from src.core.engine import TelemetryEngine
+from src.config import Settings
 from src.infrastructure.persistence import SessionRepository
+from src.interfaces.api.container import Container, RecordingSessionManager
 from src.license_service.local_cache import LocalLicenseCache
 from src.patients.patient_manager import PatientManager
 from src.storage.database_manager import DatabaseManager
@@ -48,145 +56,148 @@ from src.storage.sync_scheduler import BackgroundSyncScheduler
 from src.storage.usage_tracker import UsageTracker
 
 __all__ = [
-    "central_url",
-    "db_manager",
-    "db_path",
-    "dict_factory",
-    "heartbeat_sender",
-    "http_requests",
-    "local_cache",
-    "patient_uploader",
-    "patients",
-    "recording_state",
-    "session_uploader",
-    "sessions",
-    "sessions_log_dir",
-    "sessions_output_dir",
-    "sync_scheduler",
-    "usage_tracker",
+    "CentralUrlDep",
+    "ContainerDep",
+    "DbManagerDep",
+    "HeartbeatDep",
+    "HttpDep",
+    "LocalCacheDep",
+    "PatientUploaderDep",
+    "PatientsDep",
+    "RecordingDep",
+    "SessionUploaderDep",
+    "SessionsDep",
+    "SettingsDep",
+    "SyncSchedulerDep",
+    "UsageTrackerDep",
+    "get_container",
 ]
 
 
-# --------------------------------------------------------------------------- #
-# Recording session state
-# --------------------------------------------------------------------------- #
+def get_container(request: Request) -> Container:
+    """The container this request's application was built with.
 
+    Args:
+        request: The live request; FastAPI supplies it.
 
-@dataclass
-class RecordingState:
-    """The one recording this process may have in flight.
+    Returns:
+        The application's container.
 
-    Replaces two module-level globals. There is deliberately no locking here
-    yet: the previous code had none either, and adding it is a behaviour change
-    that belongs with the RecordingSessionManager in VRT-12, where the
-    threading contract can be stated and tested rather than assumed.
+    Raises:
+        RuntimeError: when the application was not built by
+            :func:`~src.interfaces.api.app.create_app`. Failing loudly here
+            beats an ``AttributeError`` surfacing as a 500 from whichever route
+            happened to be hit first.
     """
-
-    engine: TelemetryEngine | None = None
-    thread: threading.Thread | None = None
-
-    @property
-    def is_running(self) -> bool:
-        """True when an engine exists and reports itself as recording."""
-        return bool(self.engine and getattr(self.engine, "is_running", False))
-
-
-recording_state = RecordingState()
-
-
-# --------------------------------------------------------------------------- #
-# Paths and the hub address
-# --------------------------------------------------------------------------- #
-
-
-def db_path() -> str:
-    """Where the session metadata database lives, per configuration.
-
-    Resolved on each call rather than bound once, so it follows the configured
-    data root instead of whichever directory the process started in (VRT-6).
-    """
-    return str(get_settings().paths.metadata_db)
-
-
-def central_url() -> str:
-    """The hub address: the researcher's own setting first, then configuration.
-
-    Returns an empty string when neither is set. Callers treat that the same
-    way they treat an unreachable server -- work locally and queue -- which is
-    a supported state, unlike the placeholder address this used to fall back to.
-    """
-    configured = get_settings().central.url or ""
-    return local_cache.get_config("central_server_url", configured)
-
-
-def dict_factory(cursor, row):
-    """Row factory returning dicts, so routes can serialise rows directly."""
-    return {col[0]: row[index] for index, col in enumerate(cursor.description)}
-
-
-# --------------------------------------------------------------------------- #
-# The singletons
-# --------------------------------------------------------------------------- #
-
-usage_tracker = UsageTracker()
-local_cache = LocalLicenseCache()
-patients = PatientManager()
-
-#: Shared DatabaseManager (vr_metadata.db) for the API and the historical
-#: backfill sweep alike -- the metadata rows for every session recorded locally
-#: live here, independent of whether a sync attempt was ever made for them.
-db_manager = DatabaseManager()
-
-#: Every read and write of session_metadata goes through here. DatabaseManager
-#: above is retained only for persist_experiment, which the engine calls while
-#: recording; folding that in is VRT-14, where the engine stops constructing its
-#: own collaborators.
-sessions = SessionRepository()
-
-#: Persistent uploaders, used by the background sync scheduler and the manual
-#: "Sync Now" endpoint alike, so both paths share one retry/backoff history
-#: instead of the ad-hoc per-request instances the old code constructed.
-session_uploader = SessionUploader(central_url(), local_cache)
-patient_uploader = PatientSyncClient(central_url(), local_cache)
-
-#: The same roots TelemetryEngine and the CLI resolve from settings -- this is
-#: where session_uploader.upload() expects to find vr_telemetry_<id>.parquet
-#: and where attach_session_log_capture() writes session_<id>.log.
-sessions_output_dir = str(get_settings().paths.sessions_dir)
-sessions_log_dir = str(get_settings().paths.session_logs_dir)
-
-
-def current_client_status() -> str:
-    """What the heartbeat reports this machine is doing right now."""
-    return "recording" if recording_state.is_running else "idle"
-
-
-def current_pending_count() -> int:
-    """How much this machine still has queued for upload."""
-    try:
-        return (
-            len(local_cache.list_pending_uploads())
-            + len(local_cache.list_pending_session_logs())
-            + len(local_cache.list_pending_patient_syncs())
+    container = getattr(request.app.state, "container", None)
+    if container is None:
+        raise RuntimeError(
+            "No container on app.state. The application must be built by "
+            "create_app(), which is what wires it."
         )
-    except Exception:
-        return 0
+    return container
 
 
-#: Sweeps pending sessions, logs and patients on a timer for as long as this
-#: backend process is alive -- that is, for as long as the desktop app is open
-#: -- regardless of whether a recording is active or anyone is watching the UI.
-sync_scheduler = BackgroundSyncScheduler(
-    session_uploader, patient_uploader, interval_sec=get_settings().sync.interval_sec
-)
+ContainerDep = Annotated[Container, Depends(get_container)]
 
-#: Pings the hub with this machine's activation_id and machine_label so the
-#: admin "Active Clients" tab can show live online/offline status, along with
-#: current engine state and outstanding sync backlog.
-heartbeat_sender = HeartbeatSender(
-    central_server_url_provider=central_url,
-    local_license_cache=local_cache,
-    interval_sec=get_settings().sync.heartbeat_interval_sec,
-    status_provider=current_client_status,
-    pending_count_provider=current_pending_count,
-)
+
+# --------------------------------------------------------------------------- #
+# One provider per collaborator.
+#
+# Written out rather than generated from a list of attribute names: a generated
+# provider has no return annotation for mypy to check and no stable identity for
+# `dependency_overrides` to key on. Thirteen three-line functions is the cheaper
+# side of that trade.
+# --------------------------------------------------------------------------- #
+
+
+def get_settings_for_request(container: ContainerDep) -> Settings:
+    """Configuration this application was built against."""
+    return container.settings
+
+
+def get_sessions(container: ContainerDep) -> SessionRepository:
+    """Reads and writes of ``session_metadata``."""
+    return container.sessions
+
+
+def get_patients(container: ContainerDep) -> PatientManager:
+    """The patient registry and its consent lifecycle."""
+    return container.patients
+
+
+def get_local_cache(container: ContainerDep) -> LocalLicenseCache:
+    """Licence state, the auth session and the local key/value config."""
+    return container.local_cache
+
+
+def get_session_uploader(container: ContainerDep) -> SessionUploader:
+    """Pushes recorded sessions and their logs to the hub."""
+    return container.session_uploader
+
+
+def get_patient_uploader(container: ContainerDep) -> PatientSyncClient:
+    """Pushes patient records to the hub."""
+    return container.patient_uploader
+
+
+def get_usage_tracker(container: ContainerDep) -> UsageTracker:
+    """Local usage events, for the licence audit trail."""
+    return container.usage_tracker
+
+
+def get_db_manager(container: ContainerDep) -> DatabaseManager:
+    """Retained for ``persist_experiment`` and the backfill sweep (VRT-14)."""
+    return container.db_manager
+
+
+def get_sync_scheduler(container: ContainerDep) -> BackgroundSyncScheduler:
+    """The periodic upload sweep."""
+    return container.sync_scheduler
+
+
+def get_heartbeat_sender(container: ContainerDep) -> HeartbeatSender:
+    """The loop that tells the hub this workstation is alive."""
+    return container.heartbeat_sender
+
+
+def get_recording(container: ContainerDep) -> RecordingSessionManager:
+    """The one recording this application may have in flight."""
+    return container.recording
+
+
+def get_http(container: ContainerDep) -> Any:
+    """The HTTP client for outbound calls to the hub.
+
+    Typed ``Any`` deliberately: the production value is the ``requests`` module
+    and the test value is a stub exposing the four verbs plus
+    ``RequestException``. Neither is an instance of a shared protocol yet;
+    declaring one is VRT-14, where the outbound calls move behind a port.
+    """
+    return container.http
+
+
+def get_central_url(container: ContainerDep) -> str:
+    """The hub address, resolved per request.
+
+    Per request, not once at startup: ``POST /api/config/central-server`` writes
+    the address into the local cache, and the next call here picks it up. The
+    old module-level ``central_url()`` captured it at import, so changing the
+    address did nothing until the app was restarted.
+    """
+    return container.central_url()
+
+
+SettingsDep = Annotated[Settings, Depends(get_settings_for_request)]
+SessionsDep = Annotated[SessionRepository, Depends(get_sessions)]
+PatientsDep = Annotated[PatientManager, Depends(get_patients)]
+LocalCacheDep = Annotated[LocalLicenseCache, Depends(get_local_cache)]
+SessionUploaderDep = Annotated[SessionUploader, Depends(get_session_uploader)]
+PatientUploaderDep = Annotated[PatientSyncClient, Depends(get_patient_uploader)]
+UsageTrackerDep = Annotated[UsageTracker, Depends(get_usage_tracker)]
+DbManagerDep = Annotated[DatabaseManager, Depends(get_db_manager)]
+SyncSchedulerDep = Annotated[BackgroundSyncScheduler, Depends(get_sync_scheduler)]
+HeartbeatDep = Annotated[HeartbeatSender, Depends(get_heartbeat_sender)]
+RecordingDep = Annotated[RecordingSessionManager, Depends(get_recording)]
+HttpDep = Annotated[Any, Depends(get_http)]
+CentralUrlDep = Annotated[str, Depends(get_central_url)]

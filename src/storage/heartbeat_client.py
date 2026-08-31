@@ -44,6 +44,16 @@ class HeartbeatSender:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
+    @property
+    def is_running(self) -> bool:
+        """Whether the background loop is alive.
+
+        Public because ``GET /api/sync/status`` reports it, and a route that
+        reads ``._thread.is_alive()`` couples the admin UI to this class's
+        private attributes (VRT-12).
+        """
+        return bool(self._thread and self._thread.is_alive())
+
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return

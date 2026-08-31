@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -24,9 +25,30 @@ class PatientSyncClient:
     already treat recorded sessions as centrally authoritative.
     """
 
-    def __init__(self, central_server_url: str, local_license_cache):
-        self.central_server_url = central_server_url.rstrip("/")
+    def __init__(self, central_server_url: str | Callable[[], str], local_license_cache):
+        # Accepts a callable so the address stays late-bound: POST
+        # /api/config/central-server writes a new hub address into the local
+        # cache, and before VRT-12 this object had already captured the old one
+        # at construction, so every upload kept going to the previous server
+        # until the app was restarted -- with nothing anywhere saying so.
+        self._central_server_url = central_server_url
         self.local_license_cache = local_license_cache
+
+    @property
+    def central_server_url(self) -> str:
+        """The hub address, resolved on each read and without a trailing slash.
+
+        Empty when the hub is unconfigured. That is a supported state: uploads
+        queue locally rather than being attempted against a placeholder.
+        """
+        value = self._central_server_url
+        if callable(value):
+            value = value()
+        return (value or "").rstrip("/")
+
+    @central_server_url.setter
+    def central_server_url(self, value: str | Callable[[], str]) -> None:
+        self._central_server_url = value
 
     def _active_state(self):
         state = self.local_license_cache.get_state()

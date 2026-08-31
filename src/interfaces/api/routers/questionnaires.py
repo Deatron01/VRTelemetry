@@ -1,7 +1,8 @@
 # src/interfaces/api/routers/questionnaires.py
 """Post-session SSQ / NASA-TLX / thermal-comfort scoring.
 
-Moved from src/main.py. Behaviour is unchanged; the characterisation suite in
+Moved from src/main.py in VRT-10; its collaborators became injected parameters
+in VRT-12. Behaviour is unchanged; the characterisation suite in
 tests/characterisation/ is the proof.
 """
 
@@ -20,7 +21,7 @@ from src.analytics.questionnaires import (
     score_nasa_tlx,
     score_ssq,
 )
-from src.interfaces.api import dependencies as deps
+from src.interfaces.api.dependencies import PatientsDep, SessionsDep, SessionUploaderDep
 from src.interfaces.api.schemas.questionnaires import QuestionnaireSubmission
 from src.utils.logger import logger
 
@@ -28,7 +29,13 @@ router = APIRouter(tags=["questionnaires"])
 
 
 @router.post("/api/sessions/{session_id}/questionnaire")
-def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
+def submit_questionnaire(
+    session_id: str,
+    submission: QuestionnaireSubmission,
+    sessions: SessionsDep,
+    patients: PatientsDep,
+    session_uploader: SessionUploaderDep,
+):
     """
     Scores and persists the post-session SSQ + NASA-TLX + thermal-comfort
     questionnaire for an already-recorded session, then best-effort re-syncs
@@ -36,7 +43,7 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     uploaded (see SessionUploader.update_remote_metadata).
     """
 
-    row = deps.sessions.get(session_id)
+    row = sessions.get(session_id)
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -45,7 +52,7 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     # same rule as starting a new recording for that patient.
     patient_id = row.get("patient_id")
     if patient_id:
-        patient = deps.patients.get_patient(patient_id)
+        patient = patients.get_patient(patient_id)
         if patient and (patient["is_anonymized"] or not patient["gdpr_consent_given"]):
             raise HTTPException(
                 status_code=403,
@@ -82,15 +89,15 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     if submission.session_rating is not None:
         fields["session_rating"] = submission.session_rating
 
-    saved = deps.sessions.save_questionnaire(session_id, fields)
+    saved = sessions.save_questionnaire(session_id, fields)
     if not saved:
         raise HTTPException(status_code=500, detail="Failed to persist questionnaire")
 
     # Best-effort push of the refreshed row to the central server. Never blocks
     # or fails the response — the local record is authoritative regardless.
-    updated_row = deps.sessions.get(session_id)
+    updated_row = sessions.get(session_id)
     try:
-        deps.session_uploader.update_remote_metadata(session_id, updated_row)
+        session_uploader.update_remote_metadata(session_id, updated_row)
     except Exception as e:
         logger.info(f"Questionnaire saved locally; central re-sync skipped: {e}")
 

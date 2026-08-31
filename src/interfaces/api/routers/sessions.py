@@ -1,7 +1,8 @@
 # src/interfaces/api/routers/sessions.py
 """Session listing, detail, update and raw telemetry.
 
-Moved from src/main.py. Behaviour is unchanged; the characterisation suite in
+Moved from src/main.py in VRT-10; its collaborators became injected parameters
+in VRT-12. Behaviour is unchanged; the characterisation suite in
 tests/characterisation/ is the proof.
 """
 
@@ -13,15 +14,14 @@ from pathlib import Path
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from src.config import get_settings
-from src.interfaces.api import dependencies as deps
+from src.interfaces.api.dependencies import PatientsDep, SessionsDep, SettingsDep
 from src.interfaces.api.schemas.sessions import SessionUpdate
 
 router = APIRouter(tags=["sessions"])
 
 
 @router.post("/api/upload-telemetry")
-async def upload_telemetry(file: UploadFile = File(...)):
+async def upload_telemetry(settings: SettingsDep, file: UploadFile = File(...)):
     """
     Fogadja a nagyméretű Parquet fájlt, és memóriahatékonyan feldolgozza Pandas segítségével.
     """
@@ -32,7 +32,7 @@ async def upload_telemetry(file: UploadFile = File(...)):
     original_count = len(df)
 
     # Ritkítás (Downsampling) max 60,000 sorra a React stabil működéséhez
-    step = max(1, original_count // get_settings().sync.max_frames_to_client)
+    step = max(1, original_count // settings.sync.max_frames_to_client)
     df_sampled = df.iloc[::step].copy()
 
     # 1. JAVÍTÁS: Nanosecond Timestamp túlcsordulás megelőzése JS-ben
@@ -56,7 +56,7 @@ async def upload_telemetry(file: UploadFile = File(...)):
 
 
 @router.get("/api/sessions/{session_id}/telemetry")
-def get_session_telemetry(session_id: str):
+def get_session_telemetry(session_id: str, sessions: SessionsDep, settings: SettingsDep):
     """
     Lets Session Explorer load a previously recorded session's raw Parquet
     telemetry straight from disk for analysis — before this endpoint existed,
@@ -67,11 +67,11 @@ def get_session_telemetry(session_id: str):
     telemetry. Mirrors /api/upload-telemetry's downsampling so the frontend's
     existing TelemetryParser.processData() can consume either source identically.
     """
-    row = deps.sessions.get(session_id)
+    row = sessions.get(session_id)
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    sessions_dir = get_settings().paths.sessions_dir
+    sessions_dir = settings.paths.sessions_dir
     parquet_path = (
         Path(row.get("output_dir") or sessions_dir) / f"vr_telemetry_{session_id}.parquet"
     )
@@ -86,7 +86,7 @@ def get_session_telemetry(session_id: str):
 
     df = pd.read_parquet(parquet_path)
     original_count = len(df)
-    step = max(1, original_count // get_settings().sync.max_frames_to_client)
+    step = max(1, original_count // settings.sync.max_frames_to_client)
     df_sampled = df.iloc[::step].copy()
 
     if "timestamp_ns" in df_sampled.columns:
@@ -104,20 +104,20 @@ def get_session_telemetry(session_id: str):
 
 
 @router.get("/api/sessions")
-def get_all_sessions():
-    sessions = deps.sessions.list_for_api()
+def get_all_sessions(sessions: SessionsDep, patients: PatientsDep):
+    rows = sessions.list_for_api()
 
     # Enrich with patient display names. Sessions recorded before patient
     # linking existed (or where the patient was since erased) fall back
     # gracefully rather than breaking the listing.
     patient_cache: dict[str, str | None] = {}
-    for s in sessions:
+    for s in rows:
         pid = s.get("patient_id")
         if not pid:
             s["patient_display_name"] = None
             continue
         if pid not in patient_cache:
-            p = deps.patients.get_patient(pid)
+            p = patients.get_patient(pid)
             patient_cache[pid] = (
                 p["display_name"]
                 if p and not p["is_anonymized"]
@@ -127,24 +127,24 @@ def get_all_sessions():
             )
         s["patient_display_name"] = patient_cache[pid]
 
-    return sessions
+    return rows
 
 
 @router.get("/api/sessions/{session_id}")
-def get_session_details(session_id: str):
-    row = deps.sessions.get(session_id)
+def get_session_details(session_id: str, sessions: SessionsDep):
+    row = sessions.get(session_id)
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
     return row
 
 
 @router.put("/api/sessions/{session_id}")
-def update_session(session_id: str, update_data: SessionUpdate):
+def update_session(session_id: str, update_data: SessionUpdate, sessions: SessionsDep):
     update_fields = {k: v for k, v in update_data.dict().items() if v is not None}
     if not update_fields:
         return {"status": "no changes"}
 
-    updated, written = deps.sessions.update(session_id, update_fields)
+    updated, written = sessions.update(session_id, update_fields)
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
 

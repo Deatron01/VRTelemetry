@@ -1,5 +1,5 @@
 # src/main.py
-"""Backward-compatibility shim (VRT-10).
+"""Backward-compatibility shim (VRT-10, narrowed by VRT-12).
 
 This file was 1,185 lines: the argparse CLI, the whole FastAPI surface, every
 Pydantic schema, raw SQL against three databases, anthropometric domain maths,
@@ -11,35 +11,49 @@ imports".
 It is now a shim. Everything lives where it belongs:
 
 ===========================================  ==================================
-``src/interfaces/api/app.py``                ``create_app()``, CORS, lifecycle
+``src/interfaces/api/app.py``                ``create_app()``, CORS, lifespan
+``src/interfaces/api/container.py``          the composition root
 ``src/interfaces/api/routers/``              8 modules, 29 routes
 ``src/interfaces/api/schemas/``              request models, one per domain
-``src/interfaces/api/dependencies.py``       the shared collaborators
+``src/interfaces/api/dependencies.py``       the ``Depends`` providers
 ``src/interfaces/cli/record.py``             the acquisition CLI
 ``src/domain/session_profile.py``            anthropometrics, health profile
 ``src/utils/metadata.py``                    ``sanitize_metadata``
 ===========================================  ==================================
 
-The names below are re-exported because things outside this repository import
-them: ``electron/backend-manager.js`` spawns ``uvicorn src.main:app`` in
-development, ``build/backend.spec`` freezes an entry point that reaches it, and
-the characterisation suite reaches ``src.main`` directly. Removing this shim is
-a coordinated change across all three and is not part of VRT-10.
+``app`` is still here because things outside this repository reach for it:
+``electron/backend-manager.js`` spawns ``uvicorn src.main:app`` in development
+and ``build/backend.spec`` freezes an entry point that resolves it. Removing the
+shim is a coordinated change across both and is not part of VRT-12.
+
+It is built **lazily**, on first attribute access, rather than assigned at
+module scope. ``uvicorn src.main:app`` imports the module and then reads the
+attribute, so that path is unaffected; but merely importing ``src.main`` -- as
+the CLI does, and as any tooling that walks the package does -- no longer opens
+three databases and reads the licence cache. There is a test asserting that no
+module under ``src/`` performs I/O at import.
+
+VRT-9's legacy private aliases (``_patients``, ``_local_cache``, ``_db_path``
+and the rest) are **gone**. They existed so the characterisation suite could
+reach the singletons while VRT-10 through VRT-12 moved them; the suite now
+builds its own application from its own container, which is what it wanted all
+along. Nothing else ever referenced them.
 
 New code should import from the modules above, not from here.
 """
 
 from __future__ import annotations
 
-from src.interfaces.api import dependencies as _deps
+from typing import TYPE_CHECKING, Any
+
 from src.interfaces.api.app import create_app
 from src.interfaces.cli.record import execute_pipeline, parse_arguments
 from src.utils.metadata import sanitize_metadata
 
-#: The application instance uvicorn and the Electron shell expect at
-#: ``src.main:app``. Built once here, exactly as before -- ``create_app()`` is
-#: what lets tests build their own against a temporary data root instead.
-app = create_app()
+if TYPE_CHECKING:  # pragma: no cover - for type checkers and readers only
+    from fastapi import FastAPI
+
+    app: FastAPI
 
 __all__ = [
     "app",
@@ -50,44 +64,27 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> object:
-    """Resolve the old private module-level names to their new home.
+def __getattr__(name: str) -> Any:
+    """Build the ASGI application on first access to ``src.main.app``.
 
-    ``src.main._patients``, ``_local_cache``, ``_session_uploader`` and the rest
-    were never public, but the characterisation suite reaches for them to seed
-    state, and doing that through a mapping here keeps those 63 tests pointed at
-    one module while the implementation moves out from under them.
-
-    Deliberately a mapping rather than plain assignments: an assignment would
-    bind a *copy* of the reference at import, so a test patching
-    ``src.main._local_cache`` would leave the routers using the original object
-    and quietly prove nothing. Resolving on each access means the shim and the
-    routers always see the same object.
+    PEP 562: this runs only when normal attribute lookup fails, and the result
+    is cached into the module's globals, so the application is built exactly
+    once no matter how many times ``app`` is read.
 
     Args:
         name: The attribute being looked up.
 
     Returns:
-        The collaborator from ``src.interfaces.api.dependencies``.
+        The ASGI application, for ``name == "app"``.
 
     Raises:
-        AttributeError: for anything not in the compatibility map.
+        AttributeError: for anything else, including every legacy private alias
+            this module used to resolve.
     """
-    legacy = {
-        "_patients": "patients",
-        "_local_cache": "local_cache",
-        "_session_uploader": "session_uploader",
-        "_patient_uploader": "patient_uploader",
-        "_db_manager_for_sync": "db_manager",
-        "_usage": "usage_tracker",
-        "_sync_scheduler": "sync_scheduler",
-        "_heartbeat_sender": "heartbeat_sender",
-        "_central_url": "central_url",
-        "_db_path": "db_path",
-        "http_requests": "http_requests",
-    }
-    if name in legacy:
-        return getattr(_deps, legacy[name])
+    if name == "app":
+        application = create_app()
+        globals()["app"] = application
+        return application
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
