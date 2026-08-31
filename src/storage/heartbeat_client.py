@@ -1,9 +1,9 @@
 # src/storage/heartbeat_client.py
 
-import threading
 import logging
 import platform
-from typing import Callable, Optional
+import threading
+from collections.abc import Callable
 
 import requests
 
@@ -30,8 +30,8 @@ class HeartbeatSender:
         central_server_url_provider: Callable[[], str],
         local_license_cache,
         interval_sec: float = 30.0,
-        status_provider: Optional[Callable[[], str]] = None,
-        pending_count_provider: Optional[Callable[[], int]] = None,
+        status_provider: Callable[[], str] | None = None,
+        pending_count_provider: Callable[[], int] | None = None,
         app_version: str = "1.0.0",
     ):
         self._url_provider = central_server_url_provider
@@ -42,7 +42,7 @@ class HeartbeatSender:
         self.app_version = app_version
 
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():

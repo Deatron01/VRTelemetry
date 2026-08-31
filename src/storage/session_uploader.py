@@ -2,13 +2,15 @@
 
 import json
 import logging
-import requests
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
+import requests
 
 from src.utils.retry_backoff import is_ready_for_retry
 
 logger = logging.getLogger(__name__)
+
 
 class SessionUploader:
     """
@@ -22,8 +24,13 @@ class SessionUploader:
         self.central_server_url = central_server_url.rstrip("/")
         self.local_license_cache = local_license_cache
 
-    def upload(self, parquet_path: Path, session_id: str, metadata: Dict[str, Any],
-               queue_on_failure: bool = True) -> Dict[str, Any]:
+    def upload(
+        self,
+        parquet_path: Path,
+        session_id: str,
+        metadata: dict[str, Any],
+        queue_on_failure: bool = True,
+    ) -> dict[str, Any]:
         state = self.local_license_cache.get_state()
         if not state or state.get("status") != "active":
             logger.warning("Skipping upload — no active license cached locally.")
@@ -69,7 +76,11 @@ class SessionUploader:
                         self.local_license_cache.record_upload_attempt_failure(
                             session_id, "server_reported_checksum_mismatch"
                         )
-                    return {"ok": False, "reason": "server_verification_failed", "upload_id": data.get("upload_id")}
+                    return {
+                        "ok": False,
+                        "reason": "server_verification_failed",
+                        "upload_id": data.get("upload_id"),
+                    }
 
                 logger.info(f"Session {session_id} uploaded to central server.")
                 self.local_license_cache.clear_pending_upload(session_id)
@@ -81,7 +92,9 @@ class SessionUploader:
                 logger.error(f"Upload rejected ({response.status_code}): {response.text}")
                 if queue_on_failure:
                     self._queue(session_id, parquet_path, metadata)
-                    self.local_license_cache.record_upload_attempt_failure(session_id, response.text)
+                    self.local_license_cache.record_upload_attempt_failure(
+                        session_id, response.text
+                    )
                 return {"ok": False, "reason": response.text}
         except requests.RequestException as e:
             logger.warning(f"Upload failed, queued for retry: {e}")
@@ -90,7 +103,7 @@ class SessionUploader:
                 self.local_license_cache.record_upload_attempt_failure(session_id, str(e))
             return {"ok": False, "reason": "network_error", "detail": str(e)}
 
-    def update_remote_metadata(self, session_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def update_remote_metadata(self, session_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
         """
         Best-effort metadata-only re-sync, used right after a post-session
         questionnaire is saved locally. Deliberately NOT queued/retried like
@@ -121,10 +134,12 @@ class SessionUploader:
             )
             return {"ok": False, "reason": response.text}
         except requests.RequestException as e:
-            logger.info(f"Metadata re-sync for session {session_id} skipped — central server unreachable: {e}")
+            logger.info(
+                f"Metadata re-sync for session {session_id} skipped — central server unreachable: {e}"
+            )
             return {"ok": False, "reason": "network_error", "detail": str(e)}
 
-    def retry_pending(self) -> Dict[str, Any]:
+    def retry_pending(self) -> dict[str, Any]:
         """
         Sweeps the local pending-upload queue. Called on engine start, by the
         BackgroundSyncScheduler on its periodic tick, and exposed via a manual
@@ -146,15 +161,19 @@ class SessionUploader:
             if result.get("ok"):
                 succeeded += 1
 
-        logger.info(f"Pending upload retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending).")
+        logger.info(
+            f"Pending upload retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending)."
+        )
         return {"attempted": len(due), "succeeded": succeeded}
 
-    def _queue(self, session_id: str, parquet_path: Path, metadata: Dict[str, Any]) -> None:
+    def _queue(self, session_id: str, parquet_path: Path, metadata: dict[str, Any]) -> None:
         self.local_license_cache.queue_pending_upload(
             session_id, str(parquet_path), json.dumps(metadata)
         )
-        
-    def upload_log(self, log_path: Path, session_id: str, queue_on_failure: bool = True) -> Dict[str, Any]:
+
+    def upload_log(
+        self, log_path: Path, session_id: str, queue_on_failure: bool = True
+    ) -> dict[str, Any]:
         state = self.local_license_cache.get_state()
         if not state or state.get("status") != "active":
             if queue_on_failure and log_path.exists():
@@ -184,10 +203,14 @@ class SessionUploader:
                 self.local_license_cache.clear_pending_session_log(session_id)
                 self.local_license_cache.mark_session_log_synced(session_id)
                 return response.json()
-            logger.warning(f"Log upload rejected for session {session_id} ({response.status_code}): {response.text}")
+            logger.warning(
+                f"Log upload rejected for session {session_id} ({response.status_code}): {response.text}"
+            )
             if queue_on_failure:
                 self._queue_log(session_id, log_path)
-                self.local_license_cache.record_session_log_attempt_failure(session_id, response.text)
+                self.local_license_cache.record_session_log_attempt_failure(
+                    session_id, response.text
+                )
             return {"ok": False, "reason": response.text}
         except requests.RequestException as e:
             logger.warning(f"Log upload failed for session {session_id}, queued for retry: {e}")
@@ -196,7 +219,7 @@ class SessionUploader:
                 self.local_license_cache.record_session_log_attempt_failure(session_id, str(e))
             return {"ok": False, "reason": "network_error", "detail": str(e)}
 
-    def retry_pending_logs(self) -> Dict[str, Any]:
+    def retry_pending_logs(self) -> dict[str, Any]:
         """Sweeps the local pending-session-log queue, same shape as retry_pending()."""
         pending = self.local_license_cache.list_pending_session_logs()
         due = [item for item in pending if is_ready_for_retry(item)]
@@ -205,11 +228,15 @@ class SessionUploader:
 
         succeeded = 0
         for item in due:
-            result = self.upload_log(Path(item["log_path"]), item["session_id"], queue_on_failure=True)
+            result = self.upload_log(
+                Path(item["log_path"]), item["session_id"], queue_on_failure=True
+            )
             if result.get("ok"):
                 succeeded += 1
 
-        logger.info(f"Pending log retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending).")
+        logger.info(
+            f"Pending log retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending)."
+        )
         return {"attempted": len(due), "succeeded": succeeded}
 
     def _queue_log(self, session_id: str, log_path: Path) -> None:

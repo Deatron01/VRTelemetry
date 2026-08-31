@@ -2,8 +2,9 @@
 
 import json
 import logging
+from typing import Any
+
 import requests
-from typing import Dict, Any
 
 from src.utils.retry_backoff import is_ready_for_retry
 
@@ -33,9 +34,11 @@ class PatientSyncClient:
             return None
         return state
 
-    def sync_patient(self, patient: Dict[str, Any], queue_on_failure: bool = True) -> Dict[str, Any]:
+    def sync_patient(
+        self, patient: dict[str, Any], queue_on_failure: bool = True
+    ) -> dict[str, Any]:
         state = self._active_state()
-        
+
         if "patient_id" not in patient:
             if "subject_id" in patient:
                 patient["patient_id"] = patient["subject_id"]
@@ -54,7 +57,7 @@ class PatientSyncClient:
                 f"{self.central_server_url}/data/upload-patient",
                 json={
                     "activation_id": state["activation_id"],
-                    "license_id": state.get("license_id")or "",
+                    "license_id": state.get("license_id") or "",
                     "patient": patient,
                 },
                 timeout=30,
@@ -65,7 +68,9 @@ class PatientSyncClient:
             logger.error(f"Patient sync rejected ({response.status_code}): {response.text}")
             if queue_on_failure:
                 self._queue(patient)
-                self.local_license_cache.record_patient_sync_failure(patient["patient_id"], response.text)
+                self.local_license_cache.record_patient_sync_failure(
+                    patient["patient_id"], response.text
+                )
             return {"ok": False, "reason": response.text}
         except requests.RequestException as e:
             logger.warning(f"Patient sync failed, queued for retry: {e}")
@@ -74,7 +79,7 @@ class PatientSyncClient:
                 self.local_license_cache.record_patient_sync_failure(patient["patient_id"], str(e))
             return {"ok": False, "reason": "network_error", "detail": str(e)}
 
-    def retry_pending(self) -> Dict[str, Any]:
+    def retry_pending(self) -> dict[str, Any]:
         pending = self.local_license_cache.list_pending_patient_syncs()
         due = [item for item in pending if is_ready_for_retry(item)]
         if not due:
@@ -84,8 +89,12 @@ class PatientSyncClient:
             patient = json.loads(item["payload_json"])
             if self.sync_patient(patient, queue_on_failure=True).get("ok"):
                 succeeded += 1
-        logger.info(f"Pending patient sync retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending).")
+        logger.info(
+            f"Pending patient sync retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending)."
+        )
         return {"attempted": len(due), "succeeded": succeeded}
 
-    def _queue(self, patient: Dict[str, Any]) -> None:
-        self.local_license_cache.queue_pending_patient_sync(patient["patient_id"], json.dumps(patient))
+    def _queue(self, patient: dict[str, Any]) -> None:
+        self.local_license_cache.queue_pending_patient_sync(
+            patient["patient_id"], json.dumps(patient)
+        )

@@ -1,10 +1,12 @@
 # src/backends/discovery.py
 
 import logging
+from typing import Any
+
 import xr
-from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
 
 class RuntimeCapabilityDiscovery:
     """
@@ -13,37 +15,45 @@ class RuntimeCapabilityDiscovery:
     """
 
     @staticmethod
-    def extract_static_hardware_metadata() -> Dict[str, Any]:
+    def extract_static_hardware_metadata() -> dict[str, Any]:
         """
         Queries the OpenXR registry and returns a normalized dictionary representing
         system topologies and capability matrices.
         """
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "tracking_system": "Unknown",
             "has_eye_tracking": 0,
             "has_face_tracking": 0,
             "has_body_tracking": 0,
             "openxr_runtime": "Unknown",
-            "hmd_model": "Unknown"
+            "hmd_model": "Unknown",
         }
 
         try:
-            available_extensions: List[str] = [
-                ext.extension_name.decode('utf-8') if isinstance(ext.extension_name, bytes) else ext.extension_name
+            available_extensions: list[str] = [
+                ext.extension_name.decode("utf-8")
+                if isinstance(ext.extension_name, bytes)
+                else ext.extension_name
                 for ext in xr.enumerate_instance_extension_properties()
             ]
-            
+
             metadata["available_extensions"] = available_extensions
-            
+
             # Biometric Support Evaluation
-            if any(ext in available_extensions for ext in [
-                "XR_EXT_eye_gaze_interaction",
-                "XR_FB_eye_tracking_social",
-                "XR_HTC_eye_tracker"
-            ]):
+            if any(
+                ext in available_extensions
+                for ext in [
+                    "XR_EXT_eye_gaze_interaction",
+                    "XR_FB_eye_tracking_social",
+                    "XR_HTC_eye_tracker",
+                ]
+            ):
                 metadata["has_eye_tracking"] = 1
 
-            if "XR_FB_face_tracking" in available_extensions or "XR_HTC_facial_tracking" in available_extensions:
+            if (
+                "XR_FB_face_tracking" in available_extensions
+                or "XR_HTC_facial_tracking" in available_extensions
+            ):
                 metadata["has_face_tracking"] = 1
 
             if "XR_HTCX_vive_tracker_interaction" in available_extensions:
@@ -53,8 +63,7 @@ class RuntimeCapabilityDiscovery:
             temp_instance = xr.create_instance(
                 create_info=xr.InstanceCreateInfo(
                     application_info=xr.ApplicationInfo(
-                        application_name="VRTelemetry_Prober",
-                        api_version=xr.Version(1, 0, 0)
+                        application_name="VRTelemetry_Prober", api_version=xr.Version(1, 0, 0)
                     )
                 )
             )
@@ -63,10 +72,9 @@ class RuntimeCapabilityDiscovery:
             metadata["openxr_runtime"] = f"{props.runtime_name} {props.runtime_version}"
 
             sys_id = xr.get_system(
-                temp_instance,
-                xr.SystemGetInfo(xr.FormFactor.HEAD_MOUNTED_DISPLAY)
+                temp_instance, xr.SystemGetInfo(xr.FormFactor.HEAD_MOUNTED_DISPLAY)
             )
-            
+
             sys_props = xr.get_system_properties(temp_instance, sys_id)
             metadata["hmd_model"] = sys_props.system_name
 

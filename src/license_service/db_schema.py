@@ -1,18 +1,22 @@
 # src/license_service/db_schema.py
 
-import sqlite3
 import logging
+import sqlite3
 from pathlib import Path
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-def initialize_license_schema(db_path: str = "LicenseServer/licenses.db") -> None:
+
+def initialize_license_schema(db_path: str | Path | None = None) -> None:
     """
     Central authority schema. Deployed on your server, never shipped to researchers.
     SQLite is fine to start; swap the connection layer for Postgres later without
     changing this shape if you outgrow single-file storage.
     """
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    db_path = Path(db_path) if db_path else get_settings().paths.licenses_db
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
     schema = """
     CREATE TABLE IF NOT EXISTS organizations (

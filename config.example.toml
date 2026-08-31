@@ -1,0 +1,53 @@
+# config.example.toml — copy to config.toml in your data root to use it.
+#
+# Every value here is optional; the defaults are in src/config/settings.py.
+# Precedence, lowest to highest:
+#
+#   1. the defaults in settings.py
+#   2. this file (config.toml in the data root)
+#   3. environment variables:  VRT_CENTRAL__URL, VRT_PATHS__DATA_ROOT, ...
+#      (prefix VRT_, double underscore between levels)
+#   4. explicit arguments at the call site
+#
+# Anything invalid fails at startup naming the field, rather than at first use.
+
+[paths]
+# Root for all runtime data. Defaults to the process working directory, which
+# is what the old relative paths effectively meant — so leaving this unset
+# keeps an existing install pointed at its existing databases.
+#
+# Set it to stop behaviour depending on where you launched from:
+# data_root = "C:/Users/nipit/Desktop/VRTelemetry"
+
+[central]
+# The hub this workstation uploads to. There is deliberately NO default: unset
+# means unset, and the app reports it as such. The old code defaulted to
+# "http://192.168.1.X:9000" — a placeholder with a letter where an octet
+# belongs — so an unconfigured install failed with a DNS error instead of
+# telling you to configure it. That exact string is now rejected.
+# url = "http://192.168.1.50:9000"
+# timeout_sec = 10.0
+
+[api]
+# The workstation's own API, spawned by the Electron shell. Loopback on
+# purpose: only the local app calls it, and it serves patient records.
+# host = "127.0.0.1"
+# port = 8000
+
+[hub]
+# The central hub, when this process IS the hub. Binds all interfaces because
+# other machines must reach it — narrow this in deployment if you can.
+# host = "0.0.0.0"
+# port = 9000
+# client_online_threshold_sec = 90
+
+[acquisition]
+# default_max_sampling_hz = 120.0
+# sampling_headroom = 1.2          # applied to the HMD's reported refresh rate
+# udp_host = "0.0.0.0"             # Quest standalone stream; the headset is remote
+# udp_port = 5005
+
+[sync]
+# interval_sec = 20.0
+# heartbeat_interval_sec = 30.0
+# max_frames_to_client = 60000     # downsample cap for the browser

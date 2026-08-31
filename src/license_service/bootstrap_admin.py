@@ -9,8 +9,10 @@ that prevents any client-reachable path from ever self-granting admin.
 """
 
 import getpass
-from src.license_service.db_schema import initialize_license_schema
+
 from src.license_service.auth_manager import AuthManager
+from src.license_service.db_schema import initialize_license_schema
+
 
 def main():
     initialize_license_schema()
@@ -27,6 +29,7 @@ def main():
         print(f"\n✅ Admin account created: {email}")
     else:
         print(f"\n❌ Failed: {result['reason']}")
+
 
 if __name__ == "__main__":
     main()

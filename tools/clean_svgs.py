@@ -1,9 +1,9 @@
-import os
 from pathlib import Path
 
 # Project paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOC_ROOT = PROJECT_ROOT / "doc"
+
 
 def remove_svgs():
     if not DOC_ROOT.exists():
@@ -24,6 +24,7 @@ def remove_svgs():
                 print(f"    [!] Failed to delete {svg_file.name}: {e}")
 
     print(f"\n[✓] Cleanup complete! Successfully removed {deleted_count} SVG file(s).")
+
 
 if __name__ == "__main__":
     remove_svgs()

@@ -1,18 +1,21 @@
 # requirements.txt
+#
+# Superseded by pyproject.toml, which is the single source of truth for this
+# project's dependency graph. This file remains only so that existing muscle
+# memory, older documentation and the PyInstaller build keep working.
+#
+# Install the researcher workstation:
+#     pip install -e ".[workstation]"
+#
+# Install everything needed to develop and run the tests:
+#     pip install -e ".[dev]"
+#
+# Install the central hub server:
+#     pip install -e ".[server]"
+#
+# The previous contents of this file omitted fastapi, uvicorn, pydantic, pandas,
+# python-multipart and openvr -- all imported unconditionally by the application
+# -- so installing from it produced an environment that could not start the
+# server or collect the test suite.
 
-# Core OpenXR Bindings
-pyopenxr>=1.0.31
-
-# Data Storage & Machine Learning Integrations
-pyarrow>=15.0.0
-numpy>=1.26.4
-
-# System & Hardware Metrics
-psutil>=5.9.8
-
-# Testing Frameworks
-pytest>=8.0.0
-pytest-asyncio>=0.23.5
-requests
-# Database Drivers
-# SQLite3 is part of Python Standard Library, no external driver required.
+-e .[workstation]

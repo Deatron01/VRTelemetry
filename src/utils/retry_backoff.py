@@ -9,10 +9,12 @@ off while everything else still gets retried promptly.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
 
-def is_ready_for_retry(item: Dict[str, Any], base_delay: float = 10.0, max_delay: float = 300.0) -> bool:
+def is_ready_for_retry(
+    item: dict[str, Any], base_delay: float = 10.0, max_delay: float = 300.0
+) -> bool:
     attempts = item.get("attempts") or 0
     last_attempt_at = item.get("last_attempt_at")
 

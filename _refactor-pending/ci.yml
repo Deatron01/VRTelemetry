@@ -1,0 +1,159 @@
+name: CI
+
+# Nothing has ever verified that this repository builds on a machine other than
+# the original author's. That is precisely why an untracked build/backend.spec
+# and six missing runtime dependencies went unnoticed until an audit. The
+# clean-install job below is the one that would have caught both on day one.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # Cancel superseded runs on the same ref. A queue of stale runs on a busy
+  # branch wastes minutes and tells you nothing you want to know.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  # ── Fast feedback: cheap checks that fail in seconds ───────────────────────
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The hygiene check inspects tracked paths, not history, but a full
+          # checkout keeps `git ls-files` honest about submodule-like edges.
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: No research data, no vendored dependencies, build inputs present
+        run: python tools/check_repo_hygiene.py
+
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: ruff check
+        run: ruff check --output-format=github
+      - name: ruff format --check
+        run: ruff format --check
+      - name: mypy
+        run: mypy
+
+  # ── The job that would have caught the two defects this audit found ────────
+  clean-install:
+    name: Clean install and boot (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is the actual deployment target for the workstation app, so
+        # it is not an afterthought here.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install exactly what a new contributor would
+        run: pip install -e ".[dev]"
+      - name: The workstation API imports and exposes its routes
+        run: >
+          python -c "from src.main import app;
+          n=len([r for r in app.routes if hasattr(r,'path')]);
+          print(f'workstation routes: {n}'); assert n > 25"
+      - name: The central hub imports and exposes its routes
+        run: >
+          python -c "from src.central_server.server import app;
+          n=len([r for r in app.routes if hasattr(r,'path')]);
+          print(f'hub routes: {n}'); assert n > 25"
+      - name: The console scripts are installed
+        shell: bash
+        run: |
+          for script in vrtelemetry-server vrtelemetry-record vrtelemetry-hub; do
+            command -v "$script" >/dev/null || { echo "missing: $script"; exit 1; }
+            echo "found: $script"
+          done
+      - name: The hub installs with no VR bindings at all
+        # Proves the `server` extra is honest: a hub deployment must not need
+        # pyopenxr, openvr, pandas or pyarrow.
+        shell: bash
+        run: |
+          python -m venv /tmp/hubonly
+          if [ -d /tmp/hubonly/bin ]; then PY=/tmp/hubonly/bin/python; else PY=/tmp/hubonly/Scripts/python; fi
+          "$PY" -m pip install -q -e ".[server]"
+          "$PY" -c "import importlib.util as u; assert u.find_spec('xr') is None, 'pyopenxr leaked into the server extra'"
+          cd "$(mktemp -d)" && "$PY" -c "from src.central_server.server import app; print('hub OK without VR bindings')"
+
+  test:
+    name: Tests (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: Run the suite
+        # -m "not hardware" excludes tests needing a headset. Note that no test
+        # currently carries that marker even though two of them arguably should;
+        # --strict-markers (pyproject) means a typo'd marker fails loudly rather
+        # than quietly matching nothing. VRT-17 audits the markers.
+        run: pytest -m "not hardware" --cov --cov-report=xml --cov-report=term-missing
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+
+  # ── Guards against the marker system silently doing nothing ───────────────
+  marker-sanity:
+    name: Hardware marker actually deselects
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - name: -m "not hardware" and -m "hardware" partition the suite
+        # If the marker expression silently matched nothing, `not hardware`
+        # would collect everything and the exclusion in the test job would be
+        # decorative. This asserts the two selections sum to the whole suite.
+        run: |
+          count() {
+            pytest --collect-only -q -p no:warnings "$@" \
+              | awk -F': ' '/: [0-9]+$/ {s+=$2} END {print s+0}'
+          }
+          total=$(count)
+          selected=$(count -m "not hardware")
+          hardware=$(count -m "hardware")
+          echo "total=$total  not-hardware=$selected  hardware=$hardware"
+          # A zero total means the counter itself broke; a check that can only
+          # ever pass is worse than no check.
+          test "$total" -gt 0
+          test "$total" -eq "$((selected + hardware))"

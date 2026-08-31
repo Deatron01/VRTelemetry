@@ -1,0 +1,363 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Project metadata
+# ─────────────────────────────────────────────────────────────────────────────
+[project]
+name = "vrtelemetry"
+version = "1.0.0"
+description = "Biometric telemetry acquisition and analysis for VR research studies"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "VRTelemetry" }]
+keywords = ["vr", "telemetry", "openxr", "eye-tracking", "biometrics", "research"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+# Shared by every deployable: the HTTP layer and its client.
+#
+# Before this file existed, requirements.txt declared pyopenxr, pyarrow, numpy,
+# psutil, requests and pytest -- and omitted fastapi, uvicorn, pydantic, pandas,
+# python-multipart and openvr, all of which the application imports
+# unconditionally. `pip install -r requirements.txt` produced an environment
+# that could not start the server or even collect the test suite. The lists
+# below were derived by walking every import in src/, tests/ and tools/ with an
+# AST scan, then verified by installing into a clean environment and booting.
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn>=0.27,<1.0",
+    "pydantic>=2.6,<3.0",
+    # Typed, layered configuration (VRT-6). Replaces 18 hardcoded path and URL
+    # literals that were spread across seven modules as default arguments.
+    "pydantic-settings>=2.2,<3.0",
+    # tomllib is stdlib from 3.11; this backfills it on the 3.10 leg.
+    'tomli>=2.0; python_version < "3.11"',
+    # Required by FastAPI to parse Form(...) and File(...) parameters, which
+    # every /data/* route on the central server uses. Never imported by name,
+    # so no static scan will find it -- omitting it produces a server that
+    # imports fine and then 500s on the first upload.
+    "python-multipart>=0.0.9",
+    "requests>=2.31,<3.0",
+]
+
+[project.optional-dependencies]
+# The researcher workstation: acquisition, storage and analysis.
+workstation = [
+    "pyarrow>=15.0.0",
+    "numpy>=1.26.4",
+    "pandas>=2.2,<3.0",
+    "psutil>=5.9.8",
+    "pyopenxr>=1.0.31",
+    # `import openvr` in backend_steamvr.py is unguarded, and src/core/__init__.py
+    # imports the engine eagerly, so today this is required to import ANY module
+    # under src.core -- including from the unit tests. It belongs behind a
+    # runtime capability check; VRT-14 moves backend selection behind a registry
+    # so an absent binding degrades instead of breaking the import graph.
+    "openvr>=1.26",
+]
+
+# Oculus/LibOVR bindings. Genuinely optional: backend_ocolus.py already guards
+# `import ovr` with try/except and sets OVR_AVAILABLE, which is the pattern the
+# other two backends should follow. Not installable on every platform, which is
+# exactly why it is not in `workstation`.
+oculus = ["pyovr>=1.4"]
+
+# The central hub server needs nothing beyond the shared core: it imports only
+# src.central_server, src.license_service and src.utils. Declared explicitly so
+# that a server deployment is a documented install rather than an accident of
+# which extras someone happened to type.
+server = []
+
+# tools/ documentation pipeline. Not needed to run or test the application.
+docs = [
+    "google-genai>=1.0",
+    "python-dotenv>=1.0",
+]
+
+dev = [
+    "vrtelemetry[workstation,docs]",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.5",
+    "pytest-cov>=5.0",
+    # TestClient's transport. FastAPI does not pull it in, and without it every
+    # API test errors at fixture setup rather than failing informatively.
+    "httpx>=0.27",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+
+[project.scripts]
+# Replaces the ad-hoc `python -m src.tert_runner` / `python -m uvicorn src.main:app`
+# invocations scattered across package.json, backend-manager.js and the README.
+vrtelemetry-server = "src.server_entrypoint:boot_server_context"
+vrtelemetry-record = "src.tert_runner:boot_framework_context"
+vrtelemetry-hub = "src.central_server.server:main"
+
+[tool.hatch.build.targets.wheel]
+# The import root is `src` today, matching the existing `from src.core import ...`
+# convention throughout the codebase. Renaming it to `vrtelemetry` is a
+# repository-wide import rewrite and belongs with the layer restructure in
+# VRT-15, not here -- this file's job is to make the dependency graph honest.
+packages = ["src"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/central_server/admin_ui" = "src/central_server/admin_ui"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pytest  (was pytest.ini)
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --tb=short --strict-markers"
+testpaths = ["tests"]
+
+# `pythonpath = .` is deliberately gone. It was a workaround for the package
+# never being installed; with `pip install -e .` the `src` package resolves
+# through the editable install like any other dependency. Keeping both means
+# tests can pass against a stale source tree that the installed package does
+# not match.
+
+filterwarnings = [
+    "ignore::DeprecationWarning:pyarrow.*",
+    "ignore::DeprecationWarning:pkg_resources.*",
+    # FastAPI's @app.on_event is deprecated in favour of lifespan handlers.
+    # src/main.py still uses it; VRT-12 replaces it. Scoped narrowly so it does
+    # not mask other Starlette deprecations.
+    "ignore:.*on_event is deprecated.*:DeprecationWarning",
+]
+
+markers = [
+    "hardware: requires a VR headset connected to the host (deselect with -m 'not hardware')",
+    "asyncio: exercises the asynchronous storage pipeline",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coverage
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["src/frontend/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
+# No `fail_under` yet. A floor set before the API layer has any coverage at all
+# would either be met trivially or block every commit. VRT-17 sets it, as a
+# ratchet that only ever rises.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tox  (was tox.ini)
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = py310, py311, py312
+isolated_build = True
+
+[testenv]
+extras = dev
+commands =
+    pytest tests/unit tests/integration -m "not hardware" {posargs}
+"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ruff — linter and formatter
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["src/frontend", "doc", "node_modules"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # import sorting
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "A",         # builtin shadowing
+    "C4",        # comprehensions
+    "T20",       # no print()
+    "SIM",       # simplify
+    "PTH",       # use pathlib
+    "RUF",       # ruff-specific
+    "BLE",       # blind except
+    "ARG",       # unused arguments
+    "DTZ",       # naive datetimes
+    "S",         # bandit security rules
+]
+ignore = [
+    "E501",    # line length is the formatter's job, not the linter's
+    "S101",    # assert: correct in tests, and used as an invariant check elsewhere
+    "B008",    # FastAPI's Depends()/Form()/File() are call-in-default by design
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tools are operator scripts run by hand; printing is their interface.
+"tools/*" = ["T20", "S603", "S607"]
+# bootstrap_admin.py is an interactive CLI for creating the first admin account.
+"src/license_service/bootstrap_admin.py" = ["T20"]
+# Tests assert on private state and use hardcoded fixtures by design.
+"tests/*" = ["S105", "S106", "S104", "S108", "ARG001", "SLF001"]
+
+# ── Inherited debt, scoped per file ──────────────────────────────────────────
+# These rules stay SELECTED globally, so any new or newly-touched file is held
+# to the full standard. The exemptions below record exactly which existing files
+# violate which rule today. This is a ratchet: entries are deleted as the owning
+# ticket lands, and nothing is ever added without one.
+#
+#   BLE001  blind `except Exception`, 70 sites ................ VRT-13
+#   B904    `raise` inside `except` without `from` ............. VRT-13
+#   S110    `try/except/pass` ............................. .... VRT-13
+#   SIM105  use contextlib.suppress ......................... .. VRT-13
+#   DTZ003  naive `datetime.utcnow()` -- compared against stored
+#           ISO strings for licence expiry and session windows,
+#           so this is a correctness bug, not a style nit ...... VRT-21 (new)
+#   S608    SQL built by string interpolation (column names
+#           only; values are parameterised) ................... VRT-11
+#   E402    imports below module-level code (main.py lines
+#           632/784/904/1027) ................................. VRT-10
+#   ARG001  unused function arguments ......................... VRT-12
+#   PTH*    os.path/open instead of pathlib ................... VRT-20
+#   S104    binding 0.0.0.0 -- deliberate for the LAN UDP
+#           receiver and hub; to be made configurable ......... VRT-16
+#   S602/S607  subprocess without a full path ................. VRT-20
+#   others  naming, comprehension and mutable-default nits .... VRT-20
+"src/backends/backend_ocolus.py" = ["BLE001"]
+"src/backends/backend_openxr.py" = ["BLE001", "S110", "SIM105"]
+"src/backends/backend_steamvr.py" = ["BLE001"]
+"src/backends/openxr_headless.py" = ["BLE001", "N806"]
+"src/backends/udp_receiver.py" = ["BLE001", "S104"]
+"src/central_server/data_manager.py" = ["S608"]
+"src/central_server/data_schema.py" = ["N806", "W293"]
+"src/central_server/server.py" = ["ARG001", "B904", "BLE001", "DTZ003", "E402", "RUF034"]
+"src/core/derived_metrics.py" = ["B905"]
+"src/core/engine.py" = ["BLE001", "N806", "S104"]
+"src/core/synchronizer.py" = ["BLE001"]
+"src/eye_tracking/factory.py" = ["RUF012"]
+"src/eye_tracking/fb_social.py" = ["BLE001"]
+"src/eye_tracking/htc_tracker.py" = ["BLE001"]
+"src/license_service/auth_manager.py" = ["DTZ003"]
+"src/license_service/local_cache.py" = ["DTZ003", "RUF013"]
+"src/license_service/manager.py" = ["DTZ003"]
+"src/main.py" = ["B904", "BLE001", "E402", "S608", "SIM105", "W291"]
+"src/patients/patient_manager.py" = ["DTZ003", "DTZ007", "RUF005", "S608"]
+"src/storage/ai_preprocessor.py" = ["RUF012"]
+"src/storage/database_manager.py" = ["RUF005", "S608", "W293"]
+"src/storage/heartbeat_client.py" = ["BLE001"]
+"src/storage/parquet_writer.py" = ["B905", "BLE001", "PTH123", "SIM115"]
+"src/storage/session_backfill.py" = ["BLE001"]
+"src/storage/session_uploader.py" = ["PTH123"]
+"src/storage/sync_scheduler.py" = ["BLE001"]
+"src/utils/hardware_monitor.py" = ["BLE001", "S110", "S607"]
+"src/utils/retry_backoff.py" = ["DTZ003"]
+"src/utils/system_profiler.py" = ["BLE001", "E741", "S607"]
+"tests/integration/test_pipeline.py" = ["PTH202"]
+"tools/append_structure.py" = ["B007", "B905", "C414"]
+"tools/clean_svgs.py" = ["BLE001"]
+"tools/fix_diagrams.py" = ["BLE001"]
+"tools/generate_docs.py" = ["BLE001", "PTH123", "RUF005", "S608"]
+"tools/generate_graphs.py" = ["BLE001", "PTH107", "PTH123", "S602", "SIM105"]
+"tools/merge_and_clean_docs.py" = ["B905", "BLE001", "C414"]
+"tools/read_data.py" = ["BLE001"]
+"tools/run_documentation_pipeline.py" = ["BLE001", "F841"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# mypy
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tools"]
+exclude = ["src/frontend/", "build/"]
+
+# `src` is a namespace package (no __init__.py at its root), so without these
+# mypy resolves the same file under two module names -- "core.datatypes" and
+# "src.core.datatypes" -- and refuses to check anything. Both settings go away
+# when the package becomes src/vrtelemetry/ in VRT-15.
+mypy_path = "."
+explicit_package_bases = true
+namespace_packages = true
+
+# Baseline for the whole tree. Deliberately not --strict: switching it on
+# repository-wide today produces hundreds of errors, which means it gets
+# disabled again within a week. The strict set below is a ratchet -- modules
+# join it as their ticket lands, and the list only ever grows.
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# Third-party packages without type information. Listed individually rather
+# than with a blanket ignore_missing_imports so that a genuinely mistyped
+# import name still fails.
+module = [
+    "xr.*", "openvr.*", "ovr.*", "pyarrow.*", "google.*", "dotenv.*",
+    # Ship no stubs and have none on typeshed for the versions pinned here.
+    "psutil.*", "pandas.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Strict set. Add modules here as they are cleaned up; never remove one.
+module = [
+    "src.core.datatypes",
+    "src.core.exceptions",
+    "src.core.interfaces",
+    "src.utils.log_redaction",
+    "src.analytics.questionnaires",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_any_generics = true
+warn_return_any = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+# ── Type-checking debt, scoped per module ───────────────────────────────────
+# Baseline at the time this gate was introduced: 60 errors in 14 modules.
+# The checker runs over the whole tree; these modules are exempted individually
+# so that every other file -- and every new file -- is checked for real. Same
+# ratchet rule as the ruff block: entries are deleted as the owning ticket
+# lands, the count only ever falls, and nothing joins this list without a
+# ticket beside it.
+#
+# Worth knowing: 11 of the errors in core/engine.py are `union-attr` on
+# `self.backend`, which mypy only started seeing because VRT-5.2 gave the
+# attribute a real Optional type. They are not new bugs -- they are the
+# already-present possibility of calling a method on None, finally visible.
+module = [
+    "src.backends.backend_openxr",                 #  4 error(s) - VRT-14
+    "src.backends.openxr_headless",                #  9 error(s) - VRT-14
+    "src.backends.udp_receiver",                   #  2 error(s) - VRT-14
+    "src.central_server.server",                   #  1 error(s) - VRT-15
+    "src.core.engine",                             # 11 error(s) - VRT-14 (ports; most are `backend` being Optional, which is correct and now visible)
+    "src.core.synchronizer",                       #  3 error(s) - VRT-14
+    "src.license_service.local_cache",             #  4 error(s) - VRT-11
+    "src.main",                                    # 15 error(s) - VRT-10/VRT-12 (router split + composition root)
+    "src.patients.patient_manager",                #  1 error(s) - VRT-11
+    "src.storage.database_manager",                #  3 error(s) - VRT-11
+    "src.storage.parquet_writer",                  #  3 error(s) - VRT-11
+    "src.storage.sync_scheduler",                  #  2 error(s) - VRT-11
+    "src.utils.logger",                            #  1 error(s) - VRT-19 (structured logging)
+    "tools.generate_docs",                         #  1 error(s) - VRT-20
+]
+ignore_errors = true

@@ -1,14 +1,65 @@
 # src/backends/__init__.py
 
-"""
-Hardware Abstraction Layer (HAL) for spatial contexts.
+"""Hardware abstraction layer (HAL) for spatial contexts.
+
 Handles interaction profiles and dynamic binding strategies.
+
+Import surface note (VRT-5.1)
+-----------------------------
+The names below are re-exported **lazily**, via PEP 562 ``__getattr__``. They
+used to be eager ``from .module import Name`` statements at import time, which
+built a cycle:
+
+    src.backends.__init__  ->  .openxr_headless
+                           ->  src.core.interfaces
+                           ->  src.core.__init__  ->  .engine
+                           ->  src.backends.udp_receiver
+                           ->  src.backends.__init__   (already initialising)
+
+``pytest tests/unit/test_discovery.py`` on its own failed at collection with
+"cannot import name 'OpenXRHeadlessBackend' from partially initialized module".
+It only passed in a full run because some earlier test module happened to
+import ``src.core`` first and warm the cache -- a test suite that depends on
+collection order is a test suite that will break for someone eventually.
+
+The eager imports also meant that touching *any* module in these packages
+dragged in the whole dependency graph. ``from src.core.datatypes import
+TelemetryFrame`` -- a pure dataclass with no hardware in it -- pulled in the
+engine, every VR backend, and therefore ``xr`` and ``openvr``, so the unit
+tests could not run on a machine without VR runtime bindings installed.
+
+Lazy re-export keeps the public surface identical for anyone writing
+``from src.backends import RuntimeCapabilityDiscovery`` while removing both problems. Nothing in this
+repository imports through these facades today; they are kept for external
+consumers and for the documented API.
+
+Proper layer boundaries, which remove the need for the facade at all, are
+VRT-12 and VRT-14.
 """
 
-from .discovery import RuntimeCapabilityDiscovery
-from .openxr_headless import OpenXRHeadlessBackend
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
 
-__all__ = [
-    "RuntimeCapabilityDiscovery",
-    "OpenXRHeadlessBackend"
-]
+if TYPE_CHECKING:
+    from .discovery import RuntimeCapabilityDiscovery
+    from .openxr_headless import OpenXRHeadlessBackend
+
+#: Public name -> the submodule that defines it.
+_EXPORTS: dict[str, str] = {
+    "RuntimeCapabilityDiscovery": ".discovery",
+    "OpenXRHeadlessBackend": ".openxr_headless",
+}
+
+__all__ = ["OpenXRHeadlessBackend", "RuntimeCapabilityDiscovery"]
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a re-exported name on first access (PEP 562)."""
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(import_module(module, __name__), name)
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)

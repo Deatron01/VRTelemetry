@@ -1,8 +1,8 @@
 # src/storage/sync_scheduler.py
 
-import threading
 import logging
-from typing import Any, Dict
+import threading
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +29,17 @@ class BackgroundSyncScheduler:
 
         self._stop_event = threading.Event()
         self._thread = None
-        self._lock = threading.Lock()  # guards against an on-demand sweep overlapping the scheduled one
+        self._lock = (
+            threading.Lock()
+        )  # guards against an on-demand sweep overlapping the scheduled one
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True, name="BackgroundSyncScheduler")
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="BackgroundSyncScheduler"
+        )
         self._thread.start()
         logger.info(f"Background sync scheduler started (interval={self.interval_sec}s).")
 
@@ -47,7 +51,7 @@ class BackgroundSyncScheduler:
             self.sweep_once()
             self._stop_event.wait(self.interval_sec)
 
-    def sweep_once(self) -> Dict[str, Any]:
+    def sweep_once(self) -> dict[str, Any]:
         """
         Runs one full sweep across all three pending queues. Safe to call
         directly (e.g. from a manual 'Sync Now' API call) as well as from the

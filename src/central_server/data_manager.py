@@ -1,15 +1,17 @@
 # src/central_server/data_manager.py
 
-import sqlite3
 import hashlib
 import json
-import shutil
-import uuid
 import logging
+import sqlite3
+import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
+
 
 class CentralDataManager:
     """
@@ -18,10 +20,14 @@ class CentralDataManager:
     binary payload and its provenance record.
     """
 
-    def __init__(self, db_path: str = "CentralServer/central_data.db",
-                 storage_root: str = "CentralServer/CentralStorage"):
-        self.db_path = db_path
-        self.storage_root = Path(storage_root)
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        storage_root: str | Path | None = None,
+    ):
+        paths = get_settings().paths
+        self.db_path = Path(db_path) if db_path else paths.central_data_db
+        self.storage_root = Path(storage_root) if storage_root else paths.central_storage_dir
         self.storage_root.mkdir(parents=True, exist_ok=True)
 
     def _conn(self) -> sqlite3.Connection:
@@ -38,9 +44,9 @@ class CentralDataManager:
         session_id: str,
         original_filename: str,
         file_bytes: bytes,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         ip_address: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Core intake path. Called by the FastAPI route after auth has already
         confirmed the activation is valid — this method assumes trust was
@@ -52,20 +58,36 @@ class CentralDataManager:
         with self._conn() as conn:
             existing = conn.execute(
                 "SELECT upload_id, sha256_checksum FROM uploaded_sessions WHERE license_id = ? AND session_id = ?",
-                (license_id, session_id)
+                (license_id, session_id),
             ).fetchone()
 
             if existing:
                 if existing["sha256_checksum"] == checksum:
-                    self._log_event(conn, existing["upload_id"], activation_id, "duplicate",
-                                     "identical re-upload, no-op", ip_address)
+                    self._log_event(
+                        conn,
+                        existing["upload_id"],
+                        activation_id,
+                        "duplicate",
+                        "identical re-upload, no-op",
+                        ip_address,
+                    )
                     conn.commit()
-                    return {"ok": True, "status": "already_received", "upload_id": existing["upload_id"]}
+                    return {
+                        "ok": True,
+                        "status": "already_received",
+                        "upload_id": existing["upload_id"],
+                    }
                 else:
                     # Same session_id, different bytes — flag rather than silently overwrite,
                     # since this could indicate corruption or a re-recorded/edited file.
-                    self._log_event(conn, existing["upload_id"], activation_id, "rejected",
-                                     "checksum mismatch on re-upload of existing session_id", ip_address)
+                    self._log_event(
+                        conn,
+                        existing["upload_id"],
+                        activation_id,
+                        "rejected",
+                        "checksum mismatch on re-upload of existing session_id",
+                        ip_address,
+                    )
                     conn.commit()
                     return {"ok": False, "reason": "session_id_conflict_different_content"}
 
@@ -79,8 +101,17 @@ class CentralDataManager:
             on_disk_checksum = hashlib.sha256(dest_path.read_bytes()).hexdigest()
             verified = 1 if on_disk_checksum == checksum else 0
             if not verified:
-                logger.error(f"Checksum mismatch after write for session {session_id}, upload {upload_id}")
-                self._log_event(conn, upload_id, activation_id, "corrupt", "post-write checksum mismatch", ip_address)
+                logger.error(
+                    f"Checksum mismatch after write for session {session_id}, upload {upload_id}"
+                )
+                self._log_event(
+                    conn,
+                    upload_id,
+                    activation_id,
+                    "corrupt",
+                    "post-write checksum mismatch",
+                    ip_address,
+                )
 
             conn.execute(
                 """INSERT INTO uploaded_sessions
@@ -89,26 +120,44 @@ class CentralDataManager:
                     sha256_checksum, total_frames, duration_sec, metadata_json, verified)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    upload_id, session_id, license_id, activation_id, machine_label,
-                    metadata.get("subject_id"), metadata.get("patient_id"), original_filename,
+                    upload_id,
+                    session_id,
+                    license_id,
+                    activation_id,
+                    machine_label,
+                    metadata.get("subject_id"),
+                    metadata.get("patient_id"),
+                    original_filename,
                     str(dest_path.relative_to(self.storage_root)),
-                    len(file_bytes), checksum,
-                    metadata.get("total_frames"), metadata.get("duration_sec"),
-                    json.dumps(metadata), verified,
-                )
+                    len(file_bytes),
+                    checksum,
+                    metadata.get("total_frames"),
+                    metadata.get("duration_sec"),
+                    json.dumps(metadata),
+                    verified,
+                ),
             )
-            self._log_event(conn, upload_id, activation_id, "received", original_filename, ip_address)
+            self._log_event(
+                conn, upload_id, activation_id, "received", original_filename, ip_address
+            )
             conn.commit()
 
-        logger.info(f"Ingested session {session_id} ({len(file_bytes)} bytes) from activation {activation_id}")
-        return {"ok": True, "status": "received", "upload_id": upload_id, "verified": bool(verified)}
+        logger.info(
+            f"Ingested session {session_id} ({len(file_bytes)} bytes) from activation {activation_id}"
+        )
+        return {
+            "ok": True,
+            "status": "received",
+            "upload_id": upload_id,
+            "verified": bool(verified),
+        }
 
-    def list_sessions(self, license_id: Optional[str] = None) -> list:
+    def list_sessions(self, license_id: str | None = None) -> list:
         with self._conn() as conn:
             if license_id:
                 rows = conn.execute(
                     "SELECT * FROM uploaded_sessions WHERE license_id = ? ORDER BY received_at DESC",
-                    (license_id,)
+                    (license_id,),
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -116,7 +165,9 @@ class CentralDataManager:
                 ).fetchall()
             return [dict(r) for r in rows]
 
-    def update_session_metadata(self, *, license_id: str, session_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def update_session_metadata(
+        self, *, license_id: str, session_id: str, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Overwrites metadata_json on an already-ingested session without touching
         the stored Parquet bytes or its checksum. Exists for the post-session
@@ -137,7 +188,7 @@ class CentralDataManager:
                 return {"ok": False, "reason": "session_not_found"}
             return {"ok": True, "status": "metadata_updated"}
 
-    def get_file_path(self, upload_id: str) -> Optional[Path]:
+    def get_file_path(self, upload_id: str) -> Path | None:
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT storage_path FROM uploaded_sessions WHERE upload_id = ?", (upload_id,)
@@ -150,11 +201,12 @@ class CentralDataManager:
         conn.execute(
             """INSERT INTO upload_events (upload_id, activation_id, event_type, detail, ip_address)
                VALUES (?, ?, ?, ?, ?)""",
-            (upload_id, activation_id, event_type, detail, ip_address)
+            (upload_id, activation_id, event_type, detail, ip_address),
         )
-        
-    def ingest_log(self, *, license_id: str, activation_id: str, session_id: str,
-                    file_bytes: bytes) -> Dict[str, Any]:
+
+    def ingest_log(
+        self, *, license_id: str, activation_id: str, session_id: str, file_bytes: bytes
+    ) -> dict[str, Any]:
         log_id = str(uuid.uuid4())
         dest_dir = self.storage_root / license_id / "logs"
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -168,32 +220,46 @@ class CentralDataManager:
                    VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(license_id, session_id) DO UPDATE SET
                        storage_path=excluded.storage_path, file_size_bytes=excluded.file_size_bytes""",
-                (log_id, session_id, license_id, activation_id,
-                 str(dest_path.relative_to(self.storage_root)), len(file_bytes))
+                (
+                    log_id,
+                    session_id,
+                    license_id,
+                    activation_id,
+                    str(dest_path.relative_to(self.storage_root)),
+                    len(file_bytes),
+                ),
             )
             conn.commit()
 
         logger.info(f"Ingested session log for {session_id} ({len(file_bytes)} bytes)")
         return {"ok": True, "log_id": log_id}
 
-    def get_log_path(self, session_id: str, license_id: str) -> Optional[Path]:
+    def get_log_path(self, session_id: str, license_id: str) -> Path | None:
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT storage_path FROM session_logs WHERE session_id = ? AND license_id = ?",
-                (session_id, license_id)
+                (session_id, license_id),
             ).fetchone()
             return (self.storage_root / row["storage_path"]) if row else None
-        
+
     # Mirrors PatientManager.HEALTH_PROFILE_FIELDS on the client.
     _HEALTH_PROFILE_FIELDS = (
-        "age_years", "height_cm", "weight_kg", "dominant_hand",
-        "vr_experience_level", "vr_experience_hours_estimate",
-        "gaming_experience_hours_per_week", "vision_correction",
-        "vision_impairment", "motion_sickness_susceptibility",
+        "age_years",
+        "height_cm",
+        "weight_kg",
+        "dominant_hand",
+        "vr_experience_level",
+        "vr_experience_hours_estimate",
+        "gaming_experience_hours_per_week",
+        "vision_correction",
+        "vision_impairment",
+        "motion_sickness_susceptibility",
         "relevant_health_conditions",
     )
 
-    def upsert_patient(self, *, license_id: str, activation_id: str, patient: Dict[str, Any]) -> Dict[str, Any]:
+    def upsert_patient(
+        self, *, license_id: str, activation_id: str, patient: dict[str, Any]
+    ) -> dict[str, Any]:
         health_columns = ", ".join(self._HEALTH_PROFILE_FIELDS)
         health_placeholders = ", ".join("?" for _ in self._HEALTH_PROFILE_FIELDS)
         health_updates = ", ".join(f"{col}=excluded.{col}" for col in self._HEALTH_PROFILE_FIELDS)
@@ -225,20 +291,28 @@ class CentralDataManager:
                     raw_json=excluded.raw_json,
                     last_updated_at=CURRENT_TIMESTAMP""",
                 (
-                    patient["patient_id"], license_id, activation_id,
-                    patient.get("display_name"), patient.get("external_ref"),
-                    patient.get("date_of_birth"), patient.get("biological_sex"), patient.get("notes"),
+                    patient["patient_id"],
+                    license_id,
+                    activation_id,
+                    patient.get("display_name"),
+                    patient.get("external_ref"),
+                    patient.get("date_of_birth"),
+                    patient.get("biological_sex"),
+                    patient.get("notes"),
                     *health_values,
-                    patient.get("gdpr_consent_given"), patient.get("gdpr_consent_version"),
-                    patient.get("gdpr_consent_timestamp"), patient.get("gdpr_consent_withdrawn_at"),
-                    patient.get("is_anonymized", 0), json.dumps(patient),
-                )
+                    patient.get("gdpr_consent_given"),
+                    patient.get("gdpr_consent_version"),
+                    patient.get("gdpr_consent_timestamp"),
+                    patient.get("gdpr_consent_withdrawn_at"),
+                    patient.get("is_anonymized", 0),
+                    json.dumps(patient),
+                ),
             )
             conn.commit()
         logger.info(f"Patient {patient['patient_id']} synced centrally under license {license_id}")
         return {"ok": True}
 
-    def list_patients(self, license_id: Optional[str] = None) -> list:
+    def list_patients(self, license_id: str | None = None) -> list:
         """
         Returns every synced patient enriched with a live session_count and
         last_session_at computed from uploaded_sessions — the admin dashboard's
@@ -294,9 +368,15 @@ class CentralDataManager:
                     ip_address=excluded.ip_address,
                     last_seen_at=CURRENT_TIMESTAMP""",
                 (
-                    activation_id, license_id, machine_label, app_version, os_platform,
-                    status, pending_sync_count, ip_address,
-                )
+                    activation_id,
+                    license_id,
+                    machine_label,
+                    app_version,
+                    os_platform,
+                    status,
+                    pending_sync_count,
+                    ip_address,
+                ),
             )
             conn.commit()
 

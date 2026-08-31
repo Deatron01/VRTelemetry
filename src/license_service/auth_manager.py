@@ -1,17 +1,21 @@
 # src/license_service/auth_manager.py
 
-import sqlite3
 import hashlib
-import secrets
-import uuid
 import logging
+import secrets
+import sqlite3
+import uuid
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from pathlib import Path
+from typing import Any
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 PBKDF2_ITERATIONS = 200_000
 SESSION_LIFETIME_HOURS = 12
+
 
 class AuthManager:
     """
@@ -20,16 +24,25 @@ class AuthManager:
     person", licensing answers "is this machine allowed to run right now."
     """
 
-    def __init__(self, db_path: str = "LicenseServer/licenses.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | Path | None = None):
+        # Resolved at call time, not as a default argument: a default is
+        # evaluated once at import and would freeze the path before any
+        # configuration could be read. See src/config/settings.py (VRT-6).
+        self.db_path = Path(db_path) if db_path else get_settings().paths.licenses_db
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def register(self, email: str, password: str, org_name: str,
-                 display_name: str = "", role: str = "researcher") -> Dict[str, Any]:
+    def register(
+        self,
+        email: str,
+        password: str,
+        org_name: str,
+        display_name: str = "",
+        role: str = "researcher",
+    ) -> dict[str, Any]:
         email = email.strip().lower()
         if not email or "@" not in email:
             return {"ok": False, "reason": "invalid_email"}
@@ -39,7 +52,9 @@ class AuthManager:
             return {"ok": False, "reason": "invalid_role"}
 
         with self._conn() as conn:
-            existing = conn.execute("SELECT user_id FROM users WHERE email = ?", (email,)).fetchone()
+            existing = conn.execute(
+                "SELECT user_id FROM users WHERE email = ?", (email,)
+            ).fetchone()
             if existing:
                 return {"ok": False, "reason": "email_already_registered"}
 
@@ -51,14 +66,14 @@ class AuthManager:
             conn.execute(
                 """INSERT INTO users (user_id, org_id, email, password_hash, password_salt, display_name, role)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (user_id, org_id, email, pw_hash, salt, display_name, role)
+                (user_id, org_id, email, pw_hash, salt, display_name, role),
             )
             conn.commit()
 
         logger.info(f"Registered new account: {email} (org={org_name}, role={role})")
         return {"ok": True, "user_id": user_id, "email": email, "role": role}
 
-    def login(self, email: str, password: str) -> Dict[str, Any]:
+    def login(self, email: str, password: str) -> dict[str, Any]:
         email = email.strip().lower()
 
         with self._conn() as conn:
@@ -76,7 +91,7 @@ class AuthManager:
 
             conn.execute(
                 "INSERT INTO sessions (session_token, user_id, expires_at) VALUES (?, ?, ?)",
-                (session_token, user["user_id"], expires_at)
+                (session_token, user["user_id"], expires_at),
             )
             conn.commit()
 
@@ -91,13 +106,13 @@ class AuthManager:
             "expires_at": expires_at,
         }
 
-    def validate_session(self, session_token: str) -> Optional[Dict[str, Any]]:
+    def validate_session(self, session_token: str) -> dict[str, Any] | None:
         with self._conn() as conn:
             row = conn.execute(
                 """SELECT s.*, u.email, u.display_name, u.org_id, u.role
                    FROM sessions s JOIN users u ON s.user_id = u.user_id
                    WHERE s.session_token = ?""",
-                (session_token,)
+                (session_token,),
             ).fetchone()
 
             if not row or row["revoked"]:
@@ -115,7 +130,9 @@ class AuthManager:
 
     def logout(self, session_token: str) -> None:
         with self._conn() as conn:
-            conn.execute("UPDATE sessions SET revoked = 1 WHERE session_token = ?", (session_token,))
+            conn.execute(
+                "UPDATE sessions SET revoked = 1 WHERE session_token = ?", (session_token,)
+            )
             conn.commit()
 
     def is_admin(self, session_token: str) -> bool:
@@ -127,11 +144,13 @@ class AuthManager:
         if role not in ("researcher", "admin"):
             return False
         with self._conn() as conn:
-            cur = conn.execute("UPDATE users SET role = ? WHERE user_id = ?", (role, target_user_id))
+            cur = conn.execute(
+                "UPDATE users SET role = ? WHERE user_id = ?", (role, target_user_id)
+            )
             conn.commit()
             return cur.rowcount > 0
 
-    def list_users(self) -> List[Dict[str, Any]]:
+    def list_users(self) -> list[dict[str, Any]]:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT u.user_id, u.email, u.display_name, u.role, u.created_at, o.name AS org_name
@@ -141,7 +160,9 @@ class AuthManager:
             return [dict(r) for r in rows]
 
     def _get_or_create_org(self, conn: sqlite3.Connection, org_name: str) -> str:
-        row = conn.execute("SELECT org_id FROM organizations WHERE name = ?", (org_name,)).fetchone()
+        row = conn.execute(
+            "SELECT org_id FROM organizations WHERE name = ?", (org_name,)
+        ).fetchone()
         if row:
             return row["org_id"]
         org_id = str(uuid.uuid4())

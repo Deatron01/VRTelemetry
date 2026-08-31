@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 # A javított, tökéletesen formázott Mermaid kódok
@@ -35,7 +34,6 @@ flowchart TB
     classDef interface fill:#f9f,stroke:#333,stroke-width:2px;
     class IVR interface;
 ```""",
-
     "error_handling_flow.md": """```mermaid
 flowchart TD
     Run["Main Loop Running"]
@@ -71,7 +69,6 @@ flowchart TD
     class Event_KBI,LogKBI,LogGDPR,LogCrit warn;
     class TeardownRoutine,Exit0 safe;
 ```""",
-
     "cli_argument_flow.md": """```mermaid
 flowchart TD
     Start(["Execute: python -m src.main"]) --> Parse["argparse.ArgumentParser"]
@@ -95,7 +92,6 @@ flowchart TD
     class ValConsent check;
     class LogAbort,Exit fail;
 ```""",
-
     "logging_architecture.md": """```mermaid
 flowchart LR
     subgraph Sources ["Thread Sources"]
@@ -119,7 +115,6 @@ flowchart LR
     classDef io fill:#bbdefb,stroke:#2196f3,stroke-width:2px,color:#000;
     class Stream,File io;
 ```""",
-
     "call_graph_bootstrapper.md": """```mermaid
 flowchart TD
     Main["__main__"] --> Exec["execute_pipeline()"]
@@ -147,7 +142,6 @@ flowchart TD
     class EngineStart,Loop,ExtHW logic;
     class EngineInit,DBInit,XRInit,PQInit,SyncInit init;
 ```""",
-
     "ci_cd_execution_matrix.md": """```mermaid
 flowchart LR
     Commit["Push / PR to Main"] --> GH_Actions["GitHub Actions Runner"]
@@ -172,7 +166,6 @@ flowchart LR
     class Merge success;
     class Block fail;
 ```""",
-
     "ai_post_processor_flow.md": """```mermaid
 flowchart TD
     Raw["Raw Parquet Input<br/>vr_telemetry_TIMESTAMP.parquet"] --> Read["Read as PyArrow Table / Pandas DataFrame"]
@@ -190,7 +183,6 @@ flowchart TD
     class Raw,Output,Model io;
     class FF,EMA_Eye,EMA_Kin,ZScore process;
 ```""",
-
     "biometric_vector_assembly.md": """```mermaid
 flowchart LR
     subgraph OpenXR_Runtime ["OpenXR DisplayTime Frame"]
@@ -218,7 +210,6 @@ flowchart LR
     class HMD,EyeGaze,Pupil runtime;
     class T_Timestamp,T_HMD,T_Gaze,T_Pupil frame;
 ```""",
-
     "testing_architecture.md": """```mermaid
 flowchart TD
     Tox["Tox: Cross-Env Testing<br/>(Python 3.10, 3.11, 3.12)"] --> Pytest
@@ -236,7 +227,6 @@ flowchart TD
     class Unit,Integ,Perf test;
     class RealHMD hardware;
 ```""",
-
     "main_hardware_pacing_loop.md": """```mermaid
 flowchart TD
     Start(["Engine calls _loop()"]) --> CheckGDPR{"Check GDPR Consent"}
@@ -255,7 +245,6 @@ flowchart TD
     CheckRunning -- Yes --> CheckGDPR
     CheckRunning -- No --> Teardown["Proceed to _teardown()"] --> Stop
 ```""",
-
     "teardown_activity.md": """```mermaid
 flowchart TD
     Start(["Trigger Teardown<br/>(KeyboardInterrupt/GDPR Violation)"]) --> Flag["is_running = False"]
@@ -272,7 +261,6 @@ flowchart TD
     XRStop --> Log["Log Finalization (Frames recorded)"]
     Log --> Stop(["stop"])
 ```""",
-
     "contribution_workflow.md": """```mermaid
 flowchart TD
     Start(["Start"]) --> Fork["Fork VRTelemetry Repository"]
@@ -295,18 +283,19 @@ flowchart TD
     CICheck -- No --> Feedback["Address Review Feedback"] --> Write
     CICheck -- Yes --> Merge["Merge into Main"]
     Merge --> Stop(["stop"])
-```"""
+```""",
 }
+
 
 def hotfix_markdowns(target_dir: str = "Documentation"):
     docs_path = Path(target_dir)
     if not docs_path.exists():
         print(f"Directory {target_dir} not found!")
         return
-        
+
     md_files = list(docs_path.rglob("*.md"))
     fixed_count = 0
-    
+
     for file_path in md_files:
         if file_path.name in FIXED_DIAGRAMS:
             try:
@@ -314,7 +303,7 @@ def hotfix_markdowns(target_dir: str = "Documentation"):
                 original_text = file_path.read_text(encoding="utf-8")
                 # Csak a diagram blokkot írjuk felül, a fájl elejére
                 new_content = FIXED_DIAGRAMS[file_path.name] + "\n\n"
-                
+
                 # Ha volt benne eredeti szöveg a diagram alatt, azt visszatesszük
                 if "```" in original_text:
                     parts = original_text.split("```")
@@ -326,8 +315,9 @@ def hotfix_markdowns(target_dir: str = "Documentation"):
                 fixed_count += 1
             except Exception as e:
                 print(f"[ERROR] Could not write {file_path.name}: {e}")
-                
+
     print(f"\nHotfix Complete! {fixed_count} files successfully repaired.")
+
 
 if __name__ == "__main__":
     hotfix_markdowns()

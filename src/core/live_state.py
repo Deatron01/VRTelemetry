@@ -1,6 +1,7 @@
 import threading
 import time
 
+
 class LiveExperimentState:
     """
     Thread-safe side-channel for signals a passive hardware-polling backend cannot
@@ -10,6 +11,7 @@ class LiveExperimentState:
     BiometricSynchronizer.push_frame(). Values default to legitimate "nothing is
     happening" states (0.0 / Menu), not fabricated readings.
     """
+
     def __init__(self):
         self._lock = threading.Lock()
         self.scene_id = 1.0  # matches TelemetryFrame.create_empty()'s "Menu" default

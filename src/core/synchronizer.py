@@ -1,13 +1,10 @@
 import asyncio
 import logging
 from collections import deque
-from typing import Optional
 
 from src.core.datatypes import TelemetryFrame
-from src.storage.parquet_writer import AsyncParquetWriter
-from src.utils.hardware_monitor import HardwareMonitor
-from src.core.live_state import LiveExperimentState
 from src.core.derived_metrics import compute_binocular_focal_distance, compute_distance
+from src.core.live_state import LiveExperimentState
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +17,28 @@ class BiometricSynchronizer:
     every burst were a unique physical sample.
     """
 
-    def __init__(self, writer, hardware_monitor, buffer_size: int = 5000,
-                 max_hz: Optional[float] = None, live_state: Optional[LiveExperimentState] = None):
+    def __init__(
+        self,
+        writer,
+        hardware_monitor,
+        buffer_size: int = 5000,
+        max_hz: float | None = None,
+        live_state: LiveExperimentState | None = None,
+    ):
         self.writer = writer
         self.hardware = hardware_monitor
         self.live_state = live_state
-        
+
         self._buffer = deque(maxlen=buffer_size)
         self._is_running = False
-        self._async_task: Optional[asyncio.Task] = None
+        self._async_task: asyncio.Task | None = None
 
         self.max_hz = max_hz
         self._min_interval_ns = int(1e9 / max_hz) if max_hz else None
-        self._last_accepted_ts_ns: Optional[int] = None
+        self._last_accepted_ts_ns: int | None = None
 
-        self.dropped_backpressure = 0   # buffer was full when we tried to append
-        self.dropped_oversampling = 0   # frame arrived faster than the sampling cap allows
+        self.dropped_backpressure = 0  # buffer was full when we tried to append
+        self.dropped_oversampling = 0  # frame arrived faster than the sampling cap allows
         self._last_backpressure_log = 0
         self._last_oversample_log = 0
 
@@ -79,11 +82,13 @@ class BiometricSynchronizer:
             frame.target_obj_pos_x, frame.target_obj_pos_y, frame.target_obj_pos_z = tx, ty, tz
             if frame.left_tracking_valid > 0:
                 frame.dist_to_target_left = compute_distance(
-                    (frame.left_pos_x, frame.left_pos_y, frame.left_pos_z), (tx, ty, tz))
+                    (frame.left_pos_x, frame.left_pos_y, frame.left_pos_z), (tx, ty, tz)
+                )
             if frame.right_tracking_valid > 0:
                 frame.dist_to_target_right = compute_distance(
-                    (frame.right_pos_x, frame.right_pos_y, frame.right_pos_z), (tx, ty, tz))
-                
+                    (frame.right_pos_x, frame.right_pos_y, frame.right_pos_z), (tx, ty, tz)
+                )
+
         if len(self._buffer) >= self._buffer.maxlen:
             self.dropped_backpressure += 1
             if self.dropped_backpressure - self._last_backpressure_log >= 500:

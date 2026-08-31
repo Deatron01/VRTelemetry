@@ -28,7 +28,9 @@ rows purely as an optional enrichment (subject_id/patient_id) layered on top.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ LOG_PREFIX = "session_"
 LOG_SUFFIX = ".log"
 
 
-def _try_get_parquet_row_count(parquet_path: Path) -> Optional[int]:
+def _try_get_parquet_row_count(parquet_path: Path) -> int | None:
     """
     Reads only the Parquet file's footer metadata (row count), not the actual
     column data — cheap even for a large file, and gives backfilled sessions a
@@ -47,22 +49,23 @@ def _try_get_parquet_row_count(parquet_path: Path) -> Optional[int]:
     """
     try:
         import pyarrow.parquet as pq
+
         return pq.ParquetFile(str(parquet_path)).metadata.num_rows
     except Exception as e:
         logger.debug(f"Could not read Parquet row count for {parquet_path}: {e}")
         return None
 
 
-def _scan_session_ids(directory: Path, prefix: str, suffix: str) -> Dict[str, Path]:
+def _scan_session_ids(directory: Path, prefix: str, suffix: str) -> dict[str, Path]:
     """Maps session_id -> file path for every file in `directory` matching prefix/suffix."""
-    found: Dict[str, Path] = {}
+    found: dict[str, Path] = {}
     if not directory.exists():
         return found
     for path in directory.glob(f"{prefix}*{suffix}"):
         if not path.is_file():
             continue
         name = path.name
-        session_id = name[len(prefix):-len(suffix)] if suffix else name[len(prefix):]
+        session_id = name[len(prefix) : -len(suffix)] if suffix else name[len(prefix) :]
         if session_id:
             found[session_id] = path
     return found
@@ -74,8 +77,8 @@ def backfill_unsynced_sessions(
     db_manager,
     session_uploader,
     local_license_cache,
-    log_dir: str = "Sessions/logs",
-) -> Dict[str, Any]:
+    log_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """
     One reconciliation pass. Safe to call repeatedly (e.g. on every app boot,
     or from a manual 'Backfill now' action) — sessions already confirmed
@@ -95,10 +98,14 @@ def backfill_unsynced_sessions(
     }
 
     output_path = Path(output_dir)
-    log_path_dir = Path(log_dir)
+    log_path_dir = Path(log_dir) if log_dir else get_settings().paths.session_logs_dir
 
     try:
-        metadata_rows = {row["session_id"]: row for row in db_manager.list_all_sessions() if row.get("session_id")}
+        metadata_rows = {
+            row["session_id"]: row
+            for row in db_manager.list_all_sessions()
+            if row.get("session_id")
+        }
     except Exception as e:
         logger.error(f"Backfill sweep aborted — could not list local sessions: {e}")
         return summary
@@ -111,8 +118,12 @@ def backfill_unsynced_sessions(
     if not all_session_ids:
         return summary
 
-    already_pending_ids = {item["session_id"] for item in local_license_cache.list_pending_uploads()}
-    already_pending_log_ids = {item["session_id"] for item in local_license_cache.list_pending_session_logs()}
+    already_pending_ids = {
+        item["session_id"] for item in local_license_cache.list_pending_uploads()
+    }
+    already_pending_log_ids = {
+        item["session_id"] for item in local_license_cache.list_pending_session_logs()
+    }
 
     for session_id in sorted(all_session_ids):
         row = metadata_rows.get(session_id)
@@ -145,7 +156,9 @@ def backfill_unsynced_sessions(
                 "duration_sec": None,  # not recoverable after the fact — engine only ever held this in memory
                 "backfilled": True,
             }
-            result = session_uploader.upload(parquet_path, session_id, metadata, queue_on_failure=True)
+            result = session_uploader.upload(
+                parquet_path, session_id, metadata, queue_on_failure=True
+            )
             if result.get("ok"):
                 summary["sessions_uploaded_now"] += 1
             else:
@@ -154,7 +167,10 @@ def backfill_unsynced_sessions(
                 summary["sessions_queued_now"] += 1
 
         # --- Session log (best-effort, independent of the Parquet outcome above) ---
-        if local_license_cache.is_session_log_synced(session_id) or session_id in already_pending_log_ids:
+        if (
+            local_license_cache.is_session_log_synced(session_id)
+            or session_id in already_pending_log_ids
+        ):
             continue
         log_file = log_files.get(session_id)
         if log_file and log_file.exists():
@@ -164,7 +180,11 @@ def backfill_unsynced_sessions(
             else:
                 summary["logs_queued_now"] += 1
 
-    if (summary["sessions_uploaded_now"] or summary["sessions_queued_now"]
-            or summary["logs_uploaded_now"] or summary["logs_queued_now"]):
+    if (
+        summary["sessions_uploaded_now"]
+        or summary["sessions_queued_now"]
+        or summary["logs_uploaded_now"]
+        or summary["logs_queued_now"]
+    ):
         logger.info(f"Historical session backfill sweep: {summary}")
     return summary

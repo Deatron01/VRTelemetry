@@ -1,9 +1,10 @@
+import json
 import os
 import time
-import json
 from pathlib import Path
-from google import genai
+
 from dotenv import load_dotenv
+from google import genai
 
 # Load environment variables from .env
 load_dotenv()
@@ -13,19 +14,27 @@ client = genai.Client()
 
 # Project directory paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TARGET_DIRS = [
-    PROJECT_ROOT / "src",
-    PROJECT_ROOT / "CentralServer",
-    PROJECT_ROOT / "LicenseServer"
-]
+TARGET_DIRS = [PROJECT_ROOT / "src", PROJECT_ROOT / "CentralServer", PROJECT_ROOT / "LicenseServer"]
 DOC_ROOT = PROJECT_ROOT / "doc"
 
 # Allowed folder names for diagram categorization
 VALID_FOLDERS = [
-    "activity", "api", "architecture", "c4", "configuration", 
-    "dataflow", "deployment", "developer", "performance", 
-    "pipeline", "sequence", "shutdown", "state", "telemetry", 
-    "testing", "uml"
+    "activity",
+    "api",
+    "architecture",
+    "c4",
+    "configuration",
+    "dataflow",
+    "deployment",
+    "developer",
+    "performance",
+    "pipeline",
+    "sequence",
+    "shutdown",
+    "state",
+    "telemetry",
+    "testing",
+    "uml",
 ]
 
 FOLDER_LIST_STR = " | ".join(VALID_FOLDERS)
@@ -67,13 +76,20 @@ ALLOWED_EXTENSIONS = {".py", ".tsx", ".ts", ".jsx", ".js"}
 
 # Directories to ignore
 IGNORE_DIRS = {
-    "node_modules", "dist", "build", ".vite", 
-    "__pycache__", ".pytest_cache", "venv", ".git"
+    "node_modules",
+    "dist",
+    "build",
+    ".vite",
+    "__pycache__",
+    ".pytest_cache",
+    "venv",
+    ".git",
 }
+
 
 def process_file(file_path: Path):
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             code = f.read()
     except Exception as e:
         print(f"[-] Could not read {file_path}: {e}")
@@ -87,7 +103,7 @@ def process_file(file_path: Path):
     print(f"[>] Analyzing {rel_path}...")
 
     prompt = f"File: {file_path.name}\nPath: {rel_path}\n\nContent:\n{code}"
-    
+
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -100,18 +116,20 @@ def process_file(file_path: Path):
                         "type": "OBJECT",
                         "properties": {
                             "module_summary_md": {"type": "STRING"},
-                            "diagram_type": {
-                                "type": "STRING",
-                                "enum": VALID_FOLDERS + ["null"]
-                            },
+                            "diagram_type": {"type": "STRING", "enum": VALID_FOLDERS + ["null"]},
                             "diagram_filename": {"type": "STRING"},
-                            "mermaid_md": {"type": "STRING"}
+                            "mermaid_md": {"type": "STRING"},
                         },
-                        "required": ["module_summary_md", "diagram_type", "diagram_filename", "mermaid_md"]
-                    }
-                }
+                        "required": [
+                            "module_summary_md",
+                            "diagram_type",
+                            "diagram_filename",
+                            "mermaid_md",
+                        ],
+                    },
+                },
             )
-            
+
             response = chat.send_message(prompt)
             data = json.loads(response.text)
 
@@ -131,14 +149,16 @@ def process_file(file_path: Path):
             if diag_type and diag_type in VALID_FOLDERS and mermaid_md:
                 target_subfolder = DOC_ROOT / diag_type
                 target_subfolder.mkdir(parents=True, exist_ok=True)
-                
-                filename = diag_file if diag_file and diag_file.endswith(".md") else f"{file_path.stem}.md"
+
+                filename = (
+                    diag_file if diag_file and diag_file.endswith(".md") else f"{file_path.stem}.md"
+                )
                 output_file = target_subfolder / filename
-                
+
                 with open(output_file, "w", encoding="utf-8") as out:
                     out.write(mermaid_md.strip() + "\n")
                 print(f"    [+] Saved diagram to: {output_file.relative_to(PROJECT_ROOT)}")
-                
+
             break
 
         except json.JSONDecodeError:
@@ -148,11 +168,14 @@ def process_file(file_path: Path):
             error_msg = str(e)
             if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                 wait_time = 60
-                print(f"    [!] Rate limit hit! Waiting {wait_time}s before retry ({attempt + 1}/{max_retries})...")
+                print(
+                    f"    [!] Rate limit hit! Waiting {wait_time}s before retry ({attempt + 1}/{max_retries})..."
+                )
                 time.sleep(wait_time)
             else:
                 print(f"[-] Error processing {file_path.name}: {e}")
                 break
+
 
 def main():
     for target_dir in TARGET_DIRS:
@@ -163,7 +186,7 @@ def main():
         for root, dirs, files in os.walk(target_dir):
             # Exclude build and dependency directories
             dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
-            
+
             for file in files:
                 file_path = Path(root) / file
                 if file_path.suffix.lower() in ALLOWED_EXTENSIONS:
@@ -171,6 +194,7 @@ def main():
                     time.sleep(4.0)
 
     print("\n[✓] Documentation generation complete!")
+
 
 if __name__ == "__main__":
     main()

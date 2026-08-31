@@ -1,12 +1,15 @@
 # src/license_service/local_cache.py
 
-import sqlite3
 import logging
-from pathlib import Path
+import sqlite3
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from pathlib import Path
+from typing import Any
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
+
 
 class LocalLicenseCache:
     """
@@ -16,9 +19,12 @@ class LocalLicenseCache:
     logged-in account session for this machine.
     """
 
-    def __init__(self, db_path: str = "AppData/license_cache.db"):
-        self.db_path = db_path
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: str | Path | None = None):
+        # Resolved at call time, not as a default argument: a default is
+        # evaluated once at import and would freeze the path before any
+        # configuration could be read. See src/config/settings.py (VRT-6).
+        self.db_path = Path(db_path) if db_path else get_settings().paths.license_cache_db
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -105,12 +111,20 @@ class LocalLicenseCache:
             """)
             conn.commit()
 
-    def save(self, activation_id: str, license_key: str, hardware_fingerprint: str,
-              license_id: str = None, machine_label: str = None,
-              server_expires_at: str = None, grace_hours: int = 72) -> None:
+    def save(
+        self,
+        activation_id: str,
+        license_key: str,
+        hardware_fingerprint: str,
+        license_id: str = None,
+        machine_label: str = None,
+        server_expires_at: str = None,
+        grace_hours: int = 72,
+    ) -> None:
         grace_until = (datetime.utcnow() + timedelta(hours=grace_hours)).isoformat()
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO license_state (id, activation_id, license_id, license_key, machine_label,
                                             hardware_fingerprint, last_verified_at, server_expires_at,
                                             offline_grace_until, status)
@@ -123,8 +137,17 @@ class LocalLicenseCache:
                     server_expires_at=excluded.server_expires_at,
                     offline_grace_until=excluded.offline_grace_until,
                     status='active'
-            """, (activation_id, license_id, license_key, machine_label,
-                  hardware_fingerprint, server_expires_at, grace_until))
+            """,
+                (
+                    activation_id,
+                    license_id,
+                    license_key,
+                    machine_label,
+                    hardware_fingerprint,
+                    server_expires_at,
+                    grace_until,
+                ),
+            )
             conn.commit()
 
     def mark_revoked(self) -> None:
@@ -134,12 +157,14 @@ class LocalLicenseCache:
 
     def is_valid_offline(self) -> bool:
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute("SELECT status, offline_grace_until FROM license_state WHERE id = 1").fetchone()
-            if not row or row[0] != 'active':
+            row = conn.execute(
+                "SELECT status, offline_grace_until FROM license_state WHERE id = 1"
+            ).fetchone()
+            if not row or row[0] != "active":
                 return False
             return datetime.fromisoformat(row[1]) > datetime.utcnow()
 
-    def get_state(self) -> Optional[Dict[str, Any]]:
+    def get_state(self) -> dict[str, Any] | None:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute("SELECT * FROM license_state WHERE id = 1").fetchone()
@@ -149,22 +174,28 @@ class LocalLicenseCache:
 
     def queue_pending_upload(self, session_id: str, parquet_path: str, metadata_json: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO pending_uploads (session_id, parquet_path, metadata_json)
                 VALUES (?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     parquet_path=excluded.parquet_path,
                     metadata_json=excluded.metadata_json
-            """, (session_id, parquet_path, metadata_json))
+            """,
+                (session_id, parquet_path, metadata_json),
+            )
             conn.commit()
 
     def record_upload_attempt_failure(self, session_id: str, error: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE pending_uploads
                 SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP, last_error = ?
                 WHERE session_id = ?
-            """, (error, session_id))
+            """,
+                (error, session_id),
+            )
             conn.commit()
 
     def clear_pending_upload(self, session_id: str) -> None:
@@ -172,7 +203,7 @@ class LocalLicenseCache:
             conn.execute("DELETE FROM pending_uploads WHERE session_id = ?", (session_id,))
             conn.commit()
 
-    def list_pending_uploads(self) -> List[Dict[str, Any]]:
+    def list_pending_uploads(self) -> list[dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT * FROM pending_uploads ORDER BY created_at ASC").fetchall()
@@ -180,20 +211,26 @@ class LocalLicenseCache:
 
     def queue_pending_patient_sync(self, patient_id: str, payload_json: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO pending_patient_syncs (patient_id, payload_json)
                 VALUES (?, ?)
                 ON CONFLICT(patient_id) DO UPDATE SET payload_json=excluded.payload_json
-            """, (patient_id, payload_json))
+            """,
+                (patient_id, payload_json),
+            )
             conn.commit()
 
     def record_patient_sync_failure(self, patient_id: str, error: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE pending_patient_syncs
                 SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP, last_error = ?
                 WHERE patient_id = ?
-            """, (error, patient_id))
+            """,
+                (error, patient_id),
+            )
             conn.commit()
 
     def clear_pending_patient_sync(self, patient_id: str) -> None:
@@ -201,10 +238,12 @@ class LocalLicenseCache:
             conn.execute("DELETE FROM pending_patient_syncs WHERE patient_id = ?", (patient_id,))
             conn.commit()
 
-    def list_pending_patient_syncs(self) -> List[Dict[str, Any]]:
+    def list_pending_patient_syncs(self) -> list[dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute("SELECT * FROM pending_patient_syncs ORDER BY created_at ASC").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM pending_patient_syncs ORDER BY created_at ASC"
+            ).fetchall()
             return [dict(r) for r in rows]
 
     # --- Pending session log queue (mirrors pending_uploads) ---
@@ -214,20 +253,26 @@ class LocalLicenseCache:
 
     def queue_pending_session_log(self, session_id: str, log_path: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO pending_session_logs (session_id, log_path)
                 VALUES (?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET log_path=excluded.log_path
-            """, (session_id, log_path))
+            """,
+                (session_id, log_path),
+            )
             conn.commit()
 
     def record_session_log_attempt_failure(self, session_id: str, error: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE pending_session_logs
                 SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP, last_error = ?
                 WHERE session_id = ?
-            """, (error, session_id))
+            """,
+                (error, session_id),
+            )
             conn.commit()
 
     def clear_pending_session_log(self, session_id: str) -> None:
@@ -235,50 +280,65 @@ class LocalLicenseCache:
             conn.execute("DELETE FROM pending_session_logs WHERE session_id = ?", (session_id,))
             conn.commit()
 
-    def list_pending_session_logs(self) -> List[Dict[str, Any]]:
+    def list_pending_session_logs(self) -> list[dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute("SELECT * FROM pending_session_logs ORDER BY created_at ASC").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM pending_session_logs ORDER BY created_at ASC"
+            ).fetchall()
             return [dict(r) for r in rows]
 
     # --- Confirmed-synced ledgers (used by the historical backfill sweep) ---
 
     def mark_session_synced(self, session_id: str, upload_id: str = "") -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO synced_sessions (session_id, upload_id, synced_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(session_id) DO UPDATE SET
                     upload_id=excluded.upload_id, synced_at=CURRENT_TIMESTAMP
-            """, (session_id, upload_id))
+            """,
+                (session_id, upload_id),
+            )
             conn.commit()
 
     def is_session_synced(self, session_id: str) -> bool:
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute("SELECT 1 FROM synced_sessions WHERE session_id = ?", (session_id,)).fetchone()
+            row = conn.execute(
+                "SELECT 1 FROM synced_sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
             return row is not None
 
     def mark_session_log_synced(self, session_id: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO synced_session_logs (session_id, synced_at)
                 VALUES (?, CURRENT_TIMESTAMP)
                 ON CONFLICT(session_id) DO UPDATE SET synced_at=CURRENT_TIMESTAMP
-            """, (session_id,))
+            """,
+                (session_id,),
+            )
             conn.commit()
 
     def is_session_log_synced(self, session_id: str) -> bool:
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute("SELECT 1 FROM synced_session_logs WHERE session_id = ?", (session_id,)).fetchone()
+            row = conn.execute(
+                "SELECT 1 FROM synced_session_logs WHERE session_id = ?", (session_id,)
+            ).fetchone()
             return row is not None
-        
+
     # --- Account session (login state) ---
     # Single-row table, same pattern as license_state — one desktop install,
     # one logged-in account at a time.
 
-    def save_session(self, session_token: str, user_id: str, email: str, display_name: str = "") -> None:
+    def save_session(
+        self, session_token: str, user_id: str, email: str, display_name: str = ""
+    ) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO account_session (id, session_token, user_id, email, display_name, logged_in_at)
                 VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
@@ -287,10 +347,12 @@ class LocalLicenseCache:
                     email=excluded.email,
                     display_name=excluded.display_name,
                     logged_in_at=CURRENT_TIMESTAMP
-            """, (session_token, user_id, email, display_name))
+            """,
+                (session_token, user_id, email, display_name),
+            )
             conn.commit()
 
-    def get_session(self) -> Optional[Dict[str, Any]]:
+    def get_session(self) -> dict[str, Any] | None:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute("SELECT * FROM account_session WHERE id = 1").fetchone()
@@ -305,13 +367,16 @@ class LocalLicenseCache:
 
     def set_config(self, key: str, value: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO app_config (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value
-            """, (key, value))
+            """,
+                (key, value),
+            )
             conn.commit()
 
-    def get_config(self, key: str, default: str = None) -> Optional[str]:
+    def get_config(self, key: str, default: str = None) -> str | None:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
             return row[0] if row else default

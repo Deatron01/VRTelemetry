@@ -1,13 +1,14 @@
 # src/storage/usage_tracker.py — new file
 
+import logging
 import sqlite3
 import uuid
-import logging
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
+
 
 class UsageTracker:
     """
@@ -17,8 +18,11 @@ class UsageTracker:
     different lifecycle (spans across many recording sessions, not one).
     """
 
-    def __init__(self, db_path: str = "Sessions/usage_telemetry.db"):
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None):
+        # Resolved at call time, not as a default argument: a default is
+        # evaluated once at import and would freeze the path before any
+        # configuration could be read. See src/config/settings.py (VRT-6).
+        self.db_path = Path(db_path) if db_path else get_settings().paths.usage_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
@@ -36,14 +40,19 @@ class UsageTracker:
             """)
             conn.commit()
 
-    def log_event(self, event_type: str, detail: str = "", researcher_email: str = "",
-                  app_version: str = "1.0.0") -> None:
+    def log_event(
+        self,
+        event_type: str,
+        detail: str = "",
+        researcher_email: str = "",
+        app_version: str = "1.0.0",
+    ) -> None:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """INSERT INTO usage_events (event_id, event_type, detail, researcher_email, app_version)
                        VALUES (?, ?, ?, ?, ?)""",
-                    (str(uuid.uuid4()), event_type, detail, researcher_email, app_version)
+                    (str(uuid.uuid4()), event_type, detail, researcher_email, app_version),
                 )
                 conn.commit()
         except sqlite3.Error as e:

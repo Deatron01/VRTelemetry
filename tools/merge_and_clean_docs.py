@@ -9,27 +9,36 @@ TARGET_DIRS = [
     PROJECT_ROOT / "src",
     PROJECT_ROOT / "CentralServer",
     PROJECT_ROOT / "LicenseServer",
-    PROJECT_ROOT / "doc"
+    PROJECT_ROOT / "doc",
 ]
 
 IGNORE_DIRS = {
-    "node_modules", "dist", "build", ".vite", 
-    "__pycache__", ".pytest_cache", "venv", ".git"
+    "node_modules",
+    "dist",
+    "build",
+    ".vite",
+    "__pycache__",
+    ".pytest_cache",
+    "venv",
+    ".git",
 }
+
 
 def generate_directory_tree(start_path: Path) -> str:
     """Generates a text-based tree representation of files and folders."""
     tree_lines = ["```text", f"{start_path.name}/"]
-    
+
     def _walk_tree(current_path: Path, prefix: str = ""):
         try:
             items = sorted(list(current_path.iterdir()), key=lambda x: (not x.is_dir(), x.name))
         except PermissionError:
             return
-        
+
         # Filter out ignored directories or redundant hidden files
-        items = [item for item in items if item.name not in IGNORE_DIRS and not item.name.startswith(".")]
-        
+        items = [
+            item for item in items if item.name not in IGNORE_DIRS and not item.name.startswith(".")
+        ]
+
         pointers = ["├── "] * (len(items) - 1) + ["└── "] if items else []
         for pointer, item in zip(pointers, items):
             if item.is_dir():
@@ -42,6 +51,7 @@ def generate_directory_tree(start_path: Path) -> str:
     _walk_tree(start_path)
     tree_lines.append("```")
     return "\n".join(tree_lines)
+
 
 def merge_and_clean():
     for target_dir in TARGET_DIRS:
@@ -70,7 +80,7 @@ def merge_and_clean():
             for f in md_files:
                 title = f.stem.replace("_", " ").title()
                 content = f.read_text(encoding="utf-8").strip()
-                
+
                 # Avoid duplicate "# Readme" headers if README.md is part of the merge
                 if f.name.lower() != "readme.md":
                     merged_sections.append(f"# {title}\n\n{content}\n\n---\n")
@@ -79,7 +89,9 @@ def merge_and_clean():
 
             # Append the directory & file structure tree at the end
             merged_sections.append("## Folder & File Structure\n")
-            merged_sections.append("Here is the layout of files and subfolders contained within this path:\n")
+            merged_sections.append(
+                "Here is the layout of files and subfolders contained within this path:\n"
+            )
             merged_sections.append(generate_directory_tree(current_dir))
 
             # 1. Write the new README.md
@@ -96,6 +108,7 @@ def merge_and_clean():
                         print(f"    [!] Failed to delete {f.name}: {e}")
 
     print("\n[✓] Merge and cleanup complete!")
+
 
 if __name__ == "__main__":
     merge_and_clean()

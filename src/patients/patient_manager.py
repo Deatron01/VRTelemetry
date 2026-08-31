@@ -1,12 +1,13 @@
 # src/patients/patient_manager.py
 
+import logging
 import sqlite3
 import uuid
-import logging
-from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from pathlib import Path
+from typing import Any
 
+from src.config import get_settings
 from src.core.exceptions import GDPRConsentError
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,11 @@ class PatientManager:
         references it.
     """
 
-    def __init__(self, db_path: str = "Sessions/patients.db"):
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None):
+        # Resolved at call time, not as a default argument: a default is
+        # evaluated once at import and would freeze the path before any
+        # configuration could be read. See src/config/settings.py (VRT-6).
+        self.db_path = Path(db_path) if db_path else get_settings().paths.patients_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_schema()
 
@@ -55,10 +59,16 @@ class PatientManager:
     # so editing a patient's profile later never silently rewrites past sessions'
     # recorded covariates.
     HEALTH_PROFILE_FIELDS = (
-        "age_years", "height_cm", "weight_kg", "dominant_hand",
-        "vr_experience_level", "vr_experience_hours_estimate",
-        "gaming_experience_hours_per_week", "vision_correction",
-        "vision_impairment", "motion_sickness_susceptibility",
+        "age_years",
+        "height_cm",
+        "weight_kg",
+        "dominant_hand",
+        "vr_experience_level",
+        "vr_experience_hours_estimate",
+        "gaming_experience_hours_per_week",
+        "vision_correction",
+        "vision_impairment",
+        "motion_sickness_susceptibility",
         "relevant_health_conditions",
     )
 
@@ -104,10 +114,17 @@ class PatientManager:
                 # columns existed. One ALTER per column, each independently safe
                 # to fail with "duplicate column" on a DB that already has it.
                 for column in self.HEALTH_PROFILE_FIELDS:
-                    col_type = "REAL" if column in (
-                        "height_cm", "weight_kg", "vr_experience_hours_estimate",
-                        "gaming_experience_hours_per_week",
-                    ) else ("INTEGER" if column == "age_years" else "TEXT")
+                    col_type = (
+                        "REAL"
+                        if column
+                        in (
+                            "height_cm",
+                            "weight_kg",
+                            "vr_experience_hours_estimate",
+                            "gaming_experience_hours_per_week",
+                        )
+                        else ("INTEGER" if column == "age_years" else "TEXT")
+                    )
                     try:
                         conn.execute(f"ALTER TABLE patients ADD COLUMN {column} {col_type}")
                         conn.commit()
@@ -129,18 +146,18 @@ class PatientManager:
         biological_sex: str = "",
         notes: str = "",
         gdpr_consent_version: str = CURRENT_CONSENT_VERSION,
-        age_years: Optional[int] = None,
-        height_cm: Optional[float] = None,
-        weight_kg: Optional[float] = None,
+        age_years: int | None = None,
+        height_cm: float | None = None,
+        weight_kg: float | None = None,
         dominant_hand: str = "",
         vr_experience_level: str = "",
-        vr_experience_hours_estimate: Optional[float] = None,
-        gaming_experience_hours_per_week: Optional[float] = None,
+        vr_experience_hours_estimate: float | None = None,
+        gaming_experience_hours_per_week: float | None = None,
         vision_correction: str = "",
         vision_impairment: str = "",
         motion_sickness_susceptibility: str = "",
         relevant_health_conditions: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if not display_name or not display_name.strip():
             raise ValueError("display_name is required")
 
@@ -165,23 +182,38 @@ class PatientManager:
                     relevant_health_conditions,
                     gdpr_consent_given, gdpr_consent_version, gdpr_consent_timestamp
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
-                (patient_id, display_name.strip(), external_ref, date_of_birth,
-                 biological_sex, notes,
-                 age_years, height_cm, weight_kg, dominant_hand,
-                 vr_experience_level, vr_experience_hours_estimate,
-                 gaming_experience_hours_per_week, vision_correction,
-                 vision_impairment, motion_sickness_susceptibility,
-                 relevant_health_conditions,
-                 gdpr_consent_version, now)
+                (
+                    patient_id,
+                    display_name.strip(),
+                    external_ref,
+                    date_of_birth,
+                    biological_sex,
+                    notes,
+                    age_years,
+                    height_cm,
+                    weight_kg,
+                    dominant_hand,
+                    vr_experience_level,
+                    vr_experience_hours_estimate,
+                    gaming_experience_hours_per_week,
+                    vision_correction,
+                    vision_impairment,
+                    motion_sickness_susceptibility,
+                    relevant_health_conditions,
+                    gdpr_consent_version,
+                    now,
+                ),
             )
             conn.commit()
 
-        logger.info(f"Patient record created: {patient_id} (consent v{gdpr_consent_version} @ {now})")
+        logger.info(
+            f"Patient record created: {patient_id} (consent v{gdpr_consent_version} @ {now})"
+        )
         return self.get_patient(patient_id)
 
     # ---------------------------------------------------------------- read
 
-    def list_patients(self, include_anonymized: bool = False) -> List[Dict[str, Any]]:
+    def list_patients(self, include_anonymized: bool = False) -> list[dict[str, Any]]:
         with self._get_connection() as conn:
             if include_anonymized:
                 rows = conn.execute("SELECT * FROM patients ORDER BY created_at DESC").fetchall()
@@ -191,14 +223,16 @@ class PatientManager:
                 ).fetchall()
             return [dict(r) for r in rows]
 
-    def get_patient(self, patient_id: str) -> Optional[Dict[str, Any]]:
+    def get_patient(self, patient_id: str) -> dict[str, Any] | None:
         with self._get_connection() as conn:
-            row = conn.execute("SELECT * FROM patients WHERE patient_id = ?", (patient_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM patients WHERE patient_id = ?", (patient_id,)
+            ).fetchone()
             return dict(row) if row else None
 
     # ---------------------------------------------------------------- update
 
-    def update_patient(self, patient_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_patient(self, patient_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
         existing = self.get_patient(patient_id)
         if not existing:
             return None
@@ -206,7 +240,11 @@ class PatientManager:
             raise ValueError("Cannot edit an anonymized (erased) patient record.")
 
         editable_fields = {
-            "display_name", "external_ref", "date_of_birth", "biological_sex", "notes",
+            "display_name",
+            "external_ref",
+            "date_of_birth",
+            "biological_sex",
+            "notes",
         } | set(self.HEALTH_PROFILE_FIELDS)
         set_fields = {k: v for k, v in updates.items() if k in editable_fields}
         if not set_fields:
@@ -222,7 +260,7 @@ class PatientManager:
 
         return self.get_patient(patient_id)
 
-    def withdraw_consent(self, patient_id: str) -> Optional[Dict[str, Any]]:
+    def withdraw_consent(self, patient_id: str) -> dict[str, Any] | None:
         """GDPR Art. 7(3): consent must be as easy to withdraw as to give."""
         existing = self.get_patient(patient_id)
         if not existing:
@@ -231,7 +269,7 @@ class PatientManager:
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE patients SET gdpr_consent_given = 0, gdpr_consent_withdrawn_at = ?, updated_at = ? WHERE patient_id = ?",
-                (now, now, patient_id)
+                (now, now, patient_id),
             )
             conn.commit()
         logger.warning(f"GDPR consent withdrawn for patient {patient_id} at {now}")
@@ -239,7 +277,7 @@ class PatientManager:
 
     # ---------------------------------------------------------------- delete / erasure
 
-    def estimate_age_years(self, patient: Dict[str, Any]) -> Optional[int]:
+    def estimate_age_years(self, patient: dict[str, Any]) -> int | None:
         """
         Effective age for a session's static metadata: derived from date_of_birth
         when available (most accurate, and stays correct as time passes without
@@ -253,7 +291,9 @@ class PatientManager:
                 try:
                     born = datetime.strptime(dob[:10], fmt)
                     today = datetime.utcnow()
-                    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+                    age = (
+                        today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+                    )
                     if 0 <= age <= 130:
                         return age
                 except ValueError:
@@ -282,7 +322,9 @@ class PatientManager:
                 # are special-category data under the same consent umbrella as the
                 # identifying fields, so an erasure request has to clear all of it,
                 # not just name/DOB/notes.
-                health_reset_clause = ", ".join(f"{col} = NULL" for col in self.HEALTH_PROFILE_FIELDS)
+                health_reset_clause = ", ".join(
+                    f"{col} = NULL" for col in self.HEALTH_PROFILE_FIELDS
+                )
                 conn.execute(
                     f"""UPDATE patients SET
                         display_name = '[ERASED]', external_ref = '', date_of_birth = '',
@@ -290,9 +332,11 @@ class PatientManager:
                         gdpr_consent_given = 0, updated_at = ?,
                         {health_reset_clause}
                        WHERE patient_id = ?""",
-                    (now, patient_id)
+                    (now, patient_id),
                 )
             conn.commit()
 
-        logger.warning(f"Patient {patient_id} erased ({'hard delete' if hard_delete else 'anonymized in place'}).")
+        logger.warning(
+            f"Patient {patient_id} erased ({'hard delete' if hard_delete else 'anonymized in place'})."
+        )
         return True

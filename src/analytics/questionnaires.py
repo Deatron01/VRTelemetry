@@ -24,31 +24,57 @@ References:
     fatigued VR subject to do 15 pairwise judgments after every session.
 """
 
-from typing import Dict, Any
+from typing import Any
 
 # --- Simulator Sickness Questionnaire -----------------------------------
 
 # Each of the 16 canonical SSQ symptoms, rated 0 (none) - 3 (severe) by the
 # subject, and the subscale(s) it contributes its raw score to.
 SSQ_ITEMS = [
-    "general_discomfort", "fatigue", "headache", "eye_strain",
-    "difficulty_focusing", "increased_salivation", "sweating", "nausea",
-    "difficulty_concentrating", "fullness_of_head", "blurred_vision",
-    "dizziness_eyes_open", "dizziness_eyes_closed", "vertigo",
-    "stomach_awareness", "burping",
+    "general_discomfort",
+    "fatigue",
+    "headache",
+    "eye_strain",
+    "difficulty_focusing",
+    "increased_salivation",
+    "sweating",
+    "nausea",
+    "difficulty_concentrating",
+    "fullness_of_head",
+    "blurred_vision",
+    "dizziness_eyes_open",
+    "dizziness_eyes_closed",
+    "vertigo",
+    "stomach_awareness",
+    "burping",
 ]
 
 _SSQ_NAUSEA_SET = {
-    "general_discomfort", "increased_salivation", "sweating", "nausea",
-    "difficulty_concentrating", "stomach_awareness", "burping",
+    "general_discomfort",
+    "increased_salivation",
+    "sweating",
+    "nausea",
+    "difficulty_concentrating",
+    "stomach_awareness",
+    "burping",
 }
 _SSQ_OCULOMOTOR_SET = {
-    "general_discomfort", "fatigue", "headache", "eye_strain",
-    "difficulty_focusing", "difficulty_concentrating", "blurred_vision",
+    "general_discomfort",
+    "fatigue",
+    "headache",
+    "eye_strain",
+    "difficulty_focusing",
+    "difficulty_concentrating",
+    "blurred_vision",
 }
 _SSQ_DISORIENTATION_SET = {
-    "difficulty_focusing", "nausea", "fullness_of_head", "blurred_vision",
-    "dizziness_eyes_open", "dizziness_eyes_closed", "vertigo",
+    "difficulty_focusing",
+    "nausea",
+    "fullness_of_head",
+    "blurred_vision",
+    "dizziness_eyes_open",
+    "dizziness_eyes_closed",
+    "vertigo",
 }
 
 # Kennedy et al.'s published subscale/total multipliers.
@@ -58,7 +84,7 @@ _SSQ_D_WEIGHT = 13.92
 _SSQ_TOTAL_WEIGHT = 3.74
 
 
-def score_ssq(items: Dict[str, int]) -> Dict[str, Any]:
+def score_ssq(items: dict[str, int]) -> dict[str, Any]:
     """
     items: mapping of SSQ_ITEMS name -> severity 0-3 (missing items treated
     as 0, out-of-range values clamped, so a partially-completed form still
@@ -106,8 +132,12 @@ def _ssq_band(total_severity: float) -> str:
 # --- NASA Task Load Index ------------------------------------------------
 
 NASA_TLX_ITEMS = [
-    "mental_demand", "physical_demand", "temporal_demand",
-    "performance", "effort", "frustration",
+    "mental_demand",
+    "physical_demand",
+    "temporal_demand",
+    "performance",
+    "effort",
+    "frustration",
 ]
 
 _NASA_TLX_LABELS = {
@@ -120,7 +150,7 @@ _NASA_TLX_LABELS = {
 }
 
 
-def score_nasa_tlx(items: Dict[str, float]) -> Dict[str, Any]:
+def score_nasa_tlx(items: dict[str, float]) -> dict[str, Any]:
     """
     items: mapping of NASA_TLX_ITEMS name -> rating 0-100. The Performance
     item is collected on the instrument's own "Perfect" (0) -> "Failure"
@@ -156,8 +186,13 @@ def _tlx_band(rtlx: float) -> str:
 
 
 _THERMAL_COMFORT_SCALE = [
-    "cold", "cool", "slightly_cool", "neutral",
-    "slightly_warm", "warm", "hot",
+    "cold",
+    "cool",
+    "slightly_cool",
+    "neutral",
+    "slightly_warm",
+    "warm",
+    "hot",
 ]
 
 

@@ -1,30 +1,20 @@
-# src/utils/auto_installer.py
+"""TOMBSTONE — safe to delete. Nothing imports this module any more.
 
-import sys
-import subprocess
-import logging
-from pathlib import Path
+It used to run `pip install -r requirements.txt` on every CLI launch, with
+output sent to DEVNULL. A program that mutates its own environment at startup
+means two runs a week apart are not the same software, which is indefensible
+for a tool recording research data: a silently upgraded pyarrow can change how
+a Parquet file is written mid-study with nothing in the record to show it. It
+also could not work inside the frozen PyInstaller bundle the desktop app ships.
 
-logger = logging.getLogger(__name__)
+Environment construction now belongs to the installer:
 
-def verify_and_install_dependencies() -> None:
-    """
-    Automated environment verification suite. Evaluates host dependencies 
-    and verifies binary module links before execution initialization.
-    """
-    logger.info("Executing environment compliance checks...")
-    
-    requirements_file = Path(__file__).parent.parent.parent / "requirements.txt"
-    if not requirements_file.exists():
-        logger.error(f"Environment Error: requirements.txt missing from workspace root: {requirements_file}")
-        return
+    pip install -e ".[workstation]"
 
-    try:
-        logger.info("Verifying Python site-packages with Pip tracking specifications...")
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", "-r", str(requirements_file)
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        logger.info("All prerequisite binary modules are linked and validated.")
-    except subprocess.CalledProcessError as e:
-        logger.critical(f"Deployment Layer Error: Pip failed to bind target dependencies: {e}")
-        sys.exit(1)
+`src/tert_runner.py` no longer calls it. This file is left in place only
+because this session cannot delete files on your machine.
+
+    git rm pytest.ini tox.ini config.json src/utils/auto_installer.py
+
+See VRT-5.
+"""

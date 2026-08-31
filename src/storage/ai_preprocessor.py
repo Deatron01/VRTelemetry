@@ -1,12 +1,13 @@
 # src/storage/ai_preprocessor.py
 
 import logging
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 import pyarrow as pa
-from pathlib import Path
-from typing import Dict, Any
+import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class AIPostProcessor:
 
     # Columns where -1.0 is a legitimate "unavailable" sentinel, not a real reading.
     # Must never be folded into ffill/EWM/z-score statistics as if it were a sample.
-    SENTINEL_COLUMNS: Dict[str, float] = {
+    SENTINEL_COLUMNS: dict[str, float] = {
         "battery_hmd": -1.0,
         "battery_left": -1.0,
         "battery_right": -1.0,
@@ -35,14 +36,14 @@ class AIPostProcessor:
         self.input_path = Path(input_parquet_path)
         self.output_path = self.input_path.with_name(f"{self.input_path.stem}_ai_ready.parquet")
 
-        self.processing_metadata: Dict[str, Any] = {
+        self.processing_metadata: dict[str, Any] = {
             "preprocessor_version": "v1.1.0",
             "smoothing_algorithm": "Exponential_Moving_Average",
             "scaling_method": "Z-Score_Standardization",
             "velocity_deriv_method": "Forward_Euler",
             "outlier_removal": "None",
             "sentinel_handling": "Masked to NaN pre-normalization, restored post-normalization; "
-                                  "companion *_available flags added",
+            "companion *_available flags added",
             "total_dropped_frames": 0,
         }
 
@@ -64,7 +65,9 @@ class AIPostProcessor:
         # point, so they're untouched here regardless of ordering relative to Step 1b.
         missing_count = df.isna().sum().sum()
         if missing_count > 0:
-            logger.warning(f"Detected {missing_count} NaN values. Executing structural Forward Fill.")
+            logger.warning(
+                f"Detected {missing_count} NaN values. Executing structural Forward Fill."
+            )
             df.ffill(inplace=True)
             df.fillna(0.0, inplace=True)  # Fallback for initial frames
 
@@ -72,7 +75,7 @@ class AIPostProcessor:
         # see them. Do this AFTER Step 1's ffill so the generic fallback pass above doesn't
         # smear a forward-filled real value across what should stay a NaN gap here, and so it
         # doesn't fillna(0.0) over what we're about to mark NaN either.
-        sentinel_masks: Dict[str, pd.Series] = {}
+        sentinel_masks: dict[str, pd.Series] = {}
         for col, sentinel_value in self.SENTINEL_COLUMNS.items():
             if col not in df.columns:
                 continue
@@ -83,7 +86,7 @@ class AIPostProcessor:
                 df.loc[mask, col] = np.nan
 
         # Step 2: Smoothing Pipeline (Exponential Moving Average on Positional Kinematics)
-        pos_columns = [c for c in df.columns if 'pos' in c and c not in sentinel_masks]
+        pos_columns = [c for c in df.columns if "pos" in c and c not in sentinel_masks]
         for col in pos_columns:
             df[col] = df[col].ewm(alpha=0.2, adjust=False, ignore_na=True).mean().astype(np.float32)
 
@@ -91,9 +94,14 @@ class AIPostProcessor:
         # Bypasses purely binary valid flags, target indices, explicit quaternions, and the
         # availability flags we just added (those are already 0/1 semantic, not to be scaled).
         exclude_cols = [
-            c for c in df.columns
-            if 'valid' in c or 'rot' in c or 'index' in c or 'timestamp' in c or 'scene' in c
-            or c.endswith('_available')
+            c
+            for c in df.columns
+            if "valid" in c
+            or "rot" in c
+            or "index" in c
+            or "timestamp" in c
+            or "scene" in c
+            or c.endswith("_available")
         ]
         normalize_cols = [c for c in df.columns if c not in exclude_cols]
 
@@ -117,8 +125,10 @@ class AIPostProcessor:
         schema = pa.Schema.from_pandas(df)
         final_table = pa.Table.from_pandas(df, schema=schema)
 
-        logger.info(f"AI Transformation complete. Writing Tensor-Ready Output to: {self.output_path}")
-        pq.write_table(final_table, self.output_path, compression='snappy')
+        logger.info(
+            f"AI Transformation complete. Writing Tensor-Ready Output to: {self.output_path}"
+        )
+        pq.write_table(final_table, self.output_path, compression="snappy")
 
         logger.info("Category 8 Metadata (Adatfeldolgozási Metaadat):")
         for k, v in self.processing_metadata.items():

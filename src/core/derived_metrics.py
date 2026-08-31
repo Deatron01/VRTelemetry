@@ -1,12 +1,13 @@
 import math
-from typing import Tuple
 
-def _rotate_forward(qx: float, qy: float, qz: float, qw: float) -> Tuple[float, float, float]:
+
+def _rotate_forward(qx: float, qy: float, qz: float, qw: float) -> tuple[float, float, float]:
     """Rotates the fixed forward vector (0,0,-1) by a quaternion."""
     fx = -2 * (qx * qz + qw * qy)
     fy = -2 * (qy * qz - qw * qx)
     fz = -(1 - 2 * (qx * qx + qy * qy))
     return fx, fy, fz
+
 
 def compute_binocular_focal_distance(frame) -> float:
     """
@@ -20,8 +21,12 @@ def compute_binocular_focal_distance(frame) -> float:
 
     lx, ly, lz = frame.left_eye_pos_x, frame.left_eye_pos_y, frame.left_eye_pos_z
     rx, ry, rz = frame.right_eye_pos_x, frame.right_eye_pos_y, frame.right_eye_pos_z
-    d1 = _rotate_forward(frame.left_eye_rot_x, frame.left_eye_rot_y, frame.left_eye_rot_z, frame.left_eye_rot_w)
-    d2 = _rotate_forward(frame.right_eye_rot_x, frame.right_eye_rot_y, frame.right_eye_rot_z, frame.right_eye_rot_w)
+    d1 = _rotate_forward(
+        frame.left_eye_rot_x, frame.left_eye_rot_y, frame.left_eye_rot_z, frame.left_eye_rot_w
+    )
+    d2 = _rotate_forward(
+        frame.right_eye_rot_x, frame.right_eye_rot_y, frame.right_eye_rot_z, frame.right_eye_rot_w
+    )
 
     p12 = (lx - rx, ly - ry, lz - rz)
     d1d1 = sum(a * a for a in d1)
@@ -48,6 +53,7 @@ def compute_binocular_focal_distance(frame) -> float:
     dx, dy, dz = conv[0] - mid[0], conv[1] - mid[1], conv[2] - mid[2]
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 
-def compute_distance(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
+
+def compute_distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     dx, dy, dz = a[0] - b[0], a[1] - b[1], a[2] - b[2]
     return math.sqrt(dx * dx + dy * dy + dz * dz)

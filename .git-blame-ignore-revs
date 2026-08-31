@@ -1,0 +1,11 @@
+# Revisions to skip when running `git blame`.
+#
+# Enable once per clone:
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Only whole-tree mechanical rewrites belong here -- a formatting pass, a mass
+# rename. Never a commit that changed behaviour: hiding one of those from blame
+# hides the reason a line exists.
+
+# style: add ruff, mypy and pre-commit gates, and apply the formatter (VRT-7)
+019d2db23162b7f9d11252c52e932cba13c81c32

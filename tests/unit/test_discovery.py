@@ -1,13 +1,14 @@
 # tests/unit/test_discovery.py
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from src.backends.discovery import RuntimeCapabilityDiscovery
+
 
 @patch("src.backends.discovery.xr")
 def test_discovery_no_biometrics(mock_xr):
     """
-    Validates that the discovery engine correctly identifies an environment 
+    Validates that the discovery engine correctly identifies an environment
     lacking any advanced tracking capabilities, defaulting all biometric flags to 0.
     """
     # Mock extension enumeration returning only basic headless support
@@ -21,10 +22,11 @@ def test_discovery_no_biometrics(mock_xr):
     assert metadata["has_face_tracking"] == 0
     assert metadata["has_body_tracking"] == 0
 
+
 @patch("src.backends.discovery.xr")
 def test_discovery_with_htc_biometrics(mock_xr):
     """
-    Validates that the presence of XR_HTC_eye_tracker correctly flips 
+    Validates that the presence of XR_HTC_eye_tracker correctly flips
     the capability flag in the static dataset matrix.
     """
     mock_ext1 = MagicMock()
@@ -33,7 +35,7 @@ def test_discovery_with_htc_biometrics(mock_xr):
     mock_ext2.extension_name = "XR_HTC_eye_tracker"
     mock_ext3 = MagicMock()
     mock_ext3.extension_name = "XR_HTC_facial_tracking"
-    
+
     mock_xr.enumerate_instance_extension_properties.return_value = [mock_ext1, mock_ext2, mock_ext3]
 
     metadata = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()

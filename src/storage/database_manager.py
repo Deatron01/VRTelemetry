@@ -1,22 +1,111 @@
 # src/storage/database_manager.py
 
-import sqlite3
 import json
 import logging
+import sqlite3
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+
+#: Column order for the session_metadata INSERT, and the single source of truth
+#: for it: the statement text and its placeholder list are both derived from
+#: this tuple.
+#:
+#: It is a tuple rather than a hand-maintained SQL string because the
+#: hand-maintained version named 68 columns and supplied 73 "?" placeholders.
+#: Every call to persist_experiment() therefore raised "73 values for 68
+#: columns" and the session's entire metadata row was lost -- on every machine,
+#: for every session ever recorded. TelemetryEngine.start() logged the failure
+#: and carried on, exactly as it was written to, which is why nobody noticed.
+#: See VRT-22.
+SESSION_METADATA_COLUMNS: tuple[str, ...] = (
+    "session_id",
+    "patient_id",
+    "start_timestamp_utc",
+    "subject_id",
+    "subject_age",
+    "subject_biological_sex",
+    "subject_height_cm",
+    "subject_weight_kg",
+    "subject_vr_exp",
+    "subject_ipd_mm",
+    "vision_correction",
+    "vision_impairment",
+    "tracking_space_type",
+    "play_area_width_m",
+    "play_area_length_m",
+    "host_os_version",
+    "host_cpu_model",
+    "host_gpu_model",
+    "host_ram_gb",
+    "gpu_driver_version",
+    "openxr_runtime",
+    "hmd_model",
+    "hmd_firmware",
+    "hmd_refresh_rate",
+    "hmd_render_res_w",
+    "hmd_render_res_h",
+    "hmd_fov_horizontal",
+    "hmd_fov_vertical",
+    "tracking_system",
+    "controller_model",
+    "has_eye_tracking",
+    "has_face_tracking",
+    "has_body_tracking",
+    "neutral_head_height",
+    "shoulder_width_est",
+    "arm_length_left",
+    "arm_length_right",
+    "dominant_hand",
+    "ssq_nausea_score",
+    "ssq_oculomotor_score",
+    "ssq_disorientation",
+    "nasa_tlx_mental",
+    "nasa_tlx_physical",
+    "nasa_tlx_frustration",
+    "perceived_temp_c",
+    "session_rating",
+    "preprocessor_version",
+    "smoothing_algorithm",
+    "scaling_method",
+    "velocity_deriv_method",
+    "outlier_removal",
+    "total_dropped_frames",
+    "os_name",
+    "os_version",
+    "os_release",
+    "architecture",
+    "hostname",
+    "os_user",
+    "cpu_name",
+    "cpu_cores_logical",
+    "cpu_cores_physical",
+    "total_ram_gb",
+    "disk_total_gb",
+    "disk_free_gb",
+    "gpu_info",
+    "app_version",
+    "available_extensions_json",
+    "raw_json",
+)
+
+
 class DatabaseManager:
     """
-    Relational SQLite manager for persisting static metadata structures 
-    (Subject Profiles, Hardware Configurations, Calibration Data, Processing Metadata) 
+    Relational SQLite manager for persisting static metadata structures
+    (Subject Profiles, Hardware Configurations, Calibration Data, Processing Metadata)
     linked to the high-frequency Parquet time-series datasets via session UUIDs.
     """
 
-    def __init__(self, db_path: str = "Sessions/vr_metadata.db"):
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None):
+        # Resolved at call time, not as a default argument: a default is
+        # evaluated once at import and would freeze the path before any
+        # configuration could be read. See src/config/settings.py (VRT-6).
+        self.db_path = Path(db_path) if db_path else get_settings().paths.metadata_db
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_schema()
 
@@ -114,7 +203,12 @@ class DatabaseManager:
             disk_total_gb REAL,
             disk_free_gb REAL,
             gpu_info TEXT,
-            app_version TEXT
+            app_version TEXT,
+
+            -- The OpenXR extensions the runtime reported at recording time.
+            -- persist_experiment() has always written this column; CREATE TABLE
+            -- never declared it and no migration added it. See VRT-22.
+            available_extensions_json TEXT
         );
         """
         try:
@@ -144,7 +238,9 @@ class DatabaseManager:
                 except sqlite3.OperationalError:
                     pass
                 try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_performance REAL")
+                    conn.execute(
+                        "ALTER TABLE session_metadata ADD COLUMN nasa_tlx_performance REAL"
+                    )
                     conn.commit()
                 except sqlite3.OperationalError:
                     pass
@@ -159,7 +255,9 @@ class DatabaseManager:
                 except sqlite3.OperationalError:
                     pass
                 try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN nasa_tlx_raw_items_json TEXT")
+                    conn.execute(
+                        "ALTER TABLE session_metadata ADD COLUMN nasa_tlx_raw_items_json TEXT"
+                    )
                     conn.commit()
                 except sqlite3.OperationalError:
                     pass
@@ -184,12 +282,23 @@ class DatabaseManager:
                 except sqlite3.OperationalError:
                     pass
                 try:
-                    conn.execute("ALTER TABLE session_metadata ADD COLUMN questionnaire_completed_at TEXT")
+                    conn.execute(
+                        "ALTER TABLE session_metadata ADD COLUMN questionnaire_completed_at TEXT"
+                    )
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+                # VRT-22. For databases created before the column joined
+                # CREATE TABLE above; a no-op everywhere else.
+                try:
+                    conn.execute(
+                        "ALTER TABLE session_metadata ADD COLUMN available_extensions_json TEXT"
+                    )
                     conn.commit()
                 except sqlite3.OperationalError:
                     pass
             logger.info("SQLite Schema Initialization Successful with full specification mapping.")
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             logger.critical(...)
             raise
 
@@ -234,8 +343,8 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Failed to fetch sessions for patient {patient_id}: {e}")
             return []
-        
-    def persist_experiment(self, metadata: Dict[str, Any]) -> None:
+
+    def persist_experiment(self, metadata: dict[str, Any]) -> None:
         """
         Extracts nested category dicts from the static context definition and
         flattens them into the relational ledger for long-term tracking.
@@ -246,45 +355,14 @@ class DatabaseManager:
         hw_meta = metadata.get("H-VII_Hardware_Capabilities", {})
         proc_meta = metadata.get("P-VIII_Processing_Metadata", {})
         sys_profile = metadata.get("S-IX_System_Profile", {})
-        
+
         session_id = static_meta.get("session_id", "UNKNOWN")
 
-        query = """
-        INSERT INTO session_metadata (
-            session_id, patient_id, start_timestamp_utc, subject_id, subject_age, subject_biological_sex,
-            subject_height_cm, subject_weight_kg, subject_vr_exp, subject_ipd_mm,
-            vision_correction, vision_impairment,
-            
-            tracking_space_type, play_area_width_m, play_area_length_m, host_os_version,
-            host_cpu_model, host_gpu_model, host_ram_gb, gpu_driver_version,
-            openxr_runtime, hmd_model, hmd_firmware, hmd_refresh_rate,
-            hmd_render_res_w, hmd_render_res_h, hmd_fov_horizontal, hmd_fov_vertical,
-            tracking_system, controller_model, has_eye_tracking, has_face_tracking, has_body_tracking,
-            
-            neutral_head_height, shoulder_width_est, arm_length_left, arm_length_right, dominant_hand,
-            
-            ssq_nausea_score, ssq_oculomotor_score, ssq_disorientation,
-            nasa_tlx_mental, nasa_tlx_physical, nasa_tlx_frustration,
-            perceived_temp_c, session_rating,
-            
-            preprocessor_version, smoothing_algorithm, scaling_method,
-            velocity_deriv_method, outlier_removal, total_dropped_frames,
-            
-            os_name, os_version, os_release, architecture, hostname, os_user,
-            cpu_name, cpu_cores_logical, cpu_cores_physical, total_ram_gb,
-            disk_total_gb, disk_free_gb, gpu_info, app_version, available_extensions_json,
-            
-            raw_json
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?
+        placeholders = ", ".join("?" * len(SESSION_METADATA_COLUMNS))
+        query = (
+            f"INSERT INTO session_metadata ({', '.join(SESSION_METADATA_COLUMNS)}) "
+            f"VALUES ({placeholders})"
         )
-        """
 
         values = (
             session_id,
@@ -299,7 +377,6 @@ class DatabaseManager:
             static_meta.get("subject_ipd_mm", 0.0),
             static_meta.get("vision_correction", "None"),
             static_meta.get("vision_impairment", "None"),
-            
             static_meta.get("tracking_space_type", "Unknown"),
             static_meta.get("play_area_width_m", 0.0),
             static_meta.get("play_area_length_m", 0.0),
@@ -321,13 +398,11 @@ class DatabaseManager:
             hw_meta.get("has_eye_tracking", 0),
             hw_meta.get("has_face_tracking", 0),
             hw_meta.get("has_body_tracking", 0),
-            
             calib_meta.get("neutral_head_height", 0.0),
             calib_meta.get("shoulder_width_est", 0.0),
             calib_meta.get("arm_length_left", 0.0),
             calib_meta.get("arm_length_right", 0.0),
             calib_meta.get("dominant_hand", "Right"),
-            
             subj_labels.get("ssq_nausea_score", 0.0),
             subj_labels.get("ssq_oculomotor_score", 0.0),
             subj_labels.get("ssq_disorientation", 0.0),
@@ -336,14 +411,12 @@ class DatabaseManager:
             subj_labels.get("nasa_tlx_frustration", 0.0),
             subj_labels.get("perceived_temp_c", 22.0),
             subj_labels.get("session_rating", 0),
-            
             proc_meta.get("preprocessor_version", "Unknown"),
             proc_meta.get("smoothing_algorithm", "None"),
             proc_meta.get("scaling_method", "None"),
             proc_meta.get("velocity_deriv_method", "None"),
             proc_meta.get("outlier_removal", "None"),
             proc_meta.get("total_dropped_frames", 0),
-            
             sys_profile.get("os_name", "Unknown"),
             sys_profile.get("os_version", "Unknown"),
             sys_profile.get("os_release", "Unknown"),
@@ -359,15 +432,24 @@ class DatabaseManager:
             sys_profile.get("gpu_info", "Unknown"),
             "1.0.0",
             json.dumps(hw_meta.get("available_extensions", [])),
-            
-            json.dumps(metadata)
+            json.dumps(metadata),
         )
+
+        if len(values) != len(SESSION_METADATA_COLUMNS):
+            # A mismatch here is a programming error, not a runtime condition:
+            # someone added a column to one list and not the other. Raise rather
+            # than let sqlite report it as a message that the caller logs and
+            # ignores -- that is precisely how the original defect survived.
+            raise ValueError(
+                f"session_metadata INSERT builds {len(SESSION_METADATA_COLUMNS)} columns "
+                f"but {len(values)} values were supplied; the two lists have drifted."
+            )
 
         try:
             with self._get_connection() as conn:
                 conn.execute(query, values)
                 conn.commit()
-                
+
                 try:
                     conn.execute("ALTER TABLE session_metadata ADD COLUMN patient_id TEXT")
                     conn.commit()
@@ -382,21 +464,34 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Failed to persist static metadata for session {session_id}: {e}")
             return False
+
     # Fixed, whitelisted set of columns the post-session questionnaire is
     # allowed to write. Deliberately not a free-form dict->SQL builder off
     # user input — this whitelist is the only thing standing between the
     # /api/sessions/{id}/questionnaire endpoint and an arbitrary column write.
     QUESTIONNAIRE_FIELDS = (
-        "ssq_nausea_score", "ssq_oculomotor_score", "ssq_disorientation",
-        "ssq_total_severity", "ssq_severity_band", "ssq_raw_items_json",
-        "nasa_tlx_mental", "nasa_tlx_physical", "nasa_tlx_temporal",
-        "nasa_tlx_performance", "nasa_tlx_effort", "nasa_tlx_frustration",
-        "nasa_tlx_rtlx", "nasa_tlx_band", "nasa_tlx_raw_items_json",
-        "thermal_comfort", "perceived_temp_c", "session_rating",
+        "ssq_nausea_score",
+        "ssq_oculomotor_score",
+        "ssq_disorientation",
+        "ssq_total_severity",
+        "ssq_severity_band",
+        "ssq_raw_items_json",
+        "nasa_tlx_mental",
+        "nasa_tlx_physical",
+        "nasa_tlx_temporal",
+        "nasa_tlx_performance",
+        "nasa_tlx_effort",
+        "nasa_tlx_frustration",
+        "nasa_tlx_rtlx",
+        "nasa_tlx_band",
+        "nasa_tlx_raw_items_json",
+        "thermal_comfort",
+        "perceived_temp_c",
+        "session_rating",
         "questionnaire_completed_at",
     )
 
-    def save_subjective_questionnaire(self, session_id: str, fields: Dict[str, Any]) -> bool:
+    def save_subjective_questionnaire(self, session_id: str, fields: dict[str, Any]) -> bool:
         """
         Persists a scored post-session questionnaire (SSQ + NASA-TLX +
         thermal comfort) onto an already-recorded session row. Called after
@@ -423,7 +518,7 @@ class DatabaseManager:
             logger.error(f"Failed to save questionnaire for session {session_id}: {e}")
             return False
 
-    def get_session_row(self, session_id: str) -> Dict[str, Any]:
+    def get_session_row(self, session_id: str) -> dict[str, Any]:
         """Full flat session_metadata row, used to rebuild the sync payload after a questionnaire update."""
         try:
             with self._get_connection() as conn:

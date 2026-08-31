@@ -1,82 +1,116 @@
-# .gitignore
+# .gitignore — VRTelemetry
+#
+# Rules are grouped by *why* a path is excluded, not by tool. Every rule below
+# corresponds to a path that actually occurs in this repository; speculative
+# rules inherited from other projects have been removed (see VRT-2).
+#
+# The single most important rule in this file is the research-data block:
+# recorded sessions contain special-category personal data and must never be
+# committed. Enforced mechanically by tools/check_repo_hygiene.py.
 
-# Byte-compiled / optimized / DLL files
+# ─────────────────────────────────────────────────────────────────────────────
+# Research data — NEVER COMMIT
+# Recorded telemetry, subject audio, derived renders and the SQLite metadata
+# stores that index them. These are the artefacts that were previously exposed
+# in this repository's public history (see docs/incidents/).
+# ─────────────────────────────────────────────────────────────────────────────
+Sessions/
+Logs/
+AppData/
+CentralServer/
+LicenseServer/
+*.parquet
+*.wav
+*.db
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
-build/
+*.egg-info/
+*.egg
+.eggs/
 develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
 sdist/
-var/
 wheels/
-share/python-wheels/
-*.egg-info/
 .installed.cfg
-*.egg
 MANIFEST
-.node_modules/
-# Telemetry Datasets & SQLite Metadata Databases
-Sessions/
-Logs/
-*.parquet
-*.db
-*.sqlite3
 
-# Virtual Environments
-.env
+# Virtual environments
 venv/
-.env/
+.venv/
 env/
 ENV/
 env.bak/
 venv.bak/
 
-# IDEs and Editors
+# Test & type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Node / frontend
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/
+.vite/
+src/frontend/VRTelemetry/dist/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build outputs
+#
+# NOTE: build/ is deliberately NOT ignored wholesale. build/backend.spec is a
+# tracked build *input* required by `npm run build:backend`; ignoring the whole
+# directory is what silently excluded it and made `npm run package` impossible
+# on any machine but the original author's. Only generated subdirectories are
+# ignored here.
+# ─────────────────────────────────────────────────────────────────────────────
+build/dist-backend/
+build/work/
+release/
+apk/
+*.rar
+*.zip
+*.exe
+*.msi
+*.dmg
+*.AppImage
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets & local configuration
+# ─────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+config.local.toml
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editors & OS
+# ─────────────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
+~$*
 
-# Unity generated folders
-/[Ll]ibrary/
-/[Tt]emp/
-/[Oo]bj/
-/[Bb]uild/
-/[Bb]uilds/
-/[Ll]ogs/
-/[Mm]emoryCaptures/
-/Unity
-
-# Visual Studio / C# cache
-.vs/
-ExportedObj/
-.consulo/
-*.csproj
-*.unityproj
-*.sln
-*.suo
-*.tmp
-*.user
-*.userprefs
-*.pidb
-*.booproj
-*.svd
-*.pdb
-*.mdb
-*.opendb
-*.VC.db
+# ─────────────────────────────────────────────────────────────────────────────
+# Logs & scratch output
+# ─────────────────────────────────────────────────────────────────────────────
+*.log
+!doc/**/*.log

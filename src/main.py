@@ -1,72 +1,77 @@
 # src/main.py
 
-import sys
-import logging
 import argparse
-import threading
-import sqlite3
 import io
+import platform
+import sqlite3
+import sys
+import threading
+import uuid as uuid_lib
 from pathlib import Path
+from typing import Any
+
 import pandas as pd
 import requests as http_requests
-from typing import Dict, Any, Optional, List
-from src.license_service.manager import LicenseManager
-import platform
-import uuid as uuid_lib
 
 # --- New API Imports ---
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from src.utils.logger import setup_logging, logger
-from src.core.engine import TelemetryEngine
 from src.backends.discovery import RuntimeCapabilityDiscovery
+from src.config import get_settings
+from src.core.engine import TelemetryEngine
 from src.core.exceptions import GDPRConsentError
 from src.eye_tracking.factory import EyeTrackingFactory
 from src.storage.usage_tracker import UsageTracker
+from src.utils.logger import logger, setup_logging
+
 _usage = UsageTracker()
+
 
 def parse_arguments() -> argparse.Namespace:
     """
     Constructs the operational CLI argument parser for framework initialization.
     """
-    parser = argparse.ArgumentParser(description="VRTelemetry: Headless Biometric Acquisition Framework")
-    parser.add_argument(
-        "--gdpr-consent", 
-        action="store_true", 
-        help="Explicitly confirm subject consent for biometric data collection. Must be provided to run."
+    parser = argparse.ArgumentParser(
+        description="VRTelemetry: Headless Biometric Acquisition Framework"
     )
     parser.add_argument(
-        "--output", 
-        type=str, 
-        default="Sessions", 
-        help="Target directory for Parquet data matrices and SQLite metadata."
+        "--gdpr-consent",
+        action="store_true",
+        help="Explicitly confirm subject consent for biometric data collection. Must be provided to run.",
     )
     parser.add_argument(
-        "--subject-id", 
-        type=str, 
-        default="SUB_UNKN_01", 
-        help="Anonymized UUID for the active test subject."
+        "--output",
+        type=str,
+        default=None,
+        help="Target directory for Parquet data matrices and SQLite metadata.",
+    )
+    parser.add_argument(
+        "--subject-id",
+        type=str,
+        default="SUB_UNKN_01",
+        help="Anonymized UUID for the active test subject.",
     )
     parser.add_argument(
         "--backend",
         type=str,
         choices=["auto", "openxr", "oculus", "steamvr", "quest_udp"],
         default="auto",
-        help="Enforce a specific runtime hardware backend wrapper or standalone network telemetry worker."
+        help="Enforce a specific runtime hardware backend wrapper or standalone network telemetry worker.",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=5005,
-        help="Incoming network port target when operating under 'quest_udp' stream backend mode."
+        help="Incoming network port target when operating under 'quest_udp' stream backend mode.",
     )
     return parser.parse_args()
 
+
 def sanitize_metadata(data: Any) -> Any:
     """
-    Recursively decodes C-style byte strings into UTF-8 strings 
+    Recursively decodes C-style byte strings into UTF-8 strings
     to prevent JSON serialization crashes in the database manager.
     """
     if isinstance(data, dict):
@@ -74,58 +79,63 @@ def sanitize_metadata(data: Any) -> Any:
     elif isinstance(data, list):
         return [sanitize_metadata(v) for v in data]
     elif isinstance(data, bytes):
-        return data.decode('utf-8', errors='ignore')
+        return data.decode("utf-8", errors="ignore")
     return data
+
 
 def execute_pipeline() -> None:
     """
-    Main orchestration bootstrapper. Extracts runtime topology, constructs capability 
+    Main orchestration bootstrapper. Extracts runtime topology, constructs capability
     maps, and spins up the isolated tracking background layers.
     """
     setup_logging()
     args = parse_arguments()
-    
+
     logger.info("=== VRTelemetry Pro Background Session ===")
-    
+
     if not args.gdpr_consent:
         logger.error("Launch aborted: Biometric tracking requires explicit --gdpr-consent flag.")
         sys.exit(1)
-        
+
     logger.info(f"Selected execution pipeline mode: Enforced Backend -> [{args.backend.upper()}]")
-    print(f"DEBUG: Factory Registry contains: {EyeTrackingFactory._registry}")
+    logger.debug(f"Eye-tracking driver registry: {EyeTrackingFactory._registry}")
     # Extract native runtime metadata if standard PCVR hardware mode is active
     if args.backend != "quest_udp":
         logger.info("Evaluating OpenXR hardware topology and extension capabilities...")
-        raw_hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+        raw_hardware_capabilities: dict[str, Any] = (
+            RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+        )
         hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
     else:
         # Generate virtual network context payload mapping for Quest standalone stream
-        hardware_capabilities = { 
+        hardware_capabilities = {
             "openxr_runtime": "Quest_OVRPlugin_Standalone",
             "hmd_model": "Meta Quest Pro",
             "has_eye_tracking": True,
             "transport_protocol": "UDP_Network_Socket",
-            "binding_port": args.port
+            "binding_port": args.port,
         }
-    
+
     logger.info(f"Detected Runtime: {hardware_capabilities.get('openxr_runtime')}")
     logger.info(f"Detected HMD: {hardware_capabilities.get('hmd_model')}")
-    logger.info(f"Eye Tracking Capability: {'Available' if hardware_capabilities.get('has_eye_tracking') else 'Unavailable'}")
-    
+    logger.info(
+        f"Eye Tracking Capability: {'Available' if hardware_capabilities.get('has_eye_tracking') else 'Unavailable'}"
+    )
+
     # Engine requires robust static context for AI downstream tracking
     engine = TelemetryEngine(
         output_dir=args.output,
         gdpr_consent=args.gdpr_consent,
-        hardware_metadata=hardware_capabilities
+        hardware_metadata=hardware_capabilities,
     )
-    
+
     # Inject runtime execution configurations into context maps before startup sequence
     engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = args.subject_id
-    
+
     # Inform backend engine context regarding specific protocol drivers
     engine.configured_backend = args.backend
     engine.network_port = args.port
-        
+
     try:
         engine.start()
     except GDPRConsentError as e:
@@ -144,17 +154,24 @@ app = FastAPI(title="VRTelemetry Unified Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-DB_PATH = "Sessions/vr_metadata.db"
+
+# Resolved through settings so the API, the engine and the backfill sweep all
+# agree on where the metadata database is, regardless of the working directory
+# the backend was launched from (VRT-6).
+def _db_path() -> str:
+    return str(get_settings().paths.metadata_db)
+
 
 # Global state for background engine threading
-active_engine: Optional[TelemetryEngine] = None
-engine_thread: Optional[threading.Thread] = None
+active_engine: TelemetryEngine | None = None
+engine_thread: threading.Thread | None = None
+
 
 class SessionStartConfig(BaseModel):
     patient_id: str
@@ -162,37 +179,42 @@ class SessionStartConfig(BaseModel):
     backend: str = "auto"
     port: int = 5005
     gdpr_consent: bool
-    output_dir: str = "Sessions"
-    central_server_url: str = "http://192.168.1.X:9000"
+    output_dir: str | None = None
+    # None means "use the configured hub"; the placeholder address this
+    # used to default to shipped as a live value (VRT-6).
+    central_server_url: str | None = None
     # Anthropometric calibration overrides (centimeters) — optional. When omitted,
     # _default_anthropometrics() derives a documented height-based estimate from
     # the patient's profile instead of silently persisting 0.0 like every session
     # recorded before this existed did.
-    arm_length_left_cm: Optional[float] = None
-    arm_length_right_cm: Optional[float] = None
-    neutral_head_height_cm: Optional[float] = None
-    shoulder_width_cm: Optional[float] = None
+    arm_length_left_cm: float | None = None
+    arm_length_right_cm: float | None = None
+    neutral_head_height_cm: float | None = None
+    shoulder_width_cm: float | None = None
+
 
 class SessionUpdate(BaseModel):
-    subject_id: Optional[str] = None
-    start_timestamp_utc: Optional[str] = None
-    subject_vr_exp: Optional[str] = None
-    session_rating: Optional[int] = None
+    subject_id: str | None = None
+    start_timestamp_utc: str | None = None
+    subject_vr_exp: str | None = None
+    session_rating: int | None = None
     # Anthropometric/calibration fields — editable after the fact (meters/mm,
     # matching how they're stored — see _default_anthropometrics for the
     # centimeter<->meter conversion done at recording-start time).
-    subject_ipd_mm: Optional[float] = None
-    neutral_head_height: Optional[float] = None
-    shoulder_width_est: Optional[float] = None
-    arm_length_left: Optional[float] = None
-    arm_length_right: Optional[float] = None
-    dominant_hand: Optional[str] = None
+    subject_ipd_mm: float | None = None
+    neutral_head_height: float | None = None
+    shoulder_width_est: float | None = None
+    arm_length_left: float | None = None
+    arm_length_right: float | None = None
+    dominant_hand: str | None = None
+
 
 def dict_factory(cursor, row):
     d = {}
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
     return d
+
 
 def run_engine_thread(engine: TelemetryEngine):
     """Background worker for the telemetry loop."""
@@ -201,7 +223,9 @@ def run_engine_thread(engine: TelemetryEngine):
     except Exception as e:
         logger.critical(f"Engine background thread crashed: {e}")
 
+
 # --- API Endpoints ---
+
 
 @app.post("/api/upload-telemetry")
 async def upload_telemetry(file: UploadFile = File(...)):
@@ -209,33 +233,34 @@ async def upload_telemetry(file: UploadFile = File(...)):
     Fogadja a nagyméretű Parquet fájlt, és memóriahatékonyan feldolgozza Pandas segítségével.
     """
     content = await file.read()
-    
+
     # A Pandas nagyságrendekkel memóriahatékonyabb a Parquet olvasásában
     df = pd.read_parquet(io.BytesIO(content))
     original_count = len(df)
-    
+
     # Ritkítás (Downsampling) max 60,000 sorra a React stabil működéséhez
-    step = max(1, original_count // 60000)
+    step = max(1, original_count // get_settings().sync.max_frames_to_client)
     df_sampled = df.iloc[::step].copy()
-    
+
     # 1. JAVÍTÁS: Nanosecond Timestamp túlcsordulás megelőzése JS-ben
-    # Levonjuk az első frame idejét mindenből, így hatalmas, memóriagyilkos számok 
+    # Levonjuk az első frame idejét mindenből, így hatalmas, memóriagyilkos számok
     # helyett 0-ról induló másodperceket kap a React.
-    if 'timestamp_ns' in df_sampled.columns:
-        first_ts = df['timestamp_ns'].iloc[0]
-        df_sampled['timestamp_ns'] = df_sampled['timestamp_ns'] - first_ts
-        
+    if "timestamp_ns" in df_sampled.columns:
+        first_ts = df["timestamp_ns"].iloc[0]
+        df_sampled["timestamp_ns"] = df_sampled["timestamp_ns"] - first_ts
+
     # 2. JAVÍTÁS: Kvaterniók (3D forgatás) megmentése
     # A korábbi fillna(0) a hiányzó w értékeket 0-ra állította, ami Three.js NaN összeomlást okozott.
-    # Ez a sor a hiányzó adatokat szigorúan `null`-ként küldi át a JSON-ben, így a 
+    # Ez a sor a hiányzó adatokat szigorúan `null`-ként küldi át a JSON-ben, így a
     # React biztonsági fallbackje (pl. `f.left_eye_rot_w ?? 1`) végre tud aktiválódni!
     df_sampled = df_sampled.where(pd.notnull(df_sampled), None)
-    
+
     return {
         "original_frames": original_count,
         "columns": df.columns.tolist(),
-        "frames": df_sampled.to_dict(orient="records")
+        "frames": df_sampled.to_dict(orient="records"),
     }
+
 
 @app.get("/api/sessions/{session_id}/telemetry")
 def get_session_telemetry(session_id: str):
@@ -253,22 +278,27 @@ def get_session_telemetry(session_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    parquet_path = Path(row.get("output_dir") or "Sessions") / f"vr_telemetry_{session_id}.parquet"
+    sessions_dir = get_settings().paths.sessions_dir
+    parquet_path = (
+        Path(row.get("output_dir") or sessions_dir) / f"vr_telemetry_{session_id}.parquet"
+    )
     if not parquet_path.exists():
         # output_dir isn't actually a stored column (sessions are always written under
-        # the default "Sessions" root today) — fall back explicitly in case that ever changes.
-        parquet_path = Path("Sessions") / f"vr_telemetry_{session_id}.parquet"
+        # the configured sessions root today) - fall back explicitly in case that changes.
+        parquet_path = sessions_dir / f"vr_telemetry_{session_id}.parquet"
     if not parquet_path.exists():
-        raise HTTPException(status_code=404, detail="Session recorded, but its Parquet file is missing on disk")
+        raise HTTPException(
+            status_code=404, detail="Session recorded, but its Parquet file is missing on disk"
+        )
 
     df = pd.read_parquet(parquet_path)
     original_count = len(df)
-    step = max(1, original_count // 60000)
+    step = max(1, original_count // get_settings().sync.max_frames_to_client)
     df_sampled = df.iloc[::step].copy()
 
-    if 'timestamp_ns' in df_sampled.columns:
-        first_ts = df['timestamp_ns'].iloc[0]
-        df_sampled['timestamp_ns'] = df_sampled['timestamp_ns'] - first_ts
+    if "timestamp_ns" in df_sampled.columns:
+        first_ts = df["timestamp_ns"].iloc[0]
+        df_sampled["timestamp_ns"] = df_sampled["timestamp_ns"] - first_ts
 
     df_sampled = df_sampled.where(pd.notnull(df_sampled), None)
 
@@ -283,7 +313,7 @@ def get_session_telemetry(session_id: str):
 @app.get("/api/sessions")
 def get_all_sessions():
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(_db_path()) as conn:
             conn.row_factory = dict_factory
             cursor = conn.cursor()
             cursor.execute("""
@@ -301,7 +331,7 @@ def get_all_sessions():
     # Enrich with patient display names. Sessions recorded before patient
     # linking existed (or where the patient was since erased) fall back
     # gracefully rather than breaking the listing.
-    patient_cache: Dict[str, Optional[str]] = {}
+    patient_cache: dict[str, str | None] = {}
     for s in sessions:
         pid = s.get("patient_id")
         if not pid:
@@ -309,15 +339,22 @@ def get_all_sessions():
             continue
         if pid not in patient_cache:
             p = _patients.get_patient(pid)
-            patient_cache[pid] = p["display_name"] if p and not p["is_anonymized"] else "[Erased Patient]" if p else None
+            patient_cache[pid] = (
+                p["display_name"]
+                if p and not p["is_anonymized"]
+                else "[Erased Patient]"
+                if p
+                else None
+            )
         s["patient_display_name"] = patient_cache[pid]
 
     return sessions
 
+
 @app.get("/api/sessions/{session_id}")
 def get_session_details(session_id: str):
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(_db_path()) as conn:
             conn.row_factory = dict_factory
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM session_metadata WHERE session_id = ?", (session_id,))
@@ -328,28 +365,30 @@ def get_session_details(session_id: str):
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.put("/api/sessions/{session_id}")
 def update_session(session_id: str, update_data: SessionUpdate):
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(_db_path()) as conn:
             cursor = conn.cursor()
             update_fields = {k: v for k, v in update_data.dict().items() if v is not None}
             if not update_fields:
                 return {"status": "no changes"}
 
-            set_clause = ", ".join([f"{k} = ?" for k in update_fields.keys()])
+            set_clause = ", ".join([f"{k} = ?" for k in update_fields])
             values = list(update_fields.values())
             values.append(session_id)
 
             cursor.execute(f"UPDATE session_metadata SET {set_clause} WHERE session_id = ?", values)
             conn.commit()
-            
+
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Session not found")
-                
+
             return {"status": "success", "updated_fields": list(update_fields.keys())}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 class QuestionnaireSubmission(BaseModel):
     """
@@ -359,34 +398,35 @@ class QuestionnaireSubmission(BaseModel):
     defensible rather than being all-or-nothing; src.analytics.questionnaires
     treats missing items as 0 and clamps out-of-range values.
     """
+
     # SSQ items (0-3)
-    general_discomfort: Optional[int] = None
-    fatigue: Optional[int] = None
-    headache: Optional[int] = None
-    eye_strain: Optional[int] = None
-    difficulty_focusing: Optional[int] = None
-    increased_salivation: Optional[int] = None
-    sweating: Optional[int] = None
-    nausea: Optional[int] = None
-    difficulty_concentrating: Optional[int] = None
-    fullness_of_head: Optional[int] = None
-    blurred_vision: Optional[int] = None
-    dizziness_eyes_open: Optional[int] = None
-    dizziness_eyes_closed: Optional[int] = None
-    vertigo: Optional[int] = None
-    stomach_awareness: Optional[int] = None
-    burping: Optional[int] = None
+    general_discomfort: int | None = None
+    fatigue: int | None = None
+    headache: int | None = None
+    eye_strain: int | None = None
+    difficulty_focusing: int | None = None
+    increased_salivation: int | None = None
+    sweating: int | None = None
+    nausea: int | None = None
+    difficulty_concentrating: int | None = None
+    fullness_of_head: int | None = None
+    blurred_vision: int | None = None
+    dizziness_eyes_open: int | None = None
+    dizziness_eyes_closed: int | None = None
+    vertigo: int | None = None
+    stomach_awareness: int | None = None
+    burping: int | None = None
     # NASA-TLX items (0-100)
-    mental_demand: Optional[float] = None
-    physical_demand: Optional[float] = None
-    temporal_demand: Optional[float] = None
-    performance: Optional[float] = None
-    effort: Optional[float] = None
-    frustration: Optional[float] = None
+    mental_demand: float | None = None
+    physical_demand: float | None = None
+    temporal_demand: float | None = None
+    performance: float | None = None
+    effort: float | None = None
+    frustration: float | None = None
     # Thermal comfort + free-form session context
-    thermal_comfort: Optional[str] = None
-    perceived_temp_c: Optional[float] = None
-    session_rating: Optional[int] = None
+    thermal_comfort: str | None = None
+    perceived_temp_c: float | None = None
+    session_rating: int | None = None
 
 
 @app.post("/api/sessions/{session_id}/questionnaire")
@@ -398,7 +438,14 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     uploaded (see SessionUploader.update_remote_metadata).
     """
     from datetime import datetime, timezone
-    from src.analytics.questionnaires import score_ssq, score_nasa_tlx, is_valid_thermal_comfort, SSQ_ITEMS, NASA_TLX_ITEMS
+
+    from src.analytics.questionnaires import (
+        NASA_TLX_ITEMS,
+        SSQ_ITEMS,
+        is_valid_thermal_comfort,
+        score_nasa_tlx,
+        score_ssq,
+    )
 
     row = _db_manager_for_sync.get_session_row(session_id)
     if not row:
@@ -414,7 +461,7 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
             raise HTTPException(
                 status_code=403,
                 detail="This session's patient record has withdrawn or erased GDPR consent; "
-                       "new subjective/health data cannot be recorded against it.",
+                "new subjective/health data cannot be recorded against it.",
             )
 
     payload = submission.dict()
@@ -422,7 +469,8 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     tlx_scores = score_nasa_tlx({k: payload.get(k) for k in NASA_TLX_ITEMS})
 
     import json as _json
-    fields: Dict[str, Any] = {
+
+    fields: dict[str, Any] = {
         "ssq_nausea_score": ssq_scores["ssq_nausea_score"],
         "ssq_oculomotor_score": ssq_scores["ssq_oculomotor_score"],
         "ssq_disorientation": ssq_scores["ssq_disorientation"],
@@ -462,7 +510,7 @@ def submit_questionnaire(session_id: str, submission: QuestionnaireSubmission):
     return {"ok": True, "ssq": ssq_scores, "nasa_tlx": tlx_scores}
 
 
-def _apply_patient_health_profile(engine: TelemetryEngine, patient: Dict[str, Any]) -> None:
+def _apply_patient_health_profile(engine: TelemetryEngine, patient: dict[str, Any]) -> None:
     """
     Snapshots the patient's self-reported health/demographic profile into this
     session's own static metadata at the moment recording starts — the whole
@@ -506,7 +554,7 @@ def _apply_patient_health_profile(engine: TelemetryEngine, patient: Dict[str, An
     # age/height/weight would be if we hadn't chosen to snapshot those.
 
 
-def _default_anthropometrics(height_cm: Optional[float]) -> Dict[str, float]:
+def _default_anthropometrics(height_cm: float | None) -> dict[str, float]:
     """
     Height-based anthropometric estimates used as an editable *default* when
     the researcher doesn't directly measure arm length / shoulder width /
@@ -529,7 +577,9 @@ def _default_anthropometrics(height_cm: Optional[float]) -> Dict[str, float]:
     }
 
 
-def _apply_calibration(engine: TelemetryEngine, patient: Dict[str, Any], config: "SessionStartConfig") -> None:
+def _apply_calibration(
+    engine: TelemetryEngine, patient: dict[str, Any], config: "SessionStartConfig"
+) -> None:
     """
     Populates C-V_Calibration with real (or best-effort-estimated) anthropometric
     baseline values instead of leaving neutral_head_height/shoulder_width_est/
@@ -560,26 +610,34 @@ def start_recording(config: SessionStartConfig):
 
     setup_logging()
 
-    if active_engine and getattr(active_engine, 'is_running', False):
+    if active_engine and getattr(active_engine, "is_running", False):
         raise HTTPException(status_code=400, detail="A telemetry session is already running.")
 
     if not config.gdpr_consent:
-        raise HTTPException(status_code=403, detail="Biometric tracking requires explicit GDPR consent.")
+        raise HTTPException(
+            status_code=403, detail="Biometric tracking requires explicit GDPR consent."
+        )
 
     patient = _patients.get_patient(config.patient_id)
     if not patient or patient["is_anonymized"]:
-        raise HTTPException(status_code=404, detail="Selected patient not found (or has been erased).")
+        raise HTTPException(
+            status_code=404, detail="Selected patient not found (or has been erased)."
+        )
     if not patient["gdpr_consent_given"]:
         raise HTTPException(
             status_code=403,
             detail="This patient's GDPR consent is not active (never given, or withdrawn). "
-                   "Recording cannot start until consent is re-established for a new patient record.",
+            "Recording cannot start until consent is re-established for a new patient record.",
         )
 
-    logger.info(f"API Request: Start Pipeline -> Backend: [{config.backend.upper()}], Patient: {patient['patient_id']}")
+    logger.info(
+        f"API Request: Start Pipeline -> Backend: [{config.backend.upper()}], Patient: {patient['patient_id']}"
+    )
 
     if config.backend != "quest_udp":
-        raw_hardware_capabilities: Dict[str, Any] = RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+        raw_hardware_capabilities: dict[str, Any] = (
+            RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
+        )
         hardware_capabilities = sanitize_metadata(raw_hardware_capabilities)
     else:
         hardware_capabilities = {
@@ -587,7 +645,7 @@ def start_recording(config: SessionStartConfig):
             "hmd_model": "Meta Quest Pro",
             "has_eye_tracking": True,
             "transport_protocol": "UDP_Network_Socket",
-            "binding_port": config.port
+            "binding_port": config.port,
         }
 
     active_engine = TelemetryEngine(
@@ -597,7 +655,9 @@ def start_recording(config: SessionStartConfig):
         central_server_url=config.central_server_url,
     )
 
-    active_engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = config.subject_id or patient["display_name"]
+    active_engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = (
+        config.subject_id or patient["display_name"]
+    )
     active_engine.subject_metadata["M-IV_Static_Metadata"]["patient_id"] = patient["patient_id"]
     _apply_patient_health_profile(active_engine, patient)
     _apply_calibration(active_engine, patient, config)
@@ -605,38 +665,57 @@ def start_recording(config: SessionStartConfig):
     active_engine.network_port = config.port
 
     try:
-        engine_thread = threading.Thread(target=run_engine_thread, args=(active_engine,), daemon=True)
+        engine_thread = threading.Thread(
+            target=run_engine_thread, args=(active_engine,), daemon=True
+        )
         engine_thread.start()
-        _usage.log_event("recording_start", detail=f"backend={config.backend}, patient={patient['patient_id']}")
-        return {"status": "recording_started", "patient_id": patient["patient_id"], "backend": config.backend, "session_id": active_engine.session_id}
+        _usage.log_event(
+            "recording_start", detail=f"backend={config.backend}, patient={patient['patient_id']}"
+        )
+        return {
+            "status": "recording_started",
+            "patient_id": patient["patient_id"],
+            "backend": config.backend,
+            "session_id": active_engine.session_id,
+        }
     except GDPRConsentError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/recording/stop")
 def stop_recording():
     global active_engine
-    if not active_engine or not getattr(active_engine, 'is_running', False):
+    if not active_engine or not getattr(active_engine, "is_running", False):
         raise HTTPException(status_code=400, detail="No active recording to stop.")
-    
+
     # Safely signal the engine to shutdown
-    if hasattr(active_engine, 'stop'):
-        active_engine.stop() 
+    if hasattr(active_engine, "stop"):
+        active_engine.stop()
         _usage.log_event("recording_stop")
-    elif hasattr(active_engine, 'is_running'):
+    elif hasattr(active_engine, "is_running"):
         active_engine.is_running = False
 
     return {"status": "recording_stopped"}
+
 
 from src.license_service.local_cache import LocalLicenseCache
 from src.storage.session_uploader import SessionUploader
 
 _local_cache = LocalLicenseCache()
-DEFAULT_CENTRAL_URL = "http://127.0.0.1:9000"
+
 
 def _central_url() -> str:
-    return _local_cache.get_config("central_server_url", DEFAULT_CENTRAL_URL)
+    """The hub address: the researcher's own setting first, then configuration.
+
+    Returns an empty string when neither is set. Callers treat that the same
+    way they treat an unreachable server -- work locally and queue -- which is
+    a supported state, unlike the placeholder address this used to fall back to.
+    """
+    configured = get_settings().central.url or ""
+    return _local_cache.get_config("central_server_url", configured)
+
 
 # Persistent uploader used by the background sync scheduler and the manual
 # 'Sync Now' endpoint alike, so both paths share one retry/backoff history
@@ -650,9 +729,11 @@ class AuthRegisterRequest(BaseModel):
     org_name: str
     display_name: str = ""
 
+
 class AuthLoginRequest(BaseModel):
     email: str
     password: str
+
 
 class CentralUrlConfig(BaseModel):
     central_server_url: str
@@ -665,7 +746,9 @@ def api_register(payload: AuthRegisterRequest):
     except http_requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
     if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "registration_failed"))
+        raise HTTPException(
+            status_code=r.status_code, detail=r.json().get("detail", "registration_failed")
+        )
     return r.json()
 
 
@@ -676,10 +759,14 @@ def api_login(payload: AuthLoginRequest):
     except http_requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
     if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "login_failed"))
+        raise HTTPException(
+            status_code=r.status_code, detail=r.json().get("detail", "login_failed")
+        )
 
     data = r.json()
-    _local_cache.save_session(data["session_token"], data["user_id"], data["email"], data.get("display_name", ""))
+    _local_cache.save_session(
+        data["session_token"], data["user_id"], data["email"], data.get("display_name", "")
+    )
     return data
 
 
@@ -688,8 +775,11 @@ def api_logout():
     session = _local_cache.get_session()
     if session and session.get("session_token"):
         try:
-            http_requests.post(f"{_central_url()}/auth/logout",
-                                data={"session_token": session["session_token"]}, timeout=5)
+            http_requests.post(
+                f"{_central_url()}/auth/logout",
+                data={"session_token": session["session_token"]},
+                timeout=5,
+            )
         except http_requests.RequestException:
             pass  # best-effort — clear local state regardless
     _local_cache.clear_session()
@@ -709,8 +799,11 @@ def api_session():
         return {"authenticated": False}
 
     try:
-        r = http_requests.get(f"{_central_url()}/auth/session",
-                               params={"session_token": session["session_token"]}, timeout=5)
+        r = http_requests.get(
+            f"{_central_url()}/auth/session",
+            params={"session_token": session["session_token"]},
+            timeout=5,
+        )
         if r.status_code == 200:
             return {"authenticated": True, **r.json()}
         else:
@@ -718,8 +811,12 @@ def api_session():
             return {"authenticated": False}
     except http_requests.RequestException:
         # Central server unreachable — trust the local cache rather than lock the researcher out
-        return {"authenticated": True, "email": session["email"], "display_name": session["display_name"],
-                "offline": True}
+        return {
+            "authenticated": True,
+            "email": session["email"],
+            "display_name": session["display_name"],
+            "offline": True,
+        }
 
 
 @app.get("/api/config/central-server")
@@ -732,6 +829,7 @@ def set_central_config(payload: CentralUrlConfig):
     _local_cache.set_config("central_server_url", payload.central_server_url)
     return {"ok": True, "central_server_url": payload.central_server_url}
 
+
 @app.get("/api/sync/status")
 def sync_status():
     pending_sessions = _local_cache.list_pending_uploads()
@@ -742,21 +840,41 @@ def sync_status():
         "pending_sessions": len(pending_sessions),
         "pending_logs": len(pending_logs),
         "pending_patients": len(pending_patients),
-        "background_sync_running": bool(_sync_scheduler._thread and _sync_scheduler._thread.is_alive()),
-        "heartbeat_running": bool(_heartbeat_sender._thread and _heartbeat_sender._thread.is_alive()),
+        "background_sync_running": bool(
+            _sync_scheduler._thread and _sync_scheduler._thread.is_alive()
+        ),
+        "heartbeat_running": bool(
+            _heartbeat_sender._thread and _heartbeat_sender._thread.is_alive()
+        ),
         "pending": [
-            {"session_id": p["session_id"], "attempts": p["attempts"], "last_error": p["last_error"], "created_at": p["created_at"]}
+            {
+                "session_id": p["session_id"],
+                "attempts": p["attempts"],
+                "last_error": p["last_error"],
+                "created_at": p["created_at"],
+            }
             for p in pending_sessions
         ],
         "pending_log_items": [
-            {"session_id": p["session_id"], "attempts": p["attempts"], "last_error": p["last_error"], "created_at": p["created_at"]}
+            {
+                "session_id": p["session_id"],
+                "attempts": p["attempts"],
+                "last_error": p["last_error"],
+                "created_at": p["created_at"],
+            }
             for p in pending_logs
         ],
         "pending_patient_items": [
-            {"patient_id": p["patient_id"], "attempts": p["attempts"], "last_error": p["last_error"], "created_at": p["created_at"]}
+            {
+                "patient_id": p["patient_id"],
+                "attempts": p["attempts"],
+                "last_error": p["last_error"],
+                "created_at": p["created_at"],
+            }
             for p in pending_patients
         ],
     }
+
 
 @app.post("/api/sync/retry")
 def sync_retry():
@@ -769,7 +887,10 @@ def sync_retry():
     return _sync_scheduler.sweep_once()
 
 
-_license_mgr_client = None  # not used directly here — activation goes through the central server, not local
+_license_mgr_client = (
+    None  # not used directly here — activation goes through the central server, not local
+)
+
 
 def _get_hardware_fingerprint() -> str:
     """
@@ -780,6 +901,7 @@ def _get_hardware_fingerprint() -> str:
     """
     node = uuid_lib.getnode()
     return hashlib.sha256(f"{platform.system()}-{platform.node()}-{node}".encode()).hexdigest()
+
 
 import hashlib  # add near top imports
 
@@ -799,9 +921,14 @@ def license_status():
 
     # Try a live heartbeat if reachable; falls back to cached offline validity if not.
     try:
-        r = http_requests.post(f"{_central_url()}/license/heartbeat",
-                                data={"activation_id": state["activation_id"],
-                                      "machine_label": state.get("machine_label") or ""}, timeout=5)
+        r = http_requests.post(
+            f"{_central_url()}/license/heartbeat",
+            data={
+                "activation_id": state["activation_id"],
+                "machine_label": state.get("machine_label") or "",
+            },
+            timeout=5,
+        )
         if r.status_code == 200:
             data = r.json()
             _local_cache.save(
@@ -845,7 +972,9 @@ def license_activate(payload: LicenseActivateRequest):
         raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
 
     if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "activation_failed"))
+        raise HTTPException(
+            status_code=r.status_code, detail=r.json().get("detail", "activation_failed")
+        )
 
     data = r.json()
     _local_cache.save(
@@ -858,53 +987,65 @@ def license_activate(payload: LicenseActivateRequest):
     )
     return {"ok": True}
 
+
 class SceneUpdate(BaseModel):
     scene_id: float
 
+
 class EventMarkerUpdate(BaseModel):
     value: float = 1.0
+
 
 class HapticTrigger(BaseModel):
     side: str
     intensity: float
     duration_sec: float = 0.1
 
+
 class TargetPosition(BaseModel):
     x: float
     y: float
     z: float
 
+
 def _require_active_engine():
-    if not active_engine or not getattr(active_engine, 'is_running', False):
+    if not active_engine or not getattr(active_engine, "is_running", False):
         raise HTTPException(status_code=400, detail="No active recording session.")
     return active_engine
+
 
 @app.post("/api/session/scene")
 def set_scene(payload: SceneUpdate):
     _require_active_engine().live_state.set_scene(payload.scene_id)
     return {"ok": True}
 
+
 @app.post("/api/session/mark")
 def set_event_marker(payload: EventMarkerUpdate):
     _require_active_engine().live_state.set_event_marker(payload.value)
     return {"ok": True}
 
+
 @app.post("/api/session/haptic")
 def trigger_haptic(payload: HapticTrigger):
     if payload.side not in ("left", "right"):
         raise HTTPException(status_code=400, detail="side must be 'left' or 'right'")
-    _require_active_engine().live_state.trigger_haptic(payload.side, payload.intensity, payload.duration_sec)
+    _require_active_engine().live_state.trigger_haptic(
+        payload.side, payload.intensity, payload.duration_sec
+    )
     return {"ok": True}
+
 
 @app.post("/api/session/target")
 def set_target_position(payload: TargetPosition):
     _require_active_engine().live_state.set_target_position(payload.x, payload.y, payload.z)
     return {"ok": True}
 
+
 from src.patients.patient_manager import PatientManager
-from src.core.exceptions import GDPRConsentError
 
 _patients = PatientManager()
+
 
 class PatientCreateRequest(BaseModel):
     display_name: str
@@ -916,39 +1057,43 @@ class PatientCreateRequest(BaseModel):
     # Self-reported health/demographic profile — see PatientManager.HEALTH_PROFILE_FIELDS.
     # Collected once here rather than re-asked on every recording session; the values
     # get snapshotted into each session's own metadata row at recording time.
-    age_years: Optional[int] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
+    age_years: int | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
     dominant_hand: str = ""
     vr_experience_level: str = ""
-    vr_experience_hours_estimate: Optional[float] = None
-    gaming_experience_hours_per_week: Optional[float] = None
+    vr_experience_hours_estimate: float | None = None
+    gaming_experience_hours_per_week: float | None = None
     vision_correction: str = ""
     vision_impairment: str = ""
     motion_sickness_susceptibility: str = ""
     relevant_health_conditions: str = ""
 
+
 class PatientUpdateRequest(BaseModel):
-    display_name: Optional[str] = None
-    external_ref: Optional[str] = None
-    date_of_birth: Optional[str] = None
-    biological_sex: Optional[str] = None
-    notes: Optional[str] = None
-    age_years: Optional[int] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    dominant_hand: Optional[str] = None
-    vr_experience_level: Optional[str] = None
-    vr_experience_hours_estimate: Optional[float] = None
-    gaming_experience_hours_per_week: Optional[float] = None
-    vision_correction: Optional[str] = None
-    vision_impairment: Optional[str] = None
-    motion_sickness_susceptibility: Optional[str] = None
-    relevant_health_conditions: Optional[str] = None
-    
+    display_name: str | None = None
+    external_ref: str | None = None
+    date_of_birth: str | None = None
+    biological_sex: str | None = None
+    notes: str | None = None
+    age_years: int | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    dominant_hand: str | None = None
+    vr_experience_level: str | None = None
+    vr_experience_hours_estimate: float | None = None
+    gaming_experience_hours_per_week: float | None = None
+    vision_correction: str | None = None
+    vision_impairment: str | None = None
+    motion_sickness_susceptibility: str | None = None
+    relevant_health_conditions: str | None = None
+
+
 @app.get("/api/patients")
 def list_patients(include_anonymized: bool = False):
     return _patients.list_patients(include_anonymized=include_anonymized)
+
+
 @app.post("/api/patients")
 def create_patient(payload: PatientCreateRequest):
     try:
@@ -978,6 +1123,7 @@ def create_patient(payload: PatientCreateRequest):
     _patient_uploader.sync_patient(patient)
     return patient
 
+
 @app.put("/api/patients/{patient_id}")
 def update_patient(patient_id: str, payload: PatientUpdateRequest):
     try:
@@ -991,6 +1137,7 @@ def update_patient(patient_id: str, payload: PatientUpdateRequest):
     _patient_uploader.sync_patient(updated)
     return updated
 
+
 @app.post("/api/patients/{patient_id}/withdraw-consent")
 def withdraw_patient_consent(patient_id: str):
     updated = _patients.withdraw_consent(patient_id)
@@ -998,6 +1145,7 @@ def withdraw_patient_consent(patient_id: str):
         raise HTTPException(status_code=404, detail="Patient not found")
     _patient_uploader.sync_patient(updated)
     return updated
+
 
 @app.delete("/api/patients/{patient_id}")
 def delete_patient(patient_id: str, hard_delete: bool = False):
@@ -1012,6 +1160,7 @@ def delete_patient(patient_id: str, hard_delete: bool = False):
             _patient_uploader.sync_patient(anonymized)
     return {"ok": True}
 
+
 @app.get("/api/patients/{patient_id}/sessions")
 def get_patient_sessions(patient_id: str):
     patient = _patients.get_patient(patient_id)
@@ -1019,16 +1168,19 @@ def get_patient_sessions(patient_id: str):
         raise HTTPException(status_code=404, detail="Patient not found")
 
     from src.storage.database_manager import DatabaseManager
+
     db = DatabaseManager()
     return {
         "patient": patient,
         "sessions": db.get_sessions_for_patient(patient_id),
     }
-from src.storage.patient_sync_client import PatientSyncClient
-from src.storage.sync_scheduler import BackgroundSyncScheduler
-from src.storage.heartbeat_client import HeartbeatSender
-from src.storage.session_backfill import backfill_unsynced_sessions
+
+
 from src.storage.database_manager import DatabaseManager
+from src.storage.heartbeat_client import HeartbeatSender
+from src.storage.patient_sync_client import PatientSyncClient
+from src.storage.session_backfill import backfill_unsynced_sessions
+from src.storage.sync_scheduler import BackgroundSyncScheduler
 
 _patient_uploader = PatientSyncClient(_central_url(), _local_cache)
 
@@ -1037,11 +1189,11 @@ _patient_uploader = PatientSyncClient(_central_url(), _local_cache)
 # live here, independent of whether a sync attempt was ever made for them.
 _db_manager_for_sync = DatabaseManager()
 
-# Must match TelemetryEngine's/argparse's own defaults ("Sessions") — this is
+# The same roots TelemetryEngine and the CLI resolve from settings - this is
 # where session_uploader.upload() expects to find vr_telemetry_<id>.parquet
 # and where attach_session_log_capture() writes session_<id>.log.
-_SESSIONS_OUTPUT_DIR = "Sessions"
-_SESSIONS_LOG_DIR = "Sessions/logs"
+_SESSIONS_OUTPUT_DIR = str(get_settings().paths.sessions_dir)
+_SESSIONS_LOG_DIR = str(get_settings().paths.session_logs_dir)
 
 
 def _repair_missing_license_id() -> None:
@@ -1060,16 +1212,23 @@ def _repair_missing_license_id() -> None:
     try:
         r = http_requests.post(
             f"{_central_url()}/license/heartbeat",
-            data={"activation_id": state["activation_id"], "machine_label": state.get("machine_label") or ""},
+            data={
+                "activation_id": state["activation_id"],
+                "machine_label": state.get("machine_label") or "",
+            },
             timeout=10,
         )
         if r.status_code != 200:
-            logger.warning(f"license_id repair: heartbeat rejected ({r.status_code}), leaving as-is for now.")
+            logger.warning(
+                f"license_id repair: heartbeat rejected ({r.status_code}), leaving as-is for now."
+            )
             return
         license_id = r.json().get("license_id")
         if not license_id:
-            logger.warning("license_id repair: server heartbeat didn't return a license_id either — "
-                            "uploads will keep failing until this activation is investigated.")
+            logger.warning(
+                "license_id repair: server heartbeat didn't return a license_id either — "
+                "uploads will keep failing until this activation is investigated."
+            )
             return
         _local_cache.save(
             activation_id=state["activation_id"],
@@ -1079,12 +1238,14 @@ def _repair_missing_license_id() -> None:
             machine_label=state.get("machine_label"),
             server_expires_at=state.get("server_expires_at"),
         )
-        logger.info(f"Repaired missing license_id in local cache ({license_id}) — uploads should work now.")
+        logger.info(
+            f"Repaired missing license_id in local cache ({license_id}) — uploads should work now."
+        )
     except http_requests.RequestException as e:
         logger.debug(f"license_id repair skipped — central server unreachable: {e}")
 
 
-def _run_session_backfill() -> Dict[str, Any]:
+def _run_session_backfill() -> dict[str, Any]:
     """
     Requirement: "every already-recorded telemetry session that isn't on the
     central server yet should get uploaded too." BackgroundSyncScheduler only
@@ -1118,11 +1279,15 @@ def sync_backfill():
     """
     return _run_session_backfill()
 
+
 # --- Automatic background sync (Requirement 1) ---
 # Sweeps pending sessions/logs/patients on a timer for as long as this backend
 # process is alive — i.e. for as long as the desktop app is open — regardless
 # of whether a recording is active or anyone is looking at the UI.
-_sync_scheduler = BackgroundSyncScheduler(_session_uploader, _patient_uploader, interval_sec=20.0)
+_sync_scheduler = BackgroundSyncScheduler(
+    _session_uploader, _patient_uploader, interval_sec=get_settings().sync.interval_sec
+)
+
 
 # --- Client heartbeat (Requirement 2) ---
 # Pings the central server every 30s with this machine's activation_id and
@@ -1130,7 +1295,10 @@ _sync_scheduler = BackgroundSyncScheduler(_session_uploader, _patient_uploader, 
 # status. Reports current engine state and outstanding sync backlog too, since
 # the server already has a place to store it and the admin view can use it.
 def _current_client_status() -> str:
-    return "recording" if (active_engine and getattr(active_engine, "is_running", False)) else "idle"
+    return (
+        "recording" if (active_engine and getattr(active_engine, "is_running", False)) else "idle"
+    )
+
 
 def _current_pending_count() -> int:
     try:
@@ -1142,10 +1310,11 @@ def _current_pending_count() -> int:
     except Exception:
         return 0
 
+
 _heartbeat_sender = HeartbeatSender(
     central_server_url_provider=_central_url,
     local_license_cache=_local_cache,
-    interval_sec=30.0,
+    interval_sec=get_settings().sync.heartbeat_interval_sec,
     status_provider=_current_client_status,
     pending_count_provider=_current_pending_count,
 )
@@ -1176,6 +1345,7 @@ def _start_background_sync_and_heartbeat():
 def _stop_background_sync_and_heartbeat():
     _sync_scheduler.stop()
     _heartbeat_sender.stop()
+
 
 # =====================================================================
 # --- ORIGINAL CLI EXECUTION BLOCK ---

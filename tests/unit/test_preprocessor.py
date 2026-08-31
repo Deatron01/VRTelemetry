@@ -1,8 +1,9 @@
 # tests/unit/test_preprocessor.py
 
-import pytest
 import numpy as np
+
 from src.core.datatypes import TelemetryFrame
+
 
 def test_telemetry_frame_memory_layout():
     """
@@ -10,16 +11,19 @@ def test_telemetry_frame_memory_layout():
     Ensures that the primary data transfer object is 1-Dimensional.
     """
     frame = TelemetryFrame.create_empty(frame_idx=1)
-    
+
     # Generate tuple configuration
     flat_data = frame.to_tuple()
-    
+
     # Updated to 70 to match the fully completed specification array variables
     assert len(flat_data) == 70, f"Schema mismatch: Expected 70 columns, got {len(flat_data)}"
-    
+
     # Ensure nested types (dicts, lists) are forbidden at runtime
     for item in flat_data:
-        assert isinstance(item, (int, float)), f"Type violation: Field type {type(item)} detected, only Int/Float allowed."
+        assert isinstance(item, (int, float)), (
+            f"Type violation: Field type {type(item)} detected, only Int/Float allowed."
+        )
+
 
 def test_telemetry_frame_type_casting():
     """
@@ -28,9 +32,9 @@ def test_telemetry_frame_type_casting():
     """
     frame = TelemetryFrame.create_empty(frame_idx=1)
     flat_data = frame.to_tuple()
-    
+
     # Cast to NumPy Array simulating PyTorch DataLoader ingestion
     tensor = np.array(flat_data, dtype=np.float32)
-    
+
     assert tensor.ndim == 1, "Tensor shape violation: Result is not 1-Dimensional."
     assert tensor.shape[0] == 70, "Tensor length violation."
