@@ -144,7 +144,7 @@ def test_utc_today_is_a_date_not_an_instant() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_the_admin_dashboard_reads_a_zone_less_timestamp_as_utc() -> None:
+def test_the_admin_dashboard_reads_a_zone_less_timestamp_as_utc(child_env) -> None:
     """The user-visible defect, asserted against the shipped JavaScript.
 
     `new Date("2026-09-01 08:00:00")` is read as *local* by every engine, so in
@@ -177,7 +177,9 @@ console.log(JSON.stringify(shown));
         [node, "-e", script],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "TZ": "Europe/Budapest"},
+        # A deliberately non-UTC zone: the whole point of the assertion below
+        # is that the timestamps come out identical anyway.
+        env=child_env(TZ="Europe/Budapest"),
         check=True,
     )
 

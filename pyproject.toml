@@ -87,6 +87,18 @@ docs = [
 
 dev = [
     "vrtelemetry[workstation,docs]",
+    # Unconditional, unlike the runtime dependency above, which is guarded by
+    # `python_version < "3.11"`. mypy is configured `python_version = "3.10"`,
+    # so it type-checks the 3.10 branch of settings.py's tomllib/tomli split no
+    # matter which interpreter it runs on -- and the lint job runs on 3.11,
+    # where the guarded dependency is skipped. The result was a CI failure that
+    # named a real import the checker could not resolve:
+    #     settings.py:64: error: Cannot find implementation or library stub
+    #                            for module named "tomli"  [import-not-found]
+    # A dev environment that checks the 3.10 branch has to have the 3.10
+    # dependency installed. The alternative -- silencing the import for mypy --
+    # would turn off the check the comment at that import exists to keep.
+    "tomli>=2.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.5",
     "pytest-cov>=5.0",

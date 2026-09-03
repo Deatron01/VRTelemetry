@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _hub_health_in_subprocess(data_root: Path) -> dict[str, Any]:
+def _hub_health_in_subprocess(data_root: Path, env: dict[str, str]) -> dict[str, Any]:
     """Call the hub's health route in a clean interpreter, against ``data_root``.
 
     A subprocess because importing ``src.central_server.server`` initialises two
@@ -58,21 +58,24 @@ def _hub_health_in_subprocess(data_root: Path) -> dict[str, Any]:
         [sys.executable, "-c", source],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin", "VRT_PATHS__DATA_ROOT": str(data_root)},
+        env=env,
         cwd=REPO_ROOT,
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
-def test_the_hub_reports_itself_and_its_database(tmp_path: Path) -> None:
+def test_the_hub_reports_itself_and_its_database(tmp_path: Path, child_env) -> None:
     """What an operator gets from `curl http://<hub>:9000/health`.
 
     ``service`` is the field that matters most and is easy to overlook: a
     workstation pointed at the wrong service on the right port gets a reply, and
     without a name in it would look connected.
     """
-    body = _hub_health_in_subprocess(tmp_path)
+    body = _hub_health_in_subprocess(
+        tmp_path,
+        child_env(drop_prefix="VRT_", VRT_PATHS__DATA_ROOT=str(tmp_path)),
+    )
 
     assert body["service"] == "vrtelemetry-hub"
     assert body["database"] == "ok"

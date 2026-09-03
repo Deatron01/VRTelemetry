@@ -40,6 +40,46 @@ def setup_test_environment():
 
 
 @pytest.fixture
+def child_env():
+    """Build a subprocess environment that is controlled without being unusable.
+
+    Two tests spawn a child process and need to dictate part of its
+    environment -- a data root for one, a timezone for the other. Both built the
+    whole environment from a literal::
+
+        env={"PATH": "/usr/bin:/bin", "VRT_PATHS__DATA_ROOT": str(data_root)}
+
+    Note what that is: not an override but a *replacement*, and a POSIX-shaped
+    one. On Windows a process started without ``SystemRoot`` in its environment
+    dies before it runs a line of user code -- CPython cannot seed its hash
+    randomisation without it -- so both tests failed on every Windows leg of the
+    matrix and passed on every Linux one. Neither test needed a scrubbed
+    ``PATH`` in the first place: both launch an absolute executable.
+
+    Inheriting and then overriding gives the same control -- the caller still
+    decides every variable it cares about -- without also deciding, by
+    omission, that the operating system needs nothing.
+
+    Args:
+        drop_prefix: Environment variables starting with this are removed
+            before the overrides are applied, so an ambient ``VRT_...`` setting
+            on a developer's machine cannot reach the child.
+        **overrides: Applied last, and therefore always win.
+    """
+
+    def build(*, drop_prefix: str | None = None, **overrides: str) -> dict[str, str]:
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if drop_prefix is None or not key.startswith(drop_prefix)
+        }
+        env.update(overrides)
+        return env
+
+    return build
+
+
+@pytest.fixture
 def mock_telemetry_frame():
     """
     Provides a standardized, empty telemetry frame pre-allocated for

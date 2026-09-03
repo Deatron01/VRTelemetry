@@ -73,16 +73,28 @@ jobs:
           python-version: "3.11"
       - name: Install exactly what a new contributor would
         run: pip install -e ".[dev]"
+      # Counted from the OpenAPI document rather than `app.routes`. The
+      # original form -- `[r for r in app.routes if hasattr(r, 'path')]` --
+      # read a FastAPI internal, and FastAPI 0.141 changed it: `include_router`
+      # no longer flattens its routes into `app.routes` at include time, it
+      # stores `_IncludedRouter` objects with no `.path`. The workstation app
+      # builds its whole surface with `include_router`, so the count silently
+      # fell to 4 (the auto-docs routes) and this job failed while the
+      # application itself was fine -- every route still served, as the test
+      # suite driving real requests through TestClient kept proving. The
+      # OpenAPI document is a public contract; `app.routes` is not.
       - name: The workstation API imports and exposes its routes
         run: >
           python -c "from src.main import app;
-          n=len([r for r in app.routes if hasattr(r,'path')]);
-          print(f'workstation routes: {n}'); assert n > 25"
+          p=app.openapi()['paths'];
+          n=sum(len([k for k in v if k in ('get','post','put','delete','patch')]) for v in p.values());
+          print(f'workstation operations: {n} across {len(p)} paths'); assert n > 25"
       - name: The central hub imports and exposes its routes
         run: >
           python -c "from src.central_server.server import app;
-          n=len([r for r in app.routes if hasattr(r,'path')]);
-          print(f'hub routes: {n}'); assert n > 25"
+          p=app.openapi()['paths'];
+          n=sum(len([k for k in v if k in ('get','post','put','delete','patch')]) for v in p.values());
+          print(f'hub operations: {n} across {len(p)} paths'); assert n > 25"
       - name: The console scripts are installed
         shell: bash
         run: |
