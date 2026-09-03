@@ -1,0 +1,173 @@
+name: Dependency canary
+
+# The counterweight to .github/ci-constraints.txt.
+#
+# Pinning CI makes a red run mean "someone changed this repository". That is
+# worth having, and it costs something: the day a dependency ships a breaking
+# release, nothing notices. The pins keep working, and the break is discovered
+# whenever somebody next refreshes them -- possibly months later, bundled with
+# thirty other version changes, by someone who has no idea which one did it.
+#
+# So this job installs with no constraints at all, against whatever PyPI offers
+# that morning, and runs the same checks. It is allowed to fail; that is its
+# job. When it does, it opens (or comments on) a single tracking issue naming
+# what broke, because a red X on a scheduled run that nobody is watching is
+# indistinguishable from no check at all.
+#
+# The failure this was written for: FastAPI 0.141 changed `app.routes`, and
+# `fastapi>=0.110,<1.0` accepted it. See claude/ci-red-2026-09-03.md.
+
+on:
+  schedule:
+    # 06:00 UTC on Mondays: a fresh failure is waiting at the start of the week
+    # rather than on a Friday evening.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: dependency-canary
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  unpinned:
+    name: Unpinned (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both platforms, and the ends of the supported Python range. The
+        # middle version has never yet been the one that differs, and this job
+        # is about early warning rather than exhaustive coverage -- the pinned
+        # matrix in ci.yml is what covers everything.
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Deliberately no `cache: pip` and no `-c`: a cache would serve the
+      # versions this job exists to stop using, and a constraint would defeat
+      # the entire point.
+      - name: Install whatever PyPI offers today
+        run: pip install -e ".[dev]"
+      - name: Record what was resolved
+        # Printed before anything can fail, so the log says which versions were
+        # under test even when the failure is three steps down.
+        run: pip freeze
+      - name: The workstation API imports and exposes its routes
+        run: >
+          python -c "from src.main import app;
+          p=app.openapi()['paths'];
+          n=sum(len([k for k in v if k in ('get','post','put','delete','patch')]) for v in p.values());
+          print(f'workstation operations: {n} across {len(p)} paths'); assert n > 25"
+      - name: The central hub imports and exposes its routes
+        run: >
+          python -c "from src.central_server.server import app;
+          p=app.openapi()['paths'];
+          n=sum(len([k for k in v if k in ('get','post','put','delete','patch')]) for v in p.values());
+          print(f'hub operations: {n} across {len(p)} paths'); assert n > 25"
+      - name: Run the suite
+        run: pytest -m "not hardware"
+
+  lint:
+    name: Lint and types (unpinned)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install whatever PyPI offers today
+        run: pip install -e ".[dev]"
+      - run: pip freeze
+      - name: ruff check
+        run: ruff check
+      - name: ruff format --check
+        run: ruff format --check
+      - name: mypy
+        run: mypy
+
+  report:
+    name: Report
+    # `always()` so this runs whether the jobs above passed or failed; without
+    # it a failed dependency would skip the very step that reports it.
+    if: always()
+    needs: [unpinned, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      # No checkout: this job reads no files. `gh` is preinstalled on the
+      # runner and addresses the repository through GH_REPO.
+      - name: Open or update the tracking issue
+        if: needs.unpinned.result == 'failure' || needs.lint.result == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # --force so a missing label is created and an existing one is left
+          # alone; `gh issue create --label` fails outright on an unknown label.
+          gh label create dependency-canary \
+            --color B60205 \
+            --description "A dependency released something the pins are hiding" \
+            --force
+
+          body=$(cat <<EOF
+          The weekly unpinned install failed. Something on PyPI has released a
+          version that this repository does not work with, and
+          \`.github/ci-constraints.txt\` is currently hiding it from every other
+          job.
+
+          | job | result |
+          | --- | --- |
+          | unpinned matrix | \`${{ needs.unpinned.result }}\` |
+          | lint and types | \`${{ needs.lint.result }}\` |
+
+          The failing run, including the \`pip freeze\` of what was actually
+          resolved: $RUN_URL
+
+          **This is not urgent and nothing is broken for users.** The pins mean
+          normal CI is unaffected and the application still builds. What it does
+          mean is that the next person to regenerate the constraints file will
+          hit this, and would rather find it written down than rediscover it.
+
+          To work on it: install without the constraints file
+          (\`pip install -e ".[dev]"\`), reproduce, and fix the code or add a
+          bound in \`pyproject.toml\` with a comment saying which release forced
+          it. Close this issue when the canary is green again -- it will reopen
+          itself as a new comment if it is not.
+          EOF
+          )
+
+          existing=$(gh issue list \
+            --label dependency-canary \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "$existing" ]; then
+            echo "commenting on existing issue #$existing"
+            gh issue comment "$existing" --body "$body"
+          else
+            echo "opening a new issue"
+            gh issue create \
+              --title "Dependency canary is failing on unpinned installs" \
+              --label dependency-canary \
+              --body "$body"
+          fi
+
+      - name: Say so when it passed
+        if: needs.unpinned.result == 'success' && needs.lint.result == 'success'
+        run: echo "Unpinned install is green — the constraints file is not hiding anything today."

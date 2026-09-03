@@ -1,0 +1,121 @@
+# .github/ci-constraints.txt — the versions CI installs.
+#
+# Why this file exists
+# --------------------
+# On 2026-09-03 the whole matrix went red without a matching code change.
+# `pyproject.toml` allows `fastapi>=0.110,<1.0`; CI resolved 0.141.1, in which
+# `include_router` stopped flattening routes into `app.routes`. The application
+# was fine -- a workflow assertion that read a FastAPI internal was not. Nothing
+# pinned the resolved version, so the break arrived on an unrelated push and had
+# to be diagnosed from scratch.
+#
+# Every CI job now installs with `-c .github/ci-constraints.txt`, so a given
+# commit resolves to the same versions today and in six months. A dependency
+# upgrade becomes a commit that changes this file, reviewed and bisectable like
+# any other, instead of an event that happens to whoever pushes next.
+#
+# The bounds in pyproject.toml stay as they are: they say what the project
+# *supports*, which is a different claim from what CI *installs*. Do not narrow
+# them to imitate this file.
+#
+# Scope
+# -----
+# CI only. This is not a supported install path for researchers or for the
+# packaged application -- those follow pyproject.toml. It carries no hashes,
+# because a constraints file with hashes requires hashes for everything in the
+# install, and the editable `-e .` of this project cannot have one.
+#
+# The environment markers are load-bearing: one file covers all six legs of the
+# matrix (ubuntu/windows x 3.10/3.11/3.12), which is why it is resolved with
+# `--universal` rather than on one machine.
+#
+# What keeps it from going stale
+# ------------------------------
+# .github/workflows/dependency-canary.yml runs weekly *without* these
+# constraints, against whatever PyPI offers that day, and opens an issue when
+# that fails. So this file being old is a tracked, visible state rather than a
+# silent one.
+#
+# Regenerate
+# ----------
+#     uv pip compile --universal --python-version 3.10 --extra dev \
+#         --no-annotate --no-header pyproject.toml -o .github/ci-constraints.txt
+#
+# Then run the suite before committing the result. Bumping the pins is a change
+# to what CI proves, and deserves the same evidence as a change to the code.
+
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.0
+ast-serialize==0.9.0
+backports-asyncio-runner==1.2.0 ; python_full_version < '3.11'
+certifi==2026.7.22
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+cfgv==3.5.0
+charset-normalizer==3.5.1
+click==8.5.0
+colorama==0.4.6 ; sys_platform == 'win32'
+coverage==7.16.0
+cryptography==50.0.1
+distlib==0.4.3
+distro==1.9.0
+exceptiongroup==1.3.1 ; python_full_version < '3.11'
+fastapi==0.141.1
+filelock==3.32.5
+glfw==2.10.2
+google-auth==2.57.0
+google-genai==2.22.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+identify==2.6.19
+idna==3.19
+iniconfig==2.3.0
+librt==0.15.0 ; platform_python_implementation != 'PyPy'
+mypy==2.3.1
+mypy-extensions==1.1.0
+nodeenv==1.10.0
+numpy==2.2.6 ; python_full_version < '3.11'
+numpy==2.4.6 ; python_full_version == '3.11.*'
+numpy==2.5.2 ; python_full_version >= '3.12'
+openvr==2.12.1401
+packaging==26.3
+pandas==2.3.3
+pathspec==1.1.1
+platformdirs==4.11.7
+pluggy==1.6.0
+pre-commit==4.6.2
+psutil==7.2.2
+pyarrow==25.0.1
+pyasn1==0.6.4
+pyasn1-modules==0.4.2
+pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pydantic==2.13.5
+pydantic-core==2.46.5
+pydantic-settings==2.15.0
+pygments==2.21.0
+pyopengl==3.1.10
+pyopenxr==1.1.5301
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+python-dateutil==2.9.0.post0
+python-discovery==1.6.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+pytz==2026.3.post1
+pyyaml==6.0.3
+requests==2.34.2
+ruff==0.16.5
+six==1.17.0
+sniffio==1.3.1
+starlette==1.6.0
+tenacity==9.1.4
+tomli==2.4.1
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+tzdata==2026.3
+urllib3==2.7.0
+uvicorn==0.52.4
+virtualenv==21.7.8
+websockets==16.1.1

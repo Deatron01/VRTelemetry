@@ -47,8 +47,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install -e ".[dev]"
+          cache-dependency-path: |
+            pyproject.toml
+            .github/ci-constraints.txt
+      - run: pip install -e ".[dev]" -c .github/ci-constraints.txt
       - name: ruff check
         run: ruff check --output-format=github
       - name: ruff format --check
@@ -71,8 +73,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install exactly what a new contributor would
-        run: pip install -e ".[dev]"
+      # Pinned, like every other job, so that a red run means someone changed
+      # this repository rather than that PyPI changed under it. The unpinned
+      # case -- what a new contributor actually gets today -- is a real
+      # question, and it is asked once a week by
+      # .github/workflows/dependency-canary.yml instead of on every push.
+      - name: Install the declared dependency graph
+        run: pip install -e ".[dev]" -c .github/ci-constraints.txt
       # Counted from the OpenAPI document rather than `app.routes`. The
       # original form -- `[r for r in app.routes if hasattr(r, 'path')]` --
       # read a FastAPI internal, and FastAPI 0.141 changed it: `include_router`
@@ -109,7 +116,7 @@ jobs:
         run: |
           python -m venv /tmp/hubonly
           if [ -d /tmp/hubonly/bin ]; then PY=/tmp/hubonly/bin/python; else PY=/tmp/hubonly/Scripts/python; fi
-          "$PY" -m pip install -q -e ".[server]"
+          "$PY" -m pip install -q -e ".[server]" -c .github/ci-constraints.txt
           "$PY" -c "import importlib.util as u; assert u.find_spec('xr') is None, 'pyopenxr leaked into the server extra'"
           cd "$(mktemp -d)" && "$PY" -c "from src.central_server.server import app; print('hub OK without VR bindings')"
 
@@ -127,8 +134,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install -e ".[dev]"
+          cache-dependency-path: |
+            pyproject.toml
+            .github/ci-constraints.txt
+      - run: pip install -e ".[dev]" -c .github/ci-constraints.txt
       - name: Run the suite
         # -m "not hardware" excludes tests needing a headset. Note that no test
         # currently carries that marker even though two of them arguably should;
@@ -151,7 +160,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev]" -c .github/ci-constraints.txt
       - name: -m "not hardware" and -m "hardware" partition the suite
         # If the marker expression silently matched nothing, `not hardware`
         # would collect everything and the exclusion in the test job would be
