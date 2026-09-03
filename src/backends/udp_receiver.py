@@ -36,7 +36,18 @@ class NativeQuestHarvesterProtocol(asyncio.DatagramProtocol):
         self.transport: asyncio.DatagramTransport | None = None
         self.unpack = struct.Struct(self.STRUCT_SIG).unpack
 
-    def connection_made(self, transport: asyncio.DatagramTransport) -> None:
+        #: Datagrams that could not be decoded (VRT-13). A Quest streaming a
+        #: payload this build cannot parse produces a session with plausible
+        #: frame counts and missing eye data; counting the rejects is what makes
+        #: that visible instead of merely quiet.
+        self._malformed_datagrams = 0
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        # Typed as BaseTransport because that is what asyncio.BaseProtocol
+        # declares; narrowing it in the override is a Liskov violation, and the
+        # narrower type was never checked anyway. asyncio guarantees a datagram
+        # transport for a datagram endpoint, which the assert states.
+        assert isinstance(transport, asyncio.DatagramTransport)
         self.transport = transport
         logger.info("Native Quest UDP socket bound. Awaiting biometric payloads...")
 
@@ -83,8 +94,18 @@ class NativeQuestHarvesterProtocol(asyncio.DatagramProtocol):
             # Push instantly to the lock-free queue
             self.synchronizer.push_frame(frame)
 
-        except Exception as e:
-            logger.error(f"UDP Deserialization fault: {e}")
+        except (struct.error, ValueError, IndexError) as e:
+            # A malformed or truncated datagram. Narrowed deliberately: this
+            # handler used to also swallow every failure of
+            # `synchronizer.push_frame` below it, so a broken writer looked
+            # exactly like a broken sender, and neither was actionable. Those
+            # now travel to the receiver's own error handling.
+            self._malformed_datagrams += 1
+            if self._malformed_datagrams == 1 or self._malformed_datagrams % 1000 == 0:
+                logger.error(
+                    f"UDP deserialization fault "
+                    f"({self._malformed_datagrams} malformed datagram(s) so far): {e}"
+                )
 
 
 class NativeQuestReceiver:
@@ -94,7 +115,7 @@ class NativeQuestReceiver:
         settings = get_settings().acquisition
         self.host = host or settings.udp_host
         self.port = port or settings.udp_port
-        self.transport = None
+        self.transport: asyncio.DatagramTransport | None = None
 
     async def start(self, synchronizer: BiometricSynchronizer) -> None:
         loop = asyncio.get_running_loop()

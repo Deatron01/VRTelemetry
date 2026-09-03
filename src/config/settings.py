@@ -190,15 +190,33 @@ class ApiSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
 
-    #: CORS. The Vite dev server and the packaged app origin only -- the old
-    #: value was ["*"] together with allow_credentials=True, a combination
-    #: browsers reject outright, so it was simultaneously over-permissive in
-    #: intent and broken in practice. Fixed properly in VRT-16.
+    #: CORS. The Vite dev server and the packaged app, and nothing else.
+    #:
+    #: The original value was ``["*"]`` with ``allow_credentials=True``, a
+    #: combination browsers reject outright -- over-permissive in intent and
+    #: non-functional in practice.
+    #:
+    #: ``"null"`` is deliberately **not** here, and must not be added. A
+    #: ``file://`` page has the origin ``null``, so allowing it would make the
+    #: packaged app work -- and would also let *any* website reach this API
+    #: through a sandboxed iframe, which shares that same origin. This API binds
+    #: loopback, but loopback is reachable from the browser of the person
+    #: sitting at the machine; it serves patient records and can start and stop
+    #: recordings. See electron/main.js, which registers the ``app://`` scheme
+    #: so the packaged renderer has a real origin of its own.
     allowed_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "app://.",
     )
+
+    #: Methods the frontend actually uses. ``["*"]`` was the previous value; a
+    #: narrower list is not much of a control on its own, but it means adding a
+    #: verb to the API is a decision rather than a side effect.
+    allowed_methods: tuple[str, ...] = ("GET", "POST", "PUT", "DELETE", "OPTIONS")
+
+    #: Request headers the frontend actually sends. Same reasoning.
+    allowed_headers: tuple[str, ...] = ("Content-Type",)
 
 
 class HubSettings(BaseSettings):

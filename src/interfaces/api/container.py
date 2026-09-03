@@ -32,13 +32,13 @@ in exchange for nothing this shape of problem needs.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import requests
-
+from src.application.ports import HttpClient
 from src.config import Settings, get_settings
 from src.infrastructure.persistence import SessionRepository
+from src.infrastructure.transport import default_http_client
 from src.license_service.local_cache import LocalLicenseCache
 from src.patients.patient_manager import PatientManager
 from src.storage.database_manager import DatabaseManager
@@ -126,13 +126,18 @@ class RecordingSessionManager:
             engine = self._engine
             if not (engine and getattr(engine, "is_running", False)):
                 return False
-        # Released before calling into the engine: stop() joins threads and
-        # flushes the writer, and holding a lock across that would block every
-        # status read for the duration of a teardown.
-        if hasattr(engine, "stop"):
-            engine.stop()
-        else:
-            engine.is_running = False
+        # Released before calling into the engine: the teardown that follows
+        # seals the writer and joins the consumer thread, and holding a lock
+        # across that would block every status read for its duration.
+        #
+        # Called unconditionally. This used to be `if hasattr(engine, "stop")`
+        # with `engine.is_running = False` as the fallback, and a comment saying
+        # the fallback never ran because the engine always had `stop()`. It
+        # never did -- the fallback was the only path -- so the manager was
+        # reaching into the engine and setting a flag, which happened to be
+        # exactly what stopping means and was therefore never noticed.
+        # TelemetryEngine.stop() exists as of VRT-14 and says so itself.
+        engine.stop()
         return True
 
 
@@ -160,7 +165,47 @@ class Container:
     #: The HTTP client every outbound call goes through. An attribute rather
     #: than a direct import so a test replaces one object instead of patching a
     #: name in eight router modules.
-    http: Any = field(default=requests)
+    #:
+    #: No default (VRT-14). It used to default to the ``requests`` module, which
+    #: read as "production is the normal case" and was true of the routers only:
+    #: the three clients below held their own reference, so replacing this field
+    #: repointed the routers and left the uploaders on the network. Requiring it
+    #: means the wiring happens in exactly one place, and :meth:`__post_init__`
+    #: refuses a container where it happened in only some of them.
+    http: HttpClient
+
+    def __post_init__(self) -> None:
+        """Refuse a container whose collaborators disagree about the network.
+
+        ``dataclasses.replace(container, http=stub)`` is the obvious way to
+        build an offline container, and before VRT-14 it half-worked: the field
+        changed, the routers followed it, and ``SessionUploader``,
+        ``PatientSyncClient`` and ``HeartbeatSender`` carried on using the real
+        library. A test written that way passes while reaching the network, and
+        an unreachable server looks identical to a working stub from the
+        assertion's side. This is the same class of defect as the false-green
+        fixture VRT-12 removed, so it is made impossible rather than documented.
+
+        Raises:
+            ValueError: if any client holds a different client to this field.
+        """
+        mismatched = [
+            name
+            for name, client in (
+                ("session_uploader", self.session_uploader),
+                ("patient_uploader", self.patient_uploader),
+                ("heartbeat_sender", self.heartbeat_sender),
+            )
+            if getattr(client, "http", self.http) is not self.http
+        ]
+        if mismatched:
+            raise ValueError(
+                f"Container.http is not the client held by {', '.join(mismatched)}. "
+                f"Every outbound call must go through one object, or an 'offline' "
+                f"container reaches the network through the ones that were missed. "
+                f"Build it with build_container(settings, http=...) rather than "
+                f"replacing the field afterwards."
+            )
 
     @property
     def sessions_output_dir(self) -> str:
@@ -183,7 +228,7 @@ class Container:
         return self.local_cache.get_config("central_server_url", configured) or configured
 
 
-def build_container(settings: Settings | None = None) -> Container:
+def build_container(settings: Settings | None = None, http: HttpClient | None = None) -> Container:
     """Construct every collaborator for one application instance.
 
     This is the only place in the codebase that calls these constructors. If
@@ -194,6 +239,10 @@ def build_container(settings: Settings | None = None) -> Container:
         settings: Configuration to build against. Defaults to the process
             settings, which is what production wants; tests pass their own
             pointed at a temporary data root.
+        http: The outbound HTTP client, handed to the routers *and* to the three
+            clients that make their own calls. Defaults to the real one. A test
+            that wants to stay offline passes its stub here -- not by replacing
+            the field afterwards, which :meth:`Container.__post_init__` refuses.
 
     Returns:
         A fully wired container. Nothing is started -- the background loops are
@@ -202,6 +251,7 @@ def build_container(settings: Settings | None = None) -> Container:
     """
     settings = settings or get_settings()
     settings.ensure_directories()
+    http = http if http is not None else default_http_client()
 
     local_cache = LocalLicenseCache(settings.paths.license_cache_db)
     recording = RecordingSessionManager()
@@ -213,8 +263,8 @@ def build_container(settings: Settings | None = None) -> Container:
     # The resolver, not its current value: an address changed through
     # POST /api/config/central-server takes effect on the next upload rather
     # than on the next app restart.
-    session_uploader = SessionUploader(_resolve_central_url, local_cache)
-    patient_uploader = PatientSyncClient(_resolve_central_url, local_cache)
+    session_uploader = SessionUploader(_resolve_central_url, local_cache, http=http)
+    patient_uploader = PatientSyncClient(_resolve_central_url, local_cache, http=http)
 
     def _status() -> str:
         return "recording" if recording.is_running else "idle"
@@ -245,11 +295,13 @@ def build_container(settings: Settings | None = None) -> Container:
         heartbeat_sender=HeartbeatSender(
             central_server_url_provider=_resolve_central_url,
             local_license_cache=local_cache,
+            http=http,
             interval_sec=settings.sync.heartbeat_interval_sec,
             status_provider=_status,
             pending_count_provider=_pending,
         ),
         recording=recording,
+        http=http,
     )
     logger.debug(f"Container built against data root {settings.paths.data_root}")
     return container

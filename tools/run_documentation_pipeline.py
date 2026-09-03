@@ -42,8 +42,12 @@ def run_script(script_name: str):
     except subprocess.CalledProcessError as e:
         print(f"[✗] Error executing {script_name}: exited with code {e.returncode}")
         return False
-    except Exception as e:
-        print(f"[✗] Unexpected error running {script_name}: {e}")
+    except OSError as e:
+        # The interpreter or the script path could not be executed at all,
+        # which CalledProcessError above does not cover. Narrowed so that a bug
+        # in this launcher is not reported to the operator as a failure of the
+        # step it was trying to run.
+        print(f"[✗] Could not start {script_name}: {e}")
         return False
 
 

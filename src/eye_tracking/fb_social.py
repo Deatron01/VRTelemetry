@@ -78,8 +78,14 @@ class FBEyeTrackingSocialDriver(IEyeTrackingDriver):
             logger.info("Meta Quest Pro Biometric FB Eye Tracker successfully initialized.")
             return True
 
-        except Exception as e:
-            logger.error(f"FB Eye Tracking initialization exception: {e}")
+        except (xr.XrException, ctypes.ArgumentError, OSError, ValueError, AttributeError) as e:
+            # The same chain as the HTC driver: an extension entry point
+            # resolved by name and called through a ctypes pointer. Returning
+            # False is how a driver declines; the factory then tries the next
+            # one, so this must not raise -- but it must also not hide a defect
+            # in this file, which is why the tuple is written out rather than
+            # being `Exception`.
+            logger.error(f"FB Eye Tracking initialization exception: {e}", exc_info=True)
             return False
 
     def populate_frame(self, frame: TelemetryFrame, timestamp_ns: int) -> None:

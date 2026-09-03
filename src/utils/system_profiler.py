@@ -4,6 +4,7 @@ import getpass
 import logging
 import platform
 import socket
+import subprocess
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -17,26 +18,50 @@ except ImportError:
 
 
 def collect_system_profile() -> dict[str, Any]:
-    """
-    Captures a snapshot of the host machine and environment at session start.
+    """Snapshot the host machine and environment at session start.
+
     This is part of the same consented data-collection scope as biometric
     telemetry (see GDPRConsentError) — it travels inside session metadata,
     not as a separate uncontrolled collection channel.
-    """
-    profile: dict[str, Any] = {
-        "os_name": platform.system(),
-        "os_version": platform.version(),
-        "os_release": platform.release(),
-        "architecture": platform.machine(),
-        "hostname": socket.gethostname(),
-        "python_version": platform.python_version(),
-        "cpu_name": platform.processor() or "Unknown",
-    }
 
-    try:
-        profile["os_user"] = getpass.getuser()
-    except Exception:
-        profile["os_user"] = "Unknown"
+    **This function never raises** (VRT-13). It is a probe: every field is
+    optional, a missing one costs a line of context in a research dataset, and
+    nothing here is worth failing a recording over. That contract is stated
+    because it is what lets every caller invoke it bare — and because the two
+    callers previously disagreed about it, one wrapping it in ``try/except`` and
+    the other not, which is the state in which a real fault is handled by
+    neither.
+
+    The tolerance is bounded: each probe catches the failures that probe can
+    actually produce, so a genuine defect in this module still surfaces.
+
+    Returns:
+        Whatever could be collected. Keys are absent or "Unknown" rather than
+        the whole profile being lost.
+    """
+    profile: dict[str, Any] = {}
+
+    # platform and socket read the OS's own identity. On a locked-down or
+    # containerised host these can fail (no hostname resolver, no /proc); each
+    # is independent, so one failing must not cost the others.
+    for key, probe in (
+        ("os_name", platform.system),
+        ("os_version", platform.version),
+        ("os_release", platform.release),
+        ("architecture", platform.machine),
+        ("hostname", socket.gethostname),
+        ("python_version", platform.python_version),
+        ("cpu_name", lambda: platform.processor() or "Unknown"),
+        ("os_user", getpass.getuser),
+    ):
+        try:
+            profile[key] = probe()
+        except (OSError, KeyError) as e:
+            # OSError: the OS refused to answer. KeyError: getpass.getuser()
+            # raises it when no passwd entry and no LOGNAME/USER/USERNAME exist,
+            # which is the normal state inside a container.
+            logger.debug(f"System profile field '{key}' unavailable: {e}")
+            profile[key] = "Unknown"
 
     if PSUTIL_AVAILABLE:
         try:
@@ -54,7 +79,11 @@ def collect_system_profile() -> dict[str, Any]:
             if battery:
                 profile["host_battery_pct"] = battery.percent
                 profile["host_on_ac_power"] = battery.power_plugged
-        except Exception as e:
+        except (OSError, AttributeError, psutil.Error) as e:
+            # psutil.Error covers its own family (AccessDenied, NoSuchProcess).
+            # AttributeError is here on purpose: psutil omits sensors_battery and
+            # cpu_freq entirely on platforms that cannot report them, so the
+            # attribute genuinely does not exist rather than failing when called.
             logger.debug(f"psutil system profiling partial failure: {e}")
     else:
         logger.warning("psutil not available — system profile will be incomplete.")
@@ -71,8 +100,6 @@ def _collect_gpu_info() -> str:
     want as hard dependencies — this stays a soft, non-blocking probe.
     """
     try:
-        import subprocess
-
         if platform.system() == "Windows":
             result = subprocess.run(
                 ["wmic", "path", "win32_VideoController", "get", "name"],
@@ -93,7 +120,10 @@ def _collect_gpu_info() -> str:
                 ["system_profiler", "SPDisplaysDataType"], capture_output=True, text=True, timeout=5
             )
             return result.stdout.strip()[:500] if result.stdout else "Unknown"
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
+        # The vendor tool is absent (OSError) or misbehaved -- timed out, or
+        # exited non-zero (SubprocessError). Both mean "no GPU name available",
+        # which is a legitimate answer on a machine without a discrete GPU.
         logger.debug(f"GPU info collection failed: {e}")
     return "Unknown"
 
@@ -111,5 +141,9 @@ def collect_runtime_snapshot() -> dict[str, Any]:
             "cpu_load_pct": psutil.cpu_percent(interval=None),
             "ram_used_pct": psutil.virtual_memory().percent,
         }
-    except Exception:
+    except (OSError, psutil.Error) as e:
+        # Called once per hardware-monitor tick, so this stays at debug: a
+        # transient read failure on a busy machine is not news, and the caller
+        # keeps its last known values.
+        logger.debug(f"Runtime snapshot unavailable: {e}")
         return {}

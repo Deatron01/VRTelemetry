@@ -5,20 +5,23 @@ import time
 from pathlib import Path
 from typing import Any
 
-from src.backends.backend_ocolus import OculusBackend
-from src.backends.backend_openxr import OpenXRBackend
-from src.backends.backend_steamvr import SteamVROverlayBackend
+from src.application.recording_context import (
+    RecordingDependencies,
+    build_recording_dependencies,
+)
+from src.backends.registry import create_backend
 from src.backends.udp_receiver import NativeQuestReceiver
 from src.config import get_settings
-from src.core.exceptions import GDPRConsentError
+from src.core.exceptions import (
+    BackendUnavailableError,
+    GDPRConsentError,
+    StorageWriteError,
+    SynchronizationError,
+    VRTelemetryError,
+)
 from src.core.interfaces import IVRBackend
 from src.core.live_state import LiveExperimentState
 from src.core.synchronizer import BiometricSynchronizer
-from src.license_service.local_cache import LocalLicenseCache
-from src.storage.database_manager import DatabaseManager
-from src.storage.parquet_writer import AsyncParquetWriter
-from src.storage.session_uploader import SessionUploader
-from src.utils.hardware_monitor import HardwareMonitor
 from src.utils.logger import attach_session_log_capture, detach_session_log_capture, logger
 from src.utils.system_profiler import collect_system_profile
 
@@ -36,7 +39,43 @@ class TelemetryEngine:
         subject_metadata: dict[str, Any] | None = None,
         hardware_metadata: dict[str, Any] | None = None,
         central_server_url: str | None = None,
+        dependencies: RecordingDependencies | None = None,
+        backend: str = "auto",
+        network_port: int = 5005,
     ):
+        """Prepare a recording. Nothing is started and no thread is spawned.
+
+        Args:
+            output_dir: Where the Parquet file goes. Defaults to configuration.
+            gdpr_consent: Must be true. This is the operator asserting they have
+                consent; the patient record is checked separately by the caller.
+            subject_metadata: Pre-built metadata block, or None to construct the
+                default one.
+            hardware_metadata: Capability map, folded into the default block.
+            central_server_url: Hub address for this session's uploads.
+            backend: Which acquisition backend to use, resolved through
+                :mod:`src.backends.registry`. Both callers used to assign
+                ``engine.configured_backend`` after construction, so the
+                attribute did not exist on the class and every read was a
+                ``getattr(self, ..., "auto")`` that would have silently used the
+                default if the assignment were ever forgotten -- and mypy could
+                not see the attribute at all.
+            network_port: UDP port for ``"quest_udp"``. Same story.
+            dependencies: The sink, metrics source, metadata sink and uploader
+                (VRT-14). ``None`` builds the production set, which is what the
+                API route and the CLI want. A test passes fakes and gets a full
+                recording lifecycle with no disk, no network and no hardware --
+                see tests/integration/test_recording_lifecycle.py.
+
+                Note the asymmetry with the API's container, which has no such
+                default: these are session-scoped (the writer's path carries the
+                session id), so there is no earlier place for a caller to build
+                them, and requiring it would put four constructors into both
+                call sites.
+
+        Raises:
+            GDPRConsentError: if consent was not asserted.
+        """
         settings = get_settings()
         max_sampling_hz = settings.acquisition.default_max_sampling_hz
 
@@ -46,15 +85,30 @@ class TelemetryEngine:
             )
 
         self.is_running = False
+        #: Frames the synchroniser accepted -- what the session actually has.
         self.frames_recorded = 0
+        #: Times the backend was asked for a frame. Kept apart from the above
+        #: because they are wildly different numbers on a non-blocking backend,
+        #: and conflating them is what made every frame count wrong (VRT-24).
+        self.frames_polled = 0
         self.gdpr_consent = gdpr_consent
+        self.configured_backend = backend
+        self.network_port = network_port
+
+        #: Why this session ended, when it ended badly (VRT-13). ``None`` means
+        #: it ran to completion. Previously a session that never bound a headset,
+        #: never opened its Parquet file or died in the acquisition loop all
+        #: looked identical from outside: `start()` returned, `is_running` went
+        #: False, and the reason existed only in a log line. The API and the CLI
+        #: read this to say what actually happened.
+        self.failure_reason: str | None = None
 
         # Declared here rather than only in start(). The attribute was created
         # partway through start()'s backend-selection branch, so between
         # construction and that branch the object had no `backend` attribute at
         # all -- any access raised AttributeError instead of reading None. That
         # is what made tests/integration/test_pipeline.py fail on every machine,
-        # headset or not. Backend selection moves to a registry in VRT-14.
+        # headset or not. Selection now goes through src.backends.registry.
         self.backend: IVRBackend | None = None
         self.live_state = LiveExperimentState()
         self._last_frame_ts_ns: int | None = None
@@ -64,24 +118,30 @@ class TelemetryEngine:
 
         self._session_wall_start_ts: float | None = None
         self._session_wall_end_ts: float | None = None
+        #: Where this session's captured log was written, set at teardown.
+        self.session_log_path: Path | None = None
 
         self.session_id = time.strftime("%Y%m%d_%H%M%S")
         self.parquet_path = self.output_dir / f"vr_telemetry_{self.session_id}.parquet"
 
-        # 1. Initialize core storage and hardware monitors FIRST
-        self.db_manager = DatabaseManager()
-        self.hardware = HardwareMonitor()
-        self.writer = AsyncParquetWriter(output_path=self.parquet_path, target_hz=120)
-
-        # 2. Initialize license cache and uploader
-        self.local_license_cache = LocalLicenseCache()
-        # None is a legitimate state: an unconfigured hub means uploads queue
+        # 1. The collaborators. Built here only when the caller did not supply
+        # them: this constructor used to open a SQLite database, read the
+        # licence cache and construct an HTTP client unconditionally, which is
+        # why there was no way to exercise a recording without a disk and a
+        # network. An unconfigured hub is a legitimate state -- uploads queue
         # locally rather than being attempted against a placeholder address.
-        self.uploader = SessionUploader(
-            central_server_url or settings.central.url or "", self.local_license_cache
+        self.dependencies = dependencies or build_recording_dependencies(
+            self.parquet_path, central_server_url=central_server_url
         )
+        # Named attributes as well as the dataclass, because six call sites and
+        # three tests already say `engine.writer`. They are the same objects;
+        # `self.dependencies` is what a new caller should read.
+        self.writer = self.dependencies.writer
+        self.hardware = self.dependencies.hardware
+        self.db_manager = self.dependencies.metadata_sink
+        self.uploader = self.dependencies.uploader
 
-        # 3. Initialize synchronizer AFTER its dependencies (writer, hardware, live_state) exist
+        # 2. Initialize synchronizer AFTER its dependencies (writer, hardware, live_state) exist
         self.synchronizer = BiometricSynchronizer(
             writer=self.writer,
             hardware_monitor=self.hardware,
@@ -99,30 +159,48 @@ class TelemetryEngine:
         }
 
         if "S-IX_System_Profile" not in self.subject_metadata:
-            try:
-                self.subject_metadata["S-IX_System_Profile"] = collect_system_profile()
-            except Exception as e:
-                logger.warning(
-                    f"System profile collection failed, continuing with empty profile: {e}"
-                )
-                self.subject_metadata["S-IX_System_Profile"] = {}
+            # No guard: collect_system_profile() is documented never to raise and
+            # returns whatever it managed to collect. The try/except that used to
+            # be here was the only caller that guarded it -- start() below has
+            # always called it bare -- so the two disagreed about whose job the
+            # failure was, which is the condition under which a real fault ends
+            # up handled by neither.
+            self.subject_metadata["S-IX_System_Profile"] = collect_system_profile()
 
-    def _start_async_loop(self) -> None:
-        """Isolated thread execution for non-blocking I/O operations."""
-        asyncio.set_event_loop(self._async_loop)
+    def _start_async_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Run the consumer loop on its own thread.
 
-        self.synchronizer.start(self._async_loop)
+        Takes the loop rather than reading ``self._async_loop``. That attribute
+        is legitimately ``None`` between construction and ``start()``, so every
+        use of it here was an access on an Optional -- eleven of the type
+        checker's complaints about this file, and each one a real "if this ran
+        at the wrong moment it would be an AttributeError". Passing it makes the
+        ordering a fact of the signature instead of an assumption.
+
+        Args:
+            loop: The event loop this thread owns and closes.
+        """
+        asyncio.set_event_loop(loop)
+
+        self.synchronizer.start(loop)
 
         try:
-            self._async_loop.run_forever()
-        except Exception as e:
-            logger.error(f"AsyncIO Loop Exception: {e}")
+            loop.run_forever()
+        except Exception as e:  # noqa: BLE001 - thread top level: nothing above it can catch
+            # This thread owns the only consumer of the ring buffer. If it dies,
+            # the acquisition loop keeps polling and pushing into a buffer that
+            # nothing drains, and the session ends reporting frames that were
+            # never written. So the failure is recorded and acquisition is told
+            # to stop, rather than logged and left to run on.
+            self.failure_reason = f"consumer thread failed: {e}"
+            logger.critical(f"AsyncIO Loop Exception -- halting acquisition: {e}", exc_info=True)
+            self._shutdown_event.set()
         finally:
-            pending = asyncio.all_tasks(loop=self._async_loop)
+            pending = asyncio.all_tasks(loop=loop)
             for task in pending:
                 task.cancel()
-            self._async_loop.run_until_complete(self._async_loop.shutdown_asyncgens())
-            self._async_loop.close()
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
 
     def start(self) -> None:
         """
@@ -137,9 +215,25 @@ class TelemetryEngine:
         self.subject_metadata.setdefault("S-IX_System_Profile", {})
         self.subject_metadata["S-IX_System_Profile"].update(system_profile)
 
-        self.db_manager.persist_experiment(self.subject_metadata)
         self.hardware.start()
-        self.writer.start()
+        try:
+            self.writer.start()
+        except StorageWriteError as exc:
+            # The sink could not be opened. Everything after this point would
+            # record frames into nothing, so the session does not start at all
+            # and says why -- rather than running to completion and leaving an
+            # empty file for someone to find later.
+            self.failure_reason = f"storage unavailable: {exc}"
+            logger.critical(f"Recording aborted before the first frame: {exc}")
+            self.hardware.stop()
+            self.session_log_path = detach_session_log_capture(self._session_log_handler)
+            return
+
+        # Called once. It used to be called twice in a row with the first
+        # return value discarded, which is the same swallowed-failure shape this
+        # ticket is about: whichever of the two failed, the log recorded at most
+        # one of them, and a duplicate INSERT of the same session's metadata was
+        # the successful case.
         persisted = self.db_manager.persist_experiment(self.subject_metadata)
         if not persisted:
             logger.error(
@@ -156,49 +250,120 @@ class TelemetryEngine:
                     f"Retried {retry_result['attempted']} pending upload(s) from previous sessions, "
                     f"{retry_result['succeeded']} succeeded."
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - boot step: an unreachable hub must not block recording
+            # Deliberately the tolerant side of the rule. This sweep is about
+            # *previous* sessions; a researcher on a laptop with no route to the
+            # hub must still be able to press record. The queue is durable and
+            # BackgroundSyncScheduler retries it every 20s regardless.
             logger.warning(f"Pending upload retry sweep failed (will retry next start): {e}")
 
         self._shutdown_event.clear()
-        self._async_loop = asyncio.new_event_loop()
+        loop = self._async_loop = asyncio.new_event_loop()
 
         self._async_thread = threading.Thread(
-            target=self._start_async_loop, daemon=True, name="TelemetryConsumerThread"
+            target=self._start_async_loop,
+            args=(loop,),
+            daemon=True,
+            name="TelemetryConsumerThread",
         )
         self._async_thread.start()
 
         self._session_wall_start_ts = time.time()
 
         self.is_running = True
-        backend_mode = getattr(self, "configured_backend", "auto")
+        backend_mode = self.configured_backend
 
         try:
             if backend_mode == "quest_udp":
+                # Not a backend: the Quest streams frames into the synchroniser
+                # over a socket, so there is nothing to poll. See the note in
+                # src/backends/registry.py about folding both shapes into one
+                # FrameSource port.
                 self._run_quest_udp_mode()
             else:
-                if backend_mode == "openxr":
-                    self.backend = OpenXRBackend()
-                elif backend_mode == "oculus":
-                    self.backend = OculusBackend()
-                else:  # "auto" vagy "steamvr" esetén
-                    self.backend = SteamVROverlayBackend()
-
-                self._run_pcvr_mode()
+                # One line where there were five, and the difference is not the
+                # line count: an unrecognised name used to fall through the
+                # `else` and start a SteamVR session, so `--backend openxrr`
+                # recorded a study on the wrong device without a word. The
+                # registry raises instead, and the raise lands in the
+                # VRTelemetryError clause below as a stated failure_reason.
+                self.backend = create_backend(backend_mode)
+                self._run_pcvr_mode(self.backend)
 
         except KeyboardInterrupt:
             logger.warning("Telemetry capture sequence interrupted manually.")
-        except Exception as e:
-            logger.error(f"Critical runtime exception in main loop: {e}")
+        except VRTelemetryError as e:
+            # A failure this application anticipated -- no headset, no storage,
+            # consent revoked. Reportable as a reason, not as a crash.
+            self.failure_reason = str(e)
+            logger.error(f"Recording stopped: {e}")
+        except Exception as e:  # noqa: BLE001 - session boundary: teardown must run whatever happened
+            # Anything else is a defect. It still must not escape past the
+            # `finally` -- the writer has to be sealed and the log detached or
+            # the session's data is unrecoverable -- but it is logged with its
+            # traceback and named as unexpected, rather than reduced to one line
+            # that reads like the expected case.
+            self.failure_reason = f"unexpected error: {e}"
+            logger.critical(f"Unexpected exception in main loop: {e}", exc_info=True)
         finally:
             self._teardown()
 
-    def _run_pcvr_mode(self) -> None:
-        logger.info(f"Initializing Native Context via {self.backend.__class__.__name__}...")
-        if not self.backend.initialize():
-            logger.error("Failed to bind PCVR session. Terminating execution.")
-            return
+    def stop(self) -> None:
+        """Ask the acquisition loop to finish.
 
-        detected_hz = getattr(self.backend, "get_refresh_rate_hz", lambda: None)()
+        Returns immediately. The loop notices on its next iteration, falls out
+        of :meth:`start`, and ``start``'s ``finally`` runs :meth:`_teardown` --
+        which seals the Parquet file, joins the consumer thread and uploads. So
+        "stopped" means "asked to stop"; the caller that needs the session
+        finished waits on the thread it started.
+
+        Both flags are set. ``is_running`` ends the PCVR poll loop and
+        ``_shutdown_event`` ends the UDP one, and a stop that set only the first
+        would leave a Quest session running.
+
+        **This method did not exist until VRT-14**, which makes two comments
+        elsewhere in the tree wrong in an instructive way.
+        ``RecordingSessionManager.stop`` reads::
+
+            if hasattr(engine, "stop"):
+                engine.stop()
+            else:
+                engine.is_running = False
+
+        and VRT-12's note beside it says "TelemetryEngine has always had
+        ``stop()``, so that fallback never ran". The opposite was true: the
+        engine never had one, so the fallback was the only path that had ever
+        run and the ``hasattr`` branch was dead. It worked, because setting the
+        flag is what stopping amounts to -- but "the manager reaches in and
+        mutates the engine's attribute" is not a contract, and the comment
+        asserting otherwise had been read and believed at least twice.
+        """
+        self.is_running = False
+        self._shutdown_event.set()
+
+    def _run_pcvr_mode(self, backend: IVRBackend) -> None:
+        """Poll ``backend`` until the session ends.
+
+        Args:
+            backend: The bound acquisition backend. Passed rather than read from
+                ``self.backend``, which is Optional until ``start()`` selects
+                one -- so every use inside this method was an access on a value
+                the type checker knew could be None, and a caller could invoke
+                it before selection and get an AttributeError.
+        """
+        logger.info(f"Initializing Native Context via {backend.__class__.__name__}...")
+        if not backend.initialize():
+            # Raised rather than returned. `return` here left start() to run its
+            # `finally` and exit normally, so a workstation with no headset
+            # produced a completed session with zero frames and no stated cause;
+            # the only trace was one ERROR line in a log nobody reads unless
+            # something already looks wrong.
+            raise BackendUnavailableError(
+                f"{backend.__class__.__name__} could not bind to a VR runtime. "
+                f"Check that the headset is connected and its runtime is running."
+            )
+
+        detected_hz = getattr(backend, "get_refresh_rate_hz", lambda: None)()
         if detected_hz and detected_hz > 0:
             headroom = get_settings().acquisition.sampling_headroom
             cap = max(30.0, min(500.0, detected_hz * headroom))
@@ -215,28 +380,56 @@ class TelemetryEngine:
 
         logger.info("Main telemetry cycle active. Listening for HMD pacing.")
 
+        # Pacing (VRT-24). "Listening for HMD pacing" was aspirational: it is
+        # true of OpenXR, whose poll_frame blocks in `xr.wait_frame`, and false
+        # of SteamVR's overlay path, which reads *predicted* poses and returns
+        # immediately. Measured against a non-blocking backend, this loop ran at
+        # ~131,000 Hz and the synchroniser discarded 99.92% of what it produced
+        # -- a core pinned at 100% for the length of a session, competing with
+        # the compositor on the same machine, to throw away 392,633 of 392,956
+        # frames.
+        #
+        # Sleeping until the next sample is due costs a blocking backend
+        # nothing: if poll_frame already took longer than the interval, the
+        # remaining time is negative and there is no sleep. Deadlines are
+        # advanced absolutely rather than by "sleep(interval)" so that a slow
+        # frame does not push every later one late.
+        next_due_ns = time.perf_counter_ns()
+
         while self.is_running and not self._shutdown_event.is_set():
             if not self.gdpr_consent:
                 logger.error("Consent revoked during active sampling.")
                 break
 
-            if getattr(self.writer, "write_failed", False):
+            # `self.writer.write_failed`, not `getattr(..., False)`. The
+            # defensive form defaulted a *missing* attribute to "everything is
+            # fine", so a sink that could not report failure was read as one
+            # that had not failed. FrameSink makes the attribute part of the
+            # contract instead (VRT-14).
+            if self.writer.write_failed:
                 logger.critical(
                     "Parquet writer has failed — stopping acquisition rather than continuing to "
                     "collect frames that cannot be persisted."
                 )
                 break
 
-            frame_data = self.backend.poll_frame(self.frames_recorded)
+            frame_data = backend.poll_frame(self.frames_polled)
+            self.frames_polled += 1
 
-            if (
-                self._last_frame_ts_ns is not None
-                and frame_data.timestamp_ns > self._last_frame_ts_ns
-            ):
-                dt = (frame_data.timestamp_ns - self._last_frame_ts_ns) / 1e9
-                if dt > 0:
-                    frame_data.app_fps = 1.0 / dt
-            self._last_frame_ts_ns = frame_data.timestamp_ns
+            # Only where the timestamp is the runtime's display time. On the
+            # SteamVR path it is `time.perf_counter_ns()` read at the moment we
+            # asked, so this arithmetic yielded our own polling rate -- about
+            # 131,000 "fps" -- written into the app_fps column of every frame in
+            # the dataset. See IVRBackend.timestamp_is_display_time.
+            if backend.timestamp_is_display_time:
+                if (
+                    self._last_frame_ts_ns is not None
+                    and frame_data.timestamp_ns > self._last_frame_ts_ns
+                ):
+                    dt = (frame_data.timestamp_ns - self._last_frame_ts_ns) / 1e9
+                    if dt > 0:
+                        frame_data.app_fps = 1.0 / dt
+                self._last_frame_ts_ns = frame_data.timestamp_ns
 
             # A frame with zero valid tracking sources is the stub returned when the
             # session isn't ready — recording it corrupts the dataset with fake all-zero rows.
@@ -246,21 +439,39 @@ class TelemetryEngine:
                 or frame_data.right_tracking_valid > 0
                 or frame_data.eye_tracking_valid > 0
             )
-            if has_valid_source:
-                self.synchronizer.push_frame(frame_data)
+            if has_valid_source and self.synchronizer.push_frame(frame_data):
+                # Accepted, not merely offered. This counted every *poll* until
+                # VRT-24, so a three-second session reported 392,956 frames and
+                # persisted 322 of them -- and that number is what teardown logs
+                # and what `total_frames` sends to the hub.
                 self.frames_recorded += 1
+
+            interval_ns = self.synchronizer.sample_interval_ns
+            if interval_ns:
+                next_due_ns += interval_ns
+                remaining_ns = next_due_ns - time.perf_counter_ns()
+                if remaining_ns > 0:
+                    time.sleep(remaining_ns / 1e9)
+                else:
+                    # Behind schedule: reset the deadline instead of
+                    # accumulating debt and then free-running to catch up.
+                    next_due_ns = time.perf_counter_ns()
 
     def _run_quest_udp_mode(self) -> None:
         """Headless network loop catching native Quest Pro biometric payloads."""
-        port = getattr(self, "network_port", 5005)
+        port = self.network_port
         self.synchronizer.set_max_hz(120.0)
         logger.info(f"Bypassing PCVR Runtimes. Booting Native UDP Receiver on port {port}...")
 
         receiver = NativeQuestReceiver(port=port)
 
-        future = asyncio.run_coroutine_threadsafe(
-            receiver.start(self.synchronizer), self._async_loop
-        )
+        loop = self._async_loop
+        if loop is None:  # pragma: no cover - start() creates it before branching here
+            raise SynchronizationError(
+                "The consumer loop was not started before UDP ingestion began."
+            )
+
+        future = asyncio.run_coroutine_threadsafe(receiver.start(self.synchronizer), loop)
         future.result()
 
         logger.info("Main telemetry cycle active. Listening for 120Hz UDP stream from Quest Pro...")
@@ -269,7 +480,7 @@ class TelemetryEngine:
             if not self.gdpr_consent:
                 logger.error("Consent revoked during active sampling.")
                 break
-            if getattr(self.writer, "write_failed", False):
+            if self.writer.write_failed:
                 logger.critical(
                     "Parquet writer has failed — stopping UDP ingestion rather than continuing to "
                     "collect frames that cannot be persisted."
@@ -300,7 +511,7 @@ class TelemetryEngine:
         self.hardware.stop()
         self.writer.stop()
 
-        if getattr(self.writer, "write_failed", False):
+        if self.writer.write_failed:
             logger.critical(
                 f"Session {self.session_id}: the Parquet writer failed partway through recording. "
                 f"The reported frame count ({self.frames_recorded}) does NOT reflect what was actually "
@@ -348,13 +559,19 @@ class TelemetryEngine:
             # queue_on_failure=True (the default) means a failure here is queued
             # in pending_session_logs and retried by the BackgroundSyncScheduler,
             # rather than being silently lost.
-            if getattr(self, "session_log_path", None) and self.session_log_path.exists():
-                log_result = self.uploader.upload_log(self.session_log_path, session_id)
+            log_path = self.session_log_path
+            if log_path is not None and log_path.exists():
+                log_result = self.uploader.upload_log(log_path, session_id)
                 if not log_result.get("ok"):
                     logger.warning(
                         f"Session log upload failed for {session_id}: "
                         f"{log_result.get('reason')} — queued for retry."
                     )
 
-        except Exception as e:
-            logger.error(f"Unexpected error during post-session upload: {e}")
+        except Exception as e:  # noqa: BLE001 - teardown: the data is already on disk and safe
+            # The last thing that runs, after the Parquet file is sealed. An
+            # upload that fails here costs a sync, not a session, and the
+            # pending queue picks it up. What it must not do is raise out of
+            # _teardown() and skip the shutdown log line, which is how a session
+            # that recorded perfectly ends up looking like one that crashed.
+            logger.error(f"Unexpected error during post-session upload: {e}", exc_info=True)

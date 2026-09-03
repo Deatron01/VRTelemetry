@@ -5,11 +5,12 @@ import logging
 import secrets
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
+from src.utils.clock import as_stored, is_expired, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class AuthManager:
                 return {"ok": False, "reason": "invalid_credentials"}
 
             session_token = secrets.token_urlsafe(32)
-            expires_at = (datetime.utcnow() + timedelta(hours=SESSION_LIFETIME_HOURS)).isoformat()
+            expires_at = as_stored(utc_now() + timedelta(hours=SESSION_LIFETIME_HOURS))
 
             conn.execute(
                 "INSERT INTO sessions (session_token, user_id, expires_at) VALUES (?, ?, ?)",
@@ -117,7 +118,7 @@ class AuthManager:
 
             if not row or row["revoked"]:
                 return None
-            if datetime.fromisoformat(row["expires_at"]) < datetime.utcnow():
+            if is_expired(row["expires_at"]):
                 return None
 
             return {

@@ -102,9 +102,27 @@
         .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
+    // The API sends UTC timestamps with no zone on them: "2026-09-01 08:00:00"
+    // from SQLite's CURRENT_TIMESTAMP, "2026-09-01T08:00:00" from Python. The
+    // Date constructor reads a zone-less string as *local*, so every timestamp
+    // on this dashboard rendered by the viewer's UTC offset too early -- two
+    // hours, in Central Europe -- while the Online/Offline chip beside it, which
+    // the server computes in UTC, was correct. A machine could read as online
+    // next to a "last seen" two hours stale (VRT-21).
+    //
+    // This is the reader's half of the fix. The writer's half -- having the API
+    // say which zone it means -- is the recorded follow-up; doing it here first
+    // means the dashboard is right either way, including for rows already
+    // stored.
+    function asUtc(v) {
+      const text = String(v).trim();
+      if (/(Z|z|[+-]\d{2}:?\d{2})$/.test(text)) return text;  // already zoned
+      return text.replace(' ', 'T') + 'Z';
+    }
+
     function fmtDate(v) {
       if (!v) return '<span class="text-slate-500">—</span>';
-      const d = new Date(v);
+      const d = new Date(asUtc(v));
       if (isNaN(d.getTime())) return escapeHtml(v);
       return d.toLocaleString();
     }

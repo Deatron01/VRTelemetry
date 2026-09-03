@@ -1,6 +1,22 @@
+from src.backends.tracking_faults import TrackingFaultLog
 from src.core.datatypes import TelemetryFrame
 from src.core.interfaces import IVRBackend
 from src.utils.logger import logger
+
+# Every handler in this file is broad, and each one carries a `noqa` naming the
+# reason rather than the file carrying a blanket exemption (VRT-13). The reason
+# is the same in all three places and is stated once here:
+#
+# LibOVR is reached through the optional `ovr` binding, which publishes no
+# exception base class of its own -- failures surface as whatever the ctypes
+# layer beneath it raised. There is no narrower tuple to write that would not
+# be a guess, and a guess here fails in the direction that ends a recording.
+#
+# What keeps this honest is that nothing is discarded: initialize() reports the
+# failure by returning False, poll_frame() attributes it to a named source in
+# `self.faults` so it appears in the shutdown summary, and shutdown() logs at
+# ERROR. This is the tolerant side of the rule in src/core/exceptions.py -- an
+# optional backend on hardware nobody in this study may own.
 
 # Conditional import for Oculus bindings (e.g., using the pyovr wrapper)
 try:
@@ -23,6 +39,11 @@ class OculusBackend(IVRBackend):
         self.hmd_desc = None
         self.has_eye_tracking = False  # LibOVR standard SDK does not route eye tracking directly
 
+        #: Per-source tracking faults (VRT-13). See
+        #: :mod:`src.backends.tracking_faults`.
+        self.faults = TrackingFaultLog("OculusBackend")
+        self._frames_polled = 0
+
     def initialize(self) -> bool:
         if not OVR_AVAILABLE:
             logger.warning(
@@ -36,12 +57,13 @@ class OculusBackend(IVRBackend):
             self.hmd_desc = ovr.getHmdDesc(self.session)
             logger.info(f"Oculus Native Backend Initialized: {self.hmd_desc.ProductName}")
             return True
-        except Exception as e:
-            logger.error(f"Oculus Backend Initialization failed: {e}")
+        except Exception as e:  # noqa: BLE001 - see the module note: `ovr` has no exception base
+            logger.error(f"Oculus Backend Initialization failed: {e}", exc_info=True)
             self.shutdown()
             return False
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
+        self._frames_polled += 1
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
             return frame
@@ -109,9 +131,11 @@ class OculusBackend(IVRBackend):
             frame.left_grip = input_state.HandTrigger[0]
             frame.right_grip = input_state.HandTrigger[1]
 
-        except Exception as e:
-            # Exception guarantees fallback to the 0.0 defaults established in create_empty()
-            logger.debug(f"Frame {frame_index} Oculus tracking exception: {e}")
+        except Exception as e:  # noqa: BLE001 - see the module note: `ovr` has no exception base
+            # Falls back to the 0.0 defaults from create_empty(), which are
+            # indistinguishable from hardware that is simply not being worn --
+            # hence the tally, which is reported at shutdown.
+            self.faults.record("frame", e)
 
         return frame
 
@@ -120,7 +144,8 @@ class OculusBackend(IVRBackend):
             try:
                 ovr.destroy(self.session)
                 ovr.shutdown()
-            except Exception as e:
-                logger.error(f"Error shutting down Oculus session: {e}")
+            except Exception as e:  # noqa: BLE001 - see the module note: `ovr` has no exception base
+                logger.error(f"Error shutting down Oculus session: {e}", exc_info=True)
             finally:
                 self.session = None
+        self.faults.summarise(self._frames_polled)

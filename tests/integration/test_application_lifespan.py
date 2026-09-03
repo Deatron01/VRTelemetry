@@ -51,10 +51,8 @@ class _Unreachable:
 @pytest.fixture
 def offline_container(tmp_path: Path) -> Container:
     """A container against a temp data root whose hub cannot be reached."""
-    import dataclasses
-
     settings = Settings(paths=PathSettings(data_root=tmp_path))
-    return dataclasses.replace(build_container(settings), http=_Unreachable())
+    return build_container(settings, http=_Unreachable())
 
 
 @pytest.fixture

@@ -8,8 +8,10 @@ based on each item's own attempt count, so a persistently-failing item backs
 off while everything else still gets retried promptly.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
+
+from src.utils.clock import parse_utc, utc_now
 
 
 def is_ready_for_retry(
@@ -21,11 +23,12 @@ def is_ready_for_retry(
     if attempts <= 0 or not last_attempt_at:
         return True
 
-    try:
-        last_dt = datetime.fromisoformat(str(last_attempt_at))
-    except (TypeError, ValueError):
-        # Unparsable timestamp shouldn't permanently wedge an item — fail open.
+    # Unparsable or absent timestamp shouldn't permanently wedge an item —
+    # fail open. `last_attempt_at` is SQLite CURRENT_TIMESTAMP, which is UTC
+    # with no zone on it; parse_utc is where that convention is stated.
+    last_dt = parse_utc(last_attempt_at)
+    if last_dt is None:
         return True
 
     delay = min(base_delay * (2 ** min(int(attempts), 10)), max_delay)
-    return datetime.utcnow() >= last_dt + timedelta(seconds=delay)
+    return utc_now() >= last_dt + timedelta(seconds=delay)

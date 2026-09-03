@@ -22,7 +22,11 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
         self.session: xr.Session | None = None
         self.app_space: xr.Space | None = None
 
-        self.action_set: xr.ActionSet | None = None
+        # Published to the backend, which attaches and syncs it. See the
+        # contract on IEyeTrackingDriver: this driver used to attach and sync
+        # the set itself, which is why the OpenXR backend failed to bind on
+        # every headset that selected this driver.
+        self.gaze_action_set: xr.ActionSet | None = None
         self.eye_gaze_action: xr.Action | None = None
         self.eye_space: xr.Space | None = None
 
@@ -40,7 +44,7 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
         self.app_space = app_space
 
         try:
-            self.action_set = xr.create_action_set(
+            self.gaze_action_set = xr.create_action_set(
                 instance,
                 xr.ActionSetCreateInfo(
                     action_set_name="biometric_ext_gaze_set",
@@ -49,7 +53,7 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
             )
 
             self.eye_gaze_action = xr.create_action(
-                self.action_set,
+                self.gaze_action_set,
                 xr.ActionCreateInfo(
                     action_name="eye_gaze",
                     action_type=xr.ActionType.POSE_INPUT,
@@ -75,9 +79,6 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
             self.eye_space = xr.create_action_space(
                 self.session, xr.ActionSpaceCreateInfo(action=self.eye_gaze_action)
             )
-            xr.attach_session_action_sets(
-                self.session, xr.SessionActionSetsAttachInfo(action_sets=[self.action_set])
-            )
 
             logger.info("XR_EXT_eye_gaze_interaction initialized successfully.")
             return True
@@ -90,18 +91,12 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
         if not self.eye_space or not self.app_space:
             return
 
-        # The runtime will reject this sync if the action set wasn't attached,
-        # but focus loss is handled gracefully by returning inactive states.
+        # No sync here. The backend syncs every attached action set once per
+        # frame, before it calls this; syncing again with only *this* set would
+        # mark the controller actions inactive for the rest of the frame. The
+        # HTC driver has always relied on the backend's sync -- this one now
+        # does too.
         try:
-            xr.sync_actions(
-                self.session,
-                xr.ActionsSyncInfo(
-                    active_action_sets=[
-                        xr.ActiveActionSet(action_set=self.action_set, subaction_path=xr.NULL_PATH)
-                    ]
-                ),
-            )
-
             eye_loc = xr.locate_space(self.eye_space, self.app_space, timestamp_ns)
 
             # Check BOTH position and orientation validity bits.
@@ -147,14 +142,14 @@ class EXTEyeGazeDriver(IEyeTrackingDriver):
 
         except xr.XrException as e:
             # Prevent single-frame exceptions from crashing the telemetry loop
-            logger.debug(f"Action Sync dropped for Eye Gaze: {e}")
+            logger.debug(f"Eye gaze pose unavailable this frame: {e}")
             frame.eye_tracking_valid = 0.0
 
     def shutdown(self) -> None:
         if self.eye_space:
             xr.destroy_space(self.eye_space)
-        if self.action_set:
-            xr.destroy_action_set(self.action_set)
+        if self.gaze_action_set:
+            xr.destroy_action_set(self.gaze_action_set)
 
 
 EyeTrackingFactory.register_driver(EXTEyeGazeDriver)

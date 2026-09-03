@@ -16,6 +16,7 @@ import sys
 from typing import Any
 
 from src.backends.discovery import RuntimeCapabilityDiscovery
+from src.backends.registry import known_backends
 from src.core.engine import TelemetryEngine
 from src.core.exceptions import GDPRConsentError
 from src.eye_tracking.factory import EyeTrackingFactory
@@ -23,9 +24,12 @@ from src.utils.logger import logger, setup_logging
 from src.utils.metadata import sanitize_metadata
 
 
-def parse_arguments() -> argparse.Namespace:
-    """
-    Constructs the operational CLI argument parser for framework initialization.
+def build_parser() -> argparse.ArgumentParser:
+    """The operational CLI argument parser.
+
+    Separate from :func:`parse_arguments` so a test can inspect the options
+    without driving ``sys.argv`` or catching ``SystemExit`` -- specifically, so
+    the test that the ``--backend`` choices match the registry can read them.
     """
     parser = argparse.ArgumentParser(
         description="VRTelemetry: Headless Biometric Acquisition Framework"
@@ -50,7 +54,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         type=str,
-        choices=["auto", "openxr", "oculus", "steamvr", "quest_udp"],
+        # Built from the registry rather than hand-listed, so a backend added
+        # there is selectable here without a second edit that someone will
+        # forget. "quest_udp" is appended because it is a different loop shape
+        # rather than a backend -- see src/backends/registry.py.
+        choices=["auto", *known_backends(), "quest_udp"],
         default="auto",
         help="Enforce a specific runtime hardware backend wrapper or standalone network telemetry worker.",
     )
@@ -60,7 +68,12 @@ def parse_arguments() -> argparse.Namespace:
         default=5005,
         help="Incoming network port target when operating under 'quest_udp' stream backend mode.",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse ``sys.argv`` with :func:`build_parser`."""
+    return build_parser().parse_args()
 
 
 def execute_pipeline() -> None:
@@ -107,20 +120,24 @@ def execute_pipeline() -> None:
         output_dir=args.output,
         gdpr_consent=args.gdpr_consent,
         hardware_metadata=hardware_capabilities,
+        backend=args.backend,
+        network_port=args.port,
     )
 
     # Inject runtime execution configurations into context maps before startup sequence
     engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = args.subject_id
-
-    # Inform backend engine context regarding specific protocol drivers
-    engine.configured_backend = args.backend
-    engine.network_port = args.port
 
     try:
         engine.start()
     except GDPRConsentError as e:
         logger.error(str(e))
         sys.exit(1)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - process top level: the alternative is a bare traceback
+        # The outermost frame of the `vrtelemetry-record` console script. There
+        # is nothing above it but the interpreter, so this catch converts a
+        # crash into a logged failure and an exit status -- with the traceback
+        # kept (`exc_info=True`), which is the part that distinguishes this from
+        # swallowing. The engine has already recorded `failure_reason` for the
+        # cases it anticipated; this is for the ones it did not.
         logger.critical(f"Unhandled framework panic: {e}", exc_info=True)
         sys.exit(1)

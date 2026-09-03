@@ -38,11 +38,20 @@ container's HTTP client is a stub that raises for every call. "Central server
 unreachable" is a documented, supported state for this application, so it is
 the right default for a test: any route that only passes against a live server
 was never offline-safe to begin with.
+
+What changed in VRT-14
+----------------------
+
+This file used to build a real container and then replace two bound methods on
+``patient_uploader`` and ``session_uploader``, because those two clients held
+their own ``requests`` reference and the container's ``http`` field did not
+reach them. That is gone: the stub is passed to ``build_container`` and is the
+only HTTP client anywhere in the container, so the offline guarantee no longer
+depends on remembering which methods happen to make calls.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -106,21 +115,7 @@ def workstation(tmp_path: Path) -> Iterator[Container]:
 
     settings = Settings(paths=PathSettings(data_root=tmp_path))
     stub = _UnreachableServer(real_requests)
-    container = dataclasses.replace(build_container(settings), http=stub)
-
-    # PatientSyncClient and SessionUploader hold their own reference to
-    # `requests`, reached inside the client rather than through the container's
-    # HTTP attribute. Substituting the two methods the routes call keeps this
-    # suite off the network without pretending the container's `http` covers
-    # more than it does. Folding those clients behind the same port is VRT-14.
-    container.patient_uploader.sync_patient = (  # type: ignore[method-assign]
-        lambda *_a, **_k: {"ok": False, "reason": "stubbed_offline"}
-    )
-    container.session_uploader.update_remote_metadata = (  # type: ignore[method-assign]
-        lambda *_a, **_k: {"ok": False, "reason": "stubbed_offline"}
-    )
-
-    yield container
+    yield build_container(settings, http=stub)
 
 
 @pytest.fixture

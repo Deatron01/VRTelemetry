@@ -33,6 +33,12 @@ class BackgroundSyncScheduler:
             threading.Lock()
         )  # guards against an on-demand sweep overlapping the scheduled one
 
+        #: Individual queue sweeps that failed (VRT-13). The loop deliberately
+        #: survives them -- see :meth:`sweep_once` -- so this is what makes a
+        #: scheduler that has been failing every tick for an hour distinguishable
+        #: from one with nothing to do.
+        self.sweep_faults = 0
+
     @property
     def is_running(self) -> bool:
         """Whether the background loop is alive.
@@ -77,21 +83,30 @@ class BackgroundSyncScheduler:
             logger.debug("Sync sweep already in progress, skipping this tick.")
             return result
 
+        # One decision, applied three times, so it is written once rather than
+        # copied three times: each queue is swept independently and a failure in
+        # one must not cost the other two. Broad, because an uploader can fail
+        # with anything its transport or its local queue database raises, and
+        # this loop runs on a daemon thread with nothing above it -- an escaping
+        # exception ends automatic syncing for the rest of the process, silently,
+        # which is far worse than one missed tick.
+        #
+        # Nothing is lost by continuing: every queue is durable and the next
+        # tick, 20 seconds later, retries exactly the same work. The failure is
+        # logged with its traceback and counted rather than swallowed.
+        sweeps = (
+            ("sessions", "session", self.session_uploader.retry_pending),
+            ("logs", "log", self.session_uploader.retry_pending_logs),
+            ("patients", "patient", self.patient_uploader.retry_pending),
+        )
         try:
-            try:
-                result["sessions"] = self.session_uploader.retry_pending()
-            except Exception as e:
-                logger.warning(f"Background session sync sweep failed: {e}")
-
-            try:
-                result["logs"] = self.session_uploader.retry_pending_logs()
-            except Exception as e:
-                logger.warning(f"Background log sync sweep failed: {e}")
-
-            try:
-                result["patients"] = self.patient_uploader.retry_pending()
-            except Exception as e:
-                logger.warning(f"Background patient sync sweep failed: {e}")
+            for key, label, sweep in sweeps:
+                try:
+                    result[key] = sweep()
+                # Broad: see above: one queue must not stop the others
+                except Exception as e:
+                    self.sweep_faults += 1
+                    logger.warning(f"Background {label} sync sweep failed: {e}", exc_info=True)
         finally:
             self._lock.release()
 

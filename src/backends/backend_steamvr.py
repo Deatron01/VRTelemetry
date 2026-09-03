@@ -6,10 +6,26 @@ import time
 
 import openvr
 
+from src.backends.tracking_faults import TrackingFaultLog
 from src.core.datatypes import TelemetryFrame
 from src.core.interfaces import IVRBackend
 
 logger = logging.getLogger(__name__)
+
+#: What a failed OpenVR read is allowed to look like (VRT-13). ``OpenVRError``
+#: is the base of every error pyopenvr raises for a property or a device --
+#: ``TrackedPropertyError`` and friends all derive from it. ``ValueError`` and
+#: ``OSError`` cover the ctypes boundary underneath.
+#:
+#: What is deliberately *not* in this tuple is ``TypeError``, and narrowing it
+#: out is what exposed the bug fixed in this commit: pyopenvr dropped the
+#: trailing ``error`` out-parameter from ``get*TrackedDeviceProperty`` after
+#: 1.x, so every call in this file passed one argument too many and raised
+#: ``TypeError`` on every frame. A blanket ``except Exception`` recorded that as
+#: "battery unavailable", set -1.0, and did it 120 times a second for the life
+#: of every SteamVR session. Nothing in the data or the log distinguished it
+#: from a headset that genuinely does not report a battery.
+_PROPERTY_FAULTS = (openvr.OpenVRError, ValueError, OSError)
 
 
 def matrix_to_quaternion(m: list) -> tuple[float, float, float, float]:
@@ -61,6 +77,11 @@ class SteamVROverlayBackend(IVRBackend):
         self.overlay_handle = openvr.k_ulOverlayHandleInvalid
         self.vr_chaperone: openvr.IVRChaperone | None = None
 
+        #: Per-source tracking faults (VRT-13). See
+        #: :mod:`src.backends.tracking_faults`.
+        self.faults = TrackingFaultLog("SteamVROverlayBackend")
+        self._frames_polled = 0
+
     def initialize(self) -> bool:
         try:
             if not openvr.isHmdPresent():
@@ -84,6 +105,7 @@ class SteamVROverlayBackend(IVRBackend):
             return False
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
+        self._frames_polled += 1
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.vr_system:
             return frame
@@ -109,14 +131,16 @@ class SteamVROverlayBackend(IVRBackend):
 
             # --- 1b. HMD Battery ---
             try:
-                error = openvr.TrackedPropertyError()
                 frame.battery_hmd = self.vr_system.getFloatTrackedDeviceProperty(
                     openvr.k_unTrackedDeviceIndex_Hmd,
                     openvr.Prop_DeviceBatteryPercentage_Float,
-                    error,
                 )
-            except Exception as batt_err:
-                logger.debug(f"HMD battery property unavailable: {batt_err}")
+            except _PROPERTY_FAULTS as batt_err:
+                # A tethered headset has no battery to report, which is the
+                # ordinary case rather than a fault -- but it is now counted, so
+                # "this hardware has no battery" and "we stopped being able to
+                # read one partway through" are no longer the same log line.
+                self.faults.record("hmd_battery", batt_err)
                 frame.battery_hmd = -1.0
 
             # --- 1c. Distance to Play-Area Boundary (Chaperone) ---
@@ -133,8 +157,8 @@ class SteamVROverlayBackend(IVRBackend):
                     frame.distance_to_boundary = max(0.0, min(dx, dz))
                 else:
                     frame.distance_to_boundary = -1.0
-            except Exception as chap_err:
-                logger.debug(f"Chaperone boundary query unavailable: {chap_err}")
+            except _PROPERTY_FAULTS as chap_err:
+                self.faults.record("chaperone", chap_err)
                 frame.distance_to_boundary = -1.0
 
             # --- 2. Process Controller Telemetry ---
@@ -168,12 +192,11 @@ class SteamVROverlayBackend(IVRBackend):
 
                 # Left Controller Battery
                 try:
-                    error = openvr.TrackedPropertyError()
                     frame.battery_left = self.vr_system.getFloatTrackedDeviceProperty(
-                        left_idx, openvr.Prop_DeviceBatteryPercentage_Float, error
+                        left_idx, openvr.Prop_DeviceBatteryPercentage_Float
                     )
-                except Exception as batt_err:
-                    logger.debug(f"Left controller battery property unavailable: {batt_err}")
+                except _PROPERTY_FAULTS as batt_err:
+                    self.faults.record("left_battery", batt_err)
                     frame.battery_left = -1.0
 
             # Right Controller
@@ -202,29 +225,31 @@ class SteamVROverlayBackend(IVRBackend):
 
                 # Right Controller Battery
                 try:
-                    error = openvr.TrackedPropertyError()
                     frame.battery_right = self.vr_system.getFloatTrackedDeviceProperty(
-                        right_idx, openvr.Prop_DeviceBatteryPercentage_Float, error
+                        right_idx, openvr.Prop_DeviceBatteryPercentage_Float
                     )
-                except Exception as batt_err:
-                    logger.debug(f"Right controller battery property unavailable: {batt_err}")
+                except _PROPERTY_FAULTS as batt_err:
+                    self.faults.record("right_battery", batt_err)
                     frame.battery_right = -1.0
 
             # --- 3. Process General Flags & Timestamps ---
             try:
-                error = openvr.TrackedPropertyError()
                 gaze_support = self.vr_system.getBoolTrackedDeviceProperty(
-                    openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_HasCamera_Bool, error
+                    openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_HasCamera_Bool
                 )
                 frame.eye_tracking_valid = 1.0 if gaze_support else 0.0
-            except Exception as prop_err:
-                logger.debug(f"OpenVR Property Error: {prop_err}")
+            except _PROPERTY_FAULTS as prop_err:
+                self.faults.record("eye_support_probe", prop_err)
                 frame.eye_tracking_valid = 0.0
 
             frame.timestamp_ns = time.perf_counter_ns()
 
-        except Exception as e:
-            logger.debug(f"OpenVR Sync Exception: {e}")
+        except (openvr.OpenVRError, ValueError, OSError, IndexError) as e:
+            # Whole-frame fault: pose enumeration failed, so nothing in this
+            # frame is populated. IndexError is included because the pose array
+            # is indexed by device id and a device that disconnects between the
+            # enumeration and the read shortens it.
+            self.faults.record("frame", e)
 
         return frame
 
@@ -236,17 +261,20 @@ class SteamVROverlayBackend(IVRBackend):
             openvr.shutdown()
             self.vr_system = None
 
+        self.faults.summarise(self._frames_polled)
         logger.info("OpenVR Overlay Context Terminated.")
 
     def get_refresh_rate_hz(self) -> float | None:
         if not self.vr_system:
             return None
         try:
-            error = openvr.TrackedPropertyError()
             rate = self.vr_system.getFloatTrackedDeviceProperty(
-                openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_DisplayFrequency_Float, error
+                openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_DisplayFrequency_Float
             )
             return float(rate) if rate and rate > 0 else None
-        except Exception as e:
-            logger.debug(f"Refresh rate query failed (non-critical): {e}")
+        except _PROPERTY_FAULTS as e:
+            # Logged at WARNING, not debug: the caller falls back to a
+            # configured sampling cap, so a session recorded at the wrong rate
+            # is the consequence, and that is worth a line someone will see.
+            logger.warning(f"HMD refresh rate unavailable, using the configured cap: {e}")
             return None

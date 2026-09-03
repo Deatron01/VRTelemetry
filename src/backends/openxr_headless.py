@@ -6,7 +6,9 @@ import platform
 
 import xr
 
+from src.backends.tracking_faults import TrackingFaultLog
 from src.core.datatypes import TelemetryFrame
+from src.core.exceptions import HardwareBindingError
 from src.core.interfaces import IVRBackend
 from src.eye_tracking.base_driver import IEyeTrackingDriver
 from src.eye_tracking.factory import EyeTrackingFactory
@@ -21,6 +23,9 @@ class OpenXRHeadlessBackend(IVRBackend):
     it falls back to an invisible Direct3D 11 device context to run silently in the background
     without requiring an active window (resolves Oculus OpenGL compatibility drops).
     """
+
+    #: OpenXR stamps frames with `predicted_display_time`.
+    timestamp_is_display_time = True
 
     def __init__(self) -> None:
         self.instance: xr.Instance | None = None
@@ -38,9 +43,13 @@ class OpenXRHeadlessBackend(IVRBackend):
         self.right_space: xr.Space | None = None
         self.eye_driver: IEyeTrackingDriver | None = None
 
-        self.graphics_binding = None
-        self.d3d_device = None
-        self.d3d_context = None
+        # Annotated rather than left as bare `None`: these hold ctypes handles
+        # from `_create_d3d11_binding()`, and an attribute the checker believes
+        # is permanently None makes every later `byref`/`cast` on it an error it
+        # cannot distinguish from a real one (VRT-17).
+        self.graphics_binding: xr.GraphicsBindingD3D11KHR | None = None
+        self.d3d_device: ctypes.c_void_p | None = None
+        self.d3d_context: ctypes.c_void_p | None = None
         self.is_pure_headless = False
         self.session_state = xr.SessionState.UNKNOWN
 
@@ -50,6 +59,11 @@ class OpenXRHeadlessBackend(IVRBackend):
             view_configuration_type=xr.ViewConfigurationType.PRIMARY_STEREO
         )
         self.frame_end_info = xr.FrameEndInfo(environment_blend_mode=xr.EnvironmentBlendMode.OPAQUE)
+
+        #: Per-source tracking faults (VRT-13). See
+        #: :mod:`src.backends.tracking_faults`.
+        self.faults = TrackingFaultLog("OpenXRHeadlessBackend")
+        self._frames_polled = 0
 
     def _create_d3d11_binding(self) -> None:
         """Constructs an invisible D3D11 graphics device to satisfy Windows XR runtimes."""
@@ -62,7 +76,10 @@ class OpenXRHeadlessBackend(IVRBackend):
             logger.debug(f"D3D11 Graphics Requirements: min_feature_level={reqs.min_feature_level}")
 
             # Load the D3D11 DLL via ctypes
-            d3d11 = ctypes.windll.d3d11
+            # Windows-only by construction -- the guard above returns on every
+            # other platform -- but `ctypes.windll` does not exist for a type
+            # checker running on Linux, which is where CI runs.
+            d3d11 = ctypes.windll.d3d11  # type: ignore[attr-defined]
 
             D3D_DRIVER_TYPE_HARDWARE = 1
             D3D11_CREATE_DEVICE_BGRA_SUPPORT = 0x20
@@ -149,9 +166,14 @@ class OpenXRHeadlessBackend(IVRBackend):
 
             if not self.is_pure_headless:
                 self._create_d3d11_binding()
+                binding = self.graphics_binding
+                if binding is None:  # pragma: no cover - _create_d3d11_binding raises instead
+                    raise HardwareBindingError(
+                        "D3D11 graphics binding was not created; cannot open a session."
+                    )
                 session_create_info = xr.SessionCreateInfo(
                     system_id=self.system_id,
-                    next=ctypes.cast(ctypes.pointer(self.graphics_binding), ctypes.c_void_p),
+                    next=ctypes.cast(ctypes.pointer(binding), ctypes.c_void_p),
                 )
             else:
                 session_create_info = xr.SessionCreateInfo(system_id=self.system_id)
@@ -162,8 +184,15 @@ class OpenXRHeadlessBackend(IVRBackend):
                 self.app_space = xr.create_reference_space(
                     self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.LOCAL)
                 )
-            except Exception:
-                # Fallback, ha a LOCAL sem menne, visszatérünk STAGE-re
+            except xr.XrException as local_err:
+                # Fall back to STAGE when the runtime offers no LOCAL space.
+                # Narrowed to the runtime's own exception so a fault in our own
+                # call is not retried as if it were a missing capability; if
+                # STAGE fails too, initialize()'s handler reports the bind
+                # failure rather than this branch hiding it.
+                logger.info(
+                    f"LOCAL reference space unavailable, falling back to STAGE: {local_err}"
+                )
                 self.app_space = xr.create_reference_space(
                     self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE)
                 )
@@ -180,12 +209,15 @@ class OpenXRHeadlessBackend(IVRBackend):
             self.active_action_set_info.subaction_path = xr.NULL_PATH
             active_sets_for_sync = [self.active_action_set_info]
 
-            # Bind eye driver's action set if valid
-            if self.eye_driver and getattr(self.eye_driver, "gaze_action_set", None):
-                action_sets_to_attach.append(self.eye_driver.gaze_action_set)
+            # Bind the eye driver's action set if it published one.
+            # `getattr(..., None)` until VRT-17, because IEyeTrackingDriver did
+            # not declare the attribute; it is part of the interface now.
+            eye_action_set = self.eye_driver.gaze_action_set if self.eye_driver else None
+            if eye_action_set is not None:
+                action_sets_to_attach.append(eye_action_set)
 
                 gaze_set_info = xr.ActiveActionSet()
-                gaze_set_info.action_set = self.eye_driver.gaze_action_set
+                gaze_set_info.action_set = eye_action_set
                 gaze_set_info.subaction_path = xr.NULL_PATH
                 active_sets_for_sync.append(gaze_set_info)
 
@@ -297,6 +329,7 @@ class OpenXRHeadlessBackend(IVRBackend):
                     xr.end_session(self.session)
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
+        self._frames_polled += 1
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
             return frame
@@ -376,9 +409,13 @@ class OpenXRHeadlessBackend(IVRBackend):
             self.frame_end_info.display_time = t
             xr.end_frame(self.session, self.frame_end_info)
 
-        except Exception as e:
-            # Replaced logger.debug with logger.error to ensure exceptions are visible
-            logger.error(f"Frame Drop: {e}")
+        except xr.XrException as e:
+            # Whole-frame fault. Counted rather than only logged: "visible" was
+            # already the intent of the line this replaces, but one ERROR per
+            # dropped frame at 120 Hz is not visibility, it is a log nobody can
+            # read. The tally lands in the shutdown summary instead, next to the
+            # frame count it needs to be read against.
+            self.faults.record("frame", e)
 
         return frame
 
@@ -403,4 +440,5 @@ class OpenXRHeadlessBackend(IVRBackend):
             self.d3d_device = None
             self.d3d_context = None
 
+        self.faults.summarise(self._frames_polled)
         logger.info("OpenXR Context Safely Terminated.")

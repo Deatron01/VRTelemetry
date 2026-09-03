@@ -9,10 +9,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.central_server.data_manager import CentralDataManager
 from src.central_server.data_schema import initialize_data_schema
+from src.config import get_settings
+from src.infrastructure.persistence.connection import describe_health
 from src.license_service.auth_manager import AuthManager
 from src.license_service.db_schema import initialize_license_schema
 from src.license_service.manager import LicenseManager
+from src.utils.clock import parse_utc, utc_now
 from src.utils.logger import logger, setup_logging
+from src.version import APP_VERSION
 
 setup_logging()
 initialize_license_schema()
@@ -32,6 +36,43 @@ if _admin_ui_dir.exists():
 license_mgr = LicenseManager()
 data_mgr = CentralDataManager()
 auth_mgr = AuthManager()
+
+
+@app.get("/health", tags=["health"])
+def health() -> dict[str, Any]:
+    """Whether this hub is running, and whether its database answers.
+
+    Unauthenticated and deliberately cheap. It exists for two callers with the
+    same question asked at different moments:
+
+    * a researcher setting up a workstation, who needs to know whether the
+      address they typed reaches a hub at all -- before discovering otherwise at
+      the end of a recording, which is when they used to find out;
+    * ``POST /api/config/central-server/check`` on the workstation, which asks
+      this on their behalf and reports the answer in the app.
+
+    Always returns 200, including when the database is broken. The distinction
+    that matters to the caller is "did anything answer" versus "nothing
+    answered", and a 503 collapses the second case into the first: an
+    unreachable host and an unhealthy one would both surface as a failed
+    request. ``ok`` carries the health; the status code carries reachability.
+
+    Returns:
+        ``service`` and ``version`` so a workstation pointed at the wrong
+        service on the right port can tell; ``database`` is ``"ok"`` or the
+        error, so "the hub is up but cannot store anything" is visible rather
+        than being discovered on the first upload.
+    """
+    database = describe_health(get_settings().paths.central_data_db)
+    if database != "ok":
+        logger.error(f"Health check: central database is not answering: {database}")
+
+    return {
+        "ok": database == "ok",
+        "service": "vrtelemetry-hub",
+        "version": APP_VERSION,
+        "database": database,
+    }
 
 
 def _client_ip(request: Request) -> str:
@@ -272,8 +313,8 @@ async def upload_session(
 
     try:
         metadata = json.loads(metadata_json)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="metadata_json is not valid JSON")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail="metadata_json is not valid JSON") from e
 
     file_bytes = await file.read()
     if not file_bytes:
@@ -313,8 +354,8 @@ async def update_session_metadata(
 
     try:
         metadata = json.loads(metadata_json)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="metadata_json is not valid JSON")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail="metadata_json is not valid JSON") from e
 
     result = data_mgr.update_session_metadata(
         license_id=auth["license_id"], session_id=session_id, metadata=metadata
@@ -401,12 +442,10 @@ def admin_list_clients(admin=Depends(require_admin)):
     to the license heartbeat's last_heartbeat_at and reads as Offline/Unknown
     once that ages past the threshold.
     """
-    import datetime as _dt
-
     activations = {a["activation_id"]: a for a in license_mgr.list_activations()}
     heartbeats = {h["activation_id"]: h for h in data_mgr.list_client_heartbeats()}
 
-    now = _dt.datetime.utcnow()
+    now = utc_now()
     clients = []
     for aid in set(activations) | set(heartbeats):
         act = activations.get(aid, {})
@@ -415,13 +454,10 @@ def admin_list_clients(admin=Depends(require_admin)):
 
         seconds_since_seen = None
         online = False
-        if last_seen:
-            try:
-                last_dt = _dt.datetime.fromisoformat(str(last_seen))
-                seconds_since_seen = (now - last_dt).total_seconds()
-                online = 0 <= seconds_since_seen <= CLIENT_ONLINE_THRESHOLD_SECONDS
-            except ValueError:
-                pass
+        last_dt = parse_utc(last_seen)
+        if last_dt is not None:
+            seconds_since_seen = (now - last_dt).total_seconds()
+            online = 0 <= seconds_since_seen <= CLIENT_ONLINE_THRESHOLD_SECONDS
 
         clients.append(
             {
@@ -622,10 +658,51 @@ def admin_delete_raw_file(file_id: str, admin=Depends(require_admin)):
 
     try:
         path.unlink()
-        logger.warning(f"Admin {admin['email']} deleted raw file: {file_id}")
-        return {"ok": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete file: {e!s}")
+    except OSError as e:
+        # The file exists (checked above) but could not be removed: permissions,
+        # or another process holding it open, which on Windows is the ordinary
+        # case rather than the exotic one. Narrowed from `Exception` so that a
+        # defect in the path handling above surfaces as a real 500 with a
+        # traceback instead of being reported to an admin as a locked file.
+        logger.error(f"Admin {admin['email']} could not delete raw file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {e!s}") from e
+
+    logger.warning(f"Admin {admin['email']} deleted raw file: {file_id}")
+    return {"ok": True}
+
+
+def resolve_bind_address() -> tuple[str, int]:
+    """Where this hub should listen, and why.
+
+    Separate from :func:`main` so it can be tested without starting a server --
+    which is the whole difficulty with binding bugs: the only way to observe one
+    used to be to run the thing and see where it turned up.
+
+    Returns:
+        Host and port, from :class:`~src.config.settings.HubSettings`, with the
+        pre-VRT-6 ``VRT_HUB_HOST`` / ``VRT_HUB_PORT`` spelling honoured on top
+        if it is present. Honoured rather than ignored: a deployment or a
+        desktop shortcut may still set it, and silently binding somewhere other
+        than where you were told is the exact failure this function exists to
+        end.
+    """
+    settings = get_settings().hub
+    host, port = settings.host, settings.port
+
+    for old, new in (("VRT_HUB_HOST", "VRT_HUB__HOST"), ("VRT_HUB_PORT", "VRT_HUB__PORT")):
+        value = os.environ.get(old)
+        if value is None:
+            continue
+        logger.warning(
+            f"{old} is the pre-VRT-6 spelling and is deprecated; use {new} "
+            f"(double underscore) or a [hub] block in config.toml. Honouring it."
+        )
+        if old.endswith("HOST"):
+            host = value
+        else:
+            port = int(value)
+
+    return host, port
 
 
 def main() -> None:
@@ -636,19 +713,26 @@ def main() -> None:
     command line from memory, which is how a service ends up bound to a
     different interface or port on every machine it runs on.
 
-    Host and port come from ``VRT_HUB_HOST`` / ``VRT_HUB_PORT`` so a deployment
-    can move them without editing code. The defaults bind all interfaces on
-    9000, matching what the workstation client expects from
-    ``LocalLicenseCache.get_config("central_server_url")`` -- this is a LAN
-    service that other machines must reach, unlike the workstation's own API,
-    which correctly binds loopback only. Replaced by typed settings in VRT-6.
+    Host and port come from :class:`~src.config.settings.HubSettings` --
+    ``VRT_HUB__HOST`` / ``VRT_HUB__PORT``, or a ``[hub]`` block in
+    ``config.toml``. The defaults bind all interfaces on 9000, because this is a
+    LAN service other machines must reach, unlike the workstation's own API,
+    which correctly binds loopback only.
+
+    This docstring used to end "Replaced by typed settings in VRT-6", and it was
+    not: the body went on reading ``VRT_HUB_HOST`` and ``VRT_HUB_PORT`` with a
+    *single* underscore, which is not what pydantic-settings binds and not what
+    ``config.example.toml`` or the port-collision error message tell you to set.
+    So the documented way to move the hub silently did nothing, and the way that
+    worked was documented nowhere. Both now work, and the old spelling says so.
     """
     import uvicorn
 
-    host = os.environ.get("VRT_HUB_HOST", "0.0.0.0")  # noqa: S104 - LAN service by design
-    port = int(os.environ.get("VRT_HUB_PORT", "9000"))
+    host, port = resolve_bind_address()
 
     logger.info(f"Starting VRTelemetry central hub on {host}:{port}")
+    logger.info(f"  admin UI:     http://{host}:{port}/admin-ui")
+    logger.info(f"  health check: http://{host}:{port}/health")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

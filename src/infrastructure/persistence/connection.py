@@ -81,6 +81,38 @@ def connect(db_path: str | Path, *, row_factory: bool = True) -> sqlite3.Connect
     return conn
 
 
+def describe_health(db_path: str | Path) -> str:
+    """Whether ``db_path`` opens and answers a trivial query.
+
+    Lives here rather than in the caller because that caller is
+    ``GET /health`` on the hub, and writing the probe there would mean an
+    ``import sqlite3`` outside this package -- the one thing
+    ``test_no_module_outside_persistence_imports_sqlite3`` exists to stop. A
+    health check is not a good reason to make an exception to a layering rule;
+    it is a good reason for the layer to offer the check.
+
+    Returns a string rather than raising or returning a bool: the caller reports
+    it to a human who needs to know *what* is wrong, and "the file is locked" and
+    "the file is not a database" call for very different next steps.
+
+    Args:
+        db_path: Database to probe.
+
+    Returns:
+        ``"ok"``, or a description of why not.
+    """
+    try:
+        with transaction(db_path) as conn:
+            conn.execute("SELECT 1")
+    except sqlite3.Error as exc:
+        return f"error: {exc}"
+    except OSError as exc:
+        # The directory is gone or unwritable, which `connect` hits while
+        # creating the parent rather than while talking to SQLite.
+        return f"unavailable: {exc}"
+    return "ok"
+
+
 @contextmanager
 def transaction(db_path: str | Path, *, row_factory: bool = True) -> Iterator[sqlite3.Connection]:
     """Open a connection, commit on success, roll back on failure, always close.

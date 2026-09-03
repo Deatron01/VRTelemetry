@@ -25,6 +25,9 @@ from typing import Any
 EXPECTED_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/api/upload-telemetry"),
+        # Added in VRT-16a, with its characterisation test in
+        # test_recording_sync_and_auth_api.py.
+        ("POST", "/api/config/central-server/check"),
         ("GET", "/api/sessions"),
         ("GET", "/api/sessions/{session_id}"),
         ("PUT", "/api/sessions/{session_id}"),

@@ -18,6 +18,7 @@ Features:
 """
 
 import argparse
+import contextlib
 import logging
 import os
 import re
@@ -99,7 +100,7 @@ def cleanup_previous_diagrams(md_path: Path, output_format: str) -> None:
             try:
                 existing_file.unlink()
                 LOGGER.info(f"Deleted previous diagram: {existing_file.name}")
-            except Exception as e:
+            except OSError as e:
                 LOGGER.warning(f"Could not delete {existing_file.name}: {e}")
 
 
@@ -134,16 +135,20 @@ def process_single_diagram(mermaid_code: str, output_path: Path) -> bool:
         LOGGER.info(f"Successfully generated: {output_path.name}")
         return True
 
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
+        # Writing the temporary .mmd file, or launching mmdc. Both mean this one
+        # diagram did not render; the caller counts the failure and the batch
+        # continues.
         LOGGER.error(f"Unexpected error while processing {output_path.name}: {e}")
         return False
 
     finally:
-        # Guarantee cleanup of the temporary .mmd file
-        try:
+        # Guarantee cleanup of the temporary .mmd file. Suppressed rather than
+        # logged: the file is in the OS temp directory, it is already gone in
+        # the common failure case, and a warning about it would sit in the log
+        # directly above the real error this `finally` is unwinding from.
+        with contextlib.suppress(OSError):
             os.remove(temp_mmd_path)
-        except OSError:
-            pass
 
 
 def process_markdown_file(md_path: Path, output_format: str) -> int:
@@ -153,7 +158,7 @@ def process_markdown_file(md_path: Path, output_format: str) -> int:
     """
     try:
         content = md_path.read_text(encoding="utf-8")
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         LOGGER.error(f"Could not read {md_path}: {e}")
         return 0
 
@@ -225,8 +230,14 @@ def run_batch_conversion(target_dir: str, output_format: str, max_workers: int) 
             try:
                 result = future.result()
                 total_generated += result
+            # Broad: worker boundary -- one bad file must not end the batch.
             except Exception as e:
-                LOGGER.error(f"Unhandled exception while analyzing {md_file.name}: {e}")
+                # `future.result()` re-raises whatever the worker raised.
+                # process_markdown_file already handles the failures it expects,
+                # so anything arriving here is unanticipated -- and the choice is
+                # between losing this one file's diagrams and losing every file
+                # queued behind it.
+                LOGGER.exception(f"Unhandled exception while analyzing {md_file.name}: {e}")
 
     LOGGER.info(f"Batch conversion completed! Generated {total_generated} diagrams in total.")
     LOGGER.info(f"Detailed logs saved to: {Path(LOG_FILE).absolute()}")

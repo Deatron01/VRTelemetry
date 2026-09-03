@@ -20,7 +20,11 @@ def remove_svgs():
                 svg_file.unlink()
                 print(f"    [-] Deleted: {svg_file.relative_to(PROJECT_ROOT)}")
                 deleted_count += 1
-            except Exception as e:
+            except OSError as e:
+                # Permissions, or the file open in an editor -- the ordinary
+                # reasons a delete fails. The loop continues so one locked file
+                # does not abandon the rest of the sweep, and the failure is
+                # printed, which is this script's interface.
                 print(f"    [!] Failed to delete {svg_file.name}: {e}")
 
     print(f"\n[✓] Cleanup complete! Successfully removed {deleted_count} SVG file(s).")

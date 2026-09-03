@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from src.infrastructure.persistence.migrations import _SESSION_PROFILE_COLUMNS
 from src.storage.database_manager import SESSION_METADATA_COLUMNS, DatabaseManager
 
 
@@ -145,3 +146,70 @@ def test_an_older_database_is_migrated_rather_than_broken(tmp_path: Path) -> Non
     db.persist_experiment(SAMPLE_METADATA)
 
     assert db.get_session_row("20260527_133428") is not None
+
+
+def test_a_database_predating_the_system_profile_columns_is_migrated(tmp_path: Path) -> None:
+    """The second instance of VRT-22, found in VRT-14 and fixed by migration 5.
+
+    Fourteen system-profile columns were appended to ``SESSION_METADATA_SCHEMA``
+    when ``collect_system_profile()`` started travelling inside session
+    metadata. A new database gets them from the CREATE TABLE; no migration ever
+    added them to an existing one. ``persist_experiment`` names all 68 columns
+    in a single INSERT, so a table missing any of them rejects the *whole*
+    statement -- not one session's metadata was written on an established
+    install.
+
+    That is what Bence's ``Sessions/vr_metadata.db`` looked like when this was
+    found: 66 columns, baselined at schema version 2, 15 rows, all of them
+    predating the change.
+
+    The test above builds a legacy table missing one column and passes without
+    migration 5, because ``_baseline_existing_database`` marks that column's
+    migration unapplied and it runs. This one omits the columns that no
+    migration covers, which is the real field shape.
+    """
+    db_path = tmp_path / "pre_profile.db"
+    profile_columns = {name for name, _ in _SESSION_PROFILE_COLUMNS}
+    legacy_columns = [c for c in SESSION_METADATA_COLUMNS if c not in profile_columns]
+    assert len(legacy_columns) == len(SESSION_METADATA_COLUMNS) - 14
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE session_metadata (" + ", ".join(f"{c} TEXT" for c in legacy_columns) + ")"
+        )
+        conn.execute("INSERT INTO session_metadata (session_id) VALUES ('20260101_000000')")
+        conn.commit()
+
+    db = DatabaseManager(db_path=str(db_path))
+
+    assert db.persist_experiment(SAMPLE_METADATA) is True
+    assert db.get_session_row("20260527_133428") is not None
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(session_metadata)")}
+        surviving = conn.execute(
+            "SELECT COUNT(*) FROM session_metadata WHERE session_id = '20260101_000000'"
+        ).fetchone()[0]
+
+    assert profile_columns <= columns
+    assert surviving == 1, "migrating an established database must not disturb its rows"
+
+
+def test_persist_experiment_reports_whether_it_wrote(tmp_path: Path) -> None:
+    """The return value the engine branches on, which was annotated ``-> None``.
+
+    ``src.storage.database_manager`` is in mypy's ignore list, so nothing
+    checked the annotation against the body until VRT-14 declared
+    ``SessionMetadataSink`` and the checker compared the two. The body was
+    always right; the signature was always wrong. This pins the behaviour so
+    the signature cannot drift back.
+    """
+    db = DatabaseManager(db_path=str(tmp_path / "returns.db"))
+
+    assert db.persist_experiment(SAMPLE_METADATA) is True
+
+    with sqlite3.connect(tmp_path / "returns.db") as conn:
+        conn.execute("DROP TABLE session_metadata")
+        conn.commit()
+
+    assert db.persist_experiment(SAMPLE_METADATA) is False

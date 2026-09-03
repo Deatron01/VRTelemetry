@@ -91,7 +91,9 @@ def process_file(file_path: Path):
     try:
         with open(file_path, encoding="utf-8") as f:
             code = f.read()
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
+        # Unreadable, or not text in the declared encoding -- a binary file that
+        # slipped past the extension filter. Skip it and keep walking the tree.
         print(f"[-] Could not read {file_path}: {e}")
         return
 
@@ -164,7 +166,12 @@ def process_file(file_path: Path):
         except json.JSONDecodeError:
             print(f"    [!] JSON decode error on attempt {attempt + 1}. Retrying...")
             time.sleep(2)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - remote API: the retry policy is the handler
+            # The Gemini client raises transport, quota and server errors that
+            # share no common base, and the branch below dispatches on the
+            # message because that is the only thing they do share. Narrowing
+            # here would mean one unrecognised error type ending a documentation
+            # run that has already spent minutes of quota.
             error_msg = str(e)
             if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                 wait_time = 60

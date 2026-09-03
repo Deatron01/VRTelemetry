@@ -5,11 +5,20 @@ import logging
 
 import xr
 
+from src.backends.tracking_faults import TrackingFaultLog
 from src.core.datatypes import TelemetryFrame
 from src.eye_tracking.base_driver import IEyeTrackingDriver
 from src.eye_tracking.factory import EyeTrackingFactory
 
 logger = logging.getLogger(__name__)
+
+# The HTC facial-tracking entry points are resolved by name from the runtime and
+# called through raw ctypes function pointers, so a failure arrives as OSError,
+# ValueError, ctypes.ArgumentError or XrException depending on where in that
+# chain it happened. This tuple is what "the extension did not answer" looks
+# like; anything outside it is a defect in this driver and is left to travel up
+# to the backend, which attributes it to the "eye" source (VRT-13).
+_HTC_FAULTS = (xr.XrException, ctypes.ArgumentError, OSError, ValueError, AttributeError)
 
 
 class HTCEyeTrackingDriver(IEyeTrackingDriver):
@@ -26,6 +35,12 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
         self.gaze_action_set: xr.ActionSet | None = None
         self.gaze_pose_action: xr.Action | None = None
         self.gaze_space: xr.Space | None = None
+
+        #: Faults per eye-tracking source (VRT-13). Eye data is the reason this
+        #: study records at all, and a driver that fails silently produces
+        #: `eye_tracking_valid = 0.0` -- byte-identical to a subject whose eyes
+        #: the tracker simply could not see.
+        self.faults = TrackingFaultLog("HTCEyeTrackingDriver")
 
     def get_extension_name(self) -> str:
         return "XR_HTC_facial_tracking"
@@ -107,8 +122,8 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
             logger.info("HTC Facial and Eye Gaze Trackers explicitly initialized.")
             return True
 
-        except Exception as e:
-            logger.error(f"HTC Eye Tracker init failed: {e}")
+        except _HTC_FAULTS as e:
+            logger.error(f"HTC Eye Tracker init failed: {e}", exc_info=True)
             return False
 
     def populate_frame(self, frame: TelemetryFrame, timestamp_ns: int) -> None:
@@ -133,8 +148,8 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
                         - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_RIGHT]
                     )
                     frame.eye_tracking_valid = 1.0
-            except Exception as e:
-                logger.debug(f"HTC Facial fault: {e}")
+            except _HTC_FAULTS as e:
+                self.faults.record("htc_blendshapes", e)
 
         # 2. Harvest Spatial Vectors (Where the user is looking)
         if self.gaze_space and self.gaze_action_set:
@@ -169,10 +184,11 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
                     ) = rot.x, rot.y, rot.z, rot.w
 
                     frame.eye_tracking_valid = 1.0
-            except Exception as e:
-                logger.debug(f"Eye Gaze spatial fault: {e}")
+            except _HTC_FAULTS as e:
+                self.faults.record("htc_gaze_pose", e)
 
     def shutdown(self) -> None:
+        self.faults.summarise()
         if self.facial_tracker and self.instance:
             destroy = xr.get_instance_proc_addr(self.instance, "xrDestroyFacialTrackerHTC")
             if destroy:

@@ -9,6 +9,17 @@ interface Patient {
   is_anonymized: number;
 }
 
+const API = 'http://localhost:8000';
+
+interface HubCheck {
+  checking?: boolean;
+  reachable?: boolean;
+  detail?: string;
+  service?: string;
+  version?: string;
+  healthy?: boolean;
+}
+
 const BACKENDS = [
   { value: 'auto', label: 'Auto-Detect' },
   { value: 'openxr', label: 'OpenXR' },
@@ -29,16 +40,62 @@ export const NewSession = () => {
     subject_id: '',
     backend: 'auto',
     port: 5005,
-    gdpr_consent: false,
-    central_server_url: 'http://192.168.1.X:9000'
+    gdpr_consent: false
   });
 
+  // The hub address is a property of this machine, not of this session.
+  //
+  // It used to live in `form` above, with 'http://192.168.1.X:9000' as its
+  // literal value — a placeholder with a letter where an octet belongs, sent
+  // with every start request. VRT-6 removed that string from the backend and
+  // made the settings validator reject it; the form went on overriding whatever
+  // was configured with it, so on a two-machine setup every recording uploaded
+  // to an address that cannot exist. Now it is loaded from, and saved to, the
+  // workstation's own configuration.
+  const [hubUrl, setHubUrl] = useState('');
+  const [hubCheck, setHubCheck] = useState<HubCheck | null>(null);
+
   useEffect(() => {
-    fetch('http://localhost:8000/api/patients')
+    fetch(`${API}/api/patients`)
       .then(r => r.json())
       .then((data: Patient[]) => setPatients(data.filter(p => !p.is_anonymized)))
       .catch(() => setPatients([]));
+
+    fetch(`${API}/api/config/central-server`)
+      .then(r => r.json())
+      .then(d => setHubUrl(d.central_server_url || ''))
+      .catch(() => setHubUrl(''));
   }, []);
+
+  const saveHubUrl = async (value: string) => {
+    setHubCheck(null);
+    try {
+      await fetch(`${API}/api/config/central-server`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ central_server_url: value })
+      });
+    } catch {
+      // Saving to our own loopback backend. If that is unreachable nothing on
+      // this page works, and the failure is already visible everywhere else.
+    }
+  };
+
+  // Asks the workstation to ask the hub. Deliberately does not save: an address
+  // that fails the check is still worth keeping — the hub may just be off.
+  const testHubUrl = async () => {
+    setHubCheck({ checking: true });
+    try {
+      const response = await fetch(`${API}/api/config/central-server/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ central_server_url: hubUrl || null })
+      });
+      setHubCheck(await response.json());
+    } catch (err) {
+      setHubCheck({ reachable: false, detail: err instanceof Error ? err.message : 'Check failed.' });
+    }
+  };
 
   const selectedPatient = patients.find(p => p.patient_id === form.patient_id);
 
@@ -60,7 +117,7 @@ export const NewSession = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8000/api/recording/start', {
+      const response = await fetch(`${API}/api/recording/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
@@ -81,7 +138,7 @@ export const NewSession = () => {
   const handleStop = async () => {
     setIsLoading(true);
     try {
-      await fetch('http://localhost:8000/api/recording/stop', { method: 'POST' });
+      await fetch(`${API}/api/recording/stop`, { method: 'POST' });
       setIsRecording(false);
       // completedSessionId (captured from /api/recording/start's response) is already
       // set — surfacing the post-session questionnaire modal right now, while the
@@ -98,13 +155,13 @@ export const NewSession = () => {
         ['Engine state', <span key="s" className="chip tone-2 mono animate-pulse">RECORDING</span>],
         ['Subject binding', <span key="b" className="mono text-[12px]" style={{ color: 'var(--s1)' }}>{selectedPatient?.display_name || form.subject_id || '—'}</span>],
         ['Active pipeline', <span key="p" className="mono text-[12px]">{form.backend.toUpperCase()}</span>],
-        ['Sync target', <span key="t" className="mono block max-w-[180px] truncate text-[12px]">{form.central_server_url}</span>],
+        ['Sync target', <span key="t" className="mono block max-w-[180px] truncate text-[12px]">{hubUrl || 'not configured'}</span>],
       ]
     : [
         ['Engine state', <span key="s" className="chip mono" style={{ color: 'var(--ink-3)', background: 'var(--well-grid)' }}>IDLE</span>],
         ['Target output', <span key="o" className="mono text-[12px]">/Sessions/</span>],
         ['Active pipeline', <span key="p" className="mono text-[12px]">{form.backend.toUpperCase()}</span>],
-        ['Sync target', <span key="t" className="mono block max-w-[180px] truncate text-[12px]">{form.central_server_url}</span>],
+        ['Sync target', <span key="t" className="mono block max-w-[180px] truncate text-[12px]">{hubUrl || 'not configured'}</span>],
       ];
 
   return (
@@ -200,15 +257,40 @@ export const NewSession = () => {
             <label htmlFor="acq-server" className="field-label flex items-center gap-1.5">
               <Server className="h-3 w-3" /> Central Server Address
             </label>
-            <input
-              id="acq-server"
-              type="text"
-              value={form.central_server_url}
-              onChange={e => setForm({ ...form, central_server_url: e.target.value })}
-              placeholder="http://192.168.1.X:9000"
-              className="field field-mono"
-            />
-            <p className="mt-1.5 text-[11px] text-ink-3">Where completed sessions are synced after recording stops.</p>
+            <div className="flex gap-2">
+              <input
+                id="acq-server"
+                type="text"
+                value={hubUrl}
+                onChange={e => { setHubUrl(e.target.value); setHubCheck(null); }}
+                onBlur={e => saveHubUrl(e.target.value.trim())}
+                placeholder="http://192.168.1.50:9000"
+                className="field field-mono flex-1"
+              />
+              <button
+                type="button"
+                onClick={testHubUrl}
+                disabled={hubCheck?.checking}
+                className="btn-clay flex-none whitespace-nowrap"
+              >
+                {hubCheck?.checking ? 'Testing…' : 'Test'}
+              </button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-3">
+              Saved for this machine, not just this session. Where completed sessions are synced
+              after recording stops. Leave empty to work offline — sessions queue locally and
+              upload when a hub is configured and reachable.
+            </p>
+            {hubCheck && !hubCheck.checking && (
+              <p
+                className="mt-1.5 text-[11px] mono"
+                style={{ color: hubCheck.reachable ? 'var(--s1)' : 'var(--s2)' }}
+              >
+                {hubCheck.reachable
+                  ? `Reachable — ${hubCheck.service} ${hubCheck.version}${hubCheck.healthy ? '' : ' (database not answering)'}`
+                  : hubCheck.detail}
+              </p>
+            )}
           </div>
 
           <label className="mt-auto flex cursor-pointer items-start gap-3 pt-4" style={{ borderTop: '1px solid var(--hair)' }}>

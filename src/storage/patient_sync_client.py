@@ -5,8 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-import requests
-
+from src.application.ports import HttpClient
 from src.utils.retry_backoff import is_ready_for_retry
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,12 @@ class PatientSyncClient:
     already treat recorded sessions as centrally authoritative.
     """
 
-    def __init__(self, central_server_url: str | Callable[[], str], local_license_cache):
+    def __init__(
+        self,
+        central_server_url: str | Callable[[], str],
+        local_license_cache,
+        http: HttpClient,
+    ):
         # Accepts a callable so the address stays late-bound: POST
         # /api/config/central-server writes a new hub address into the local
         # cache, and before VRT-12 this object had already captured the old one
@@ -33,6 +37,9 @@ class PatientSyncClient:
         # until the app was restarted -- with nothing anywhere saying so.
         self._central_server_url = central_server_url
         self.local_license_cache = local_license_cache
+
+        #: Required, with no default -- see SessionUploader for why (VRT-14).
+        self.http = http
 
     @property
     def central_server_url(self) -> str:
@@ -75,7 +82,7 @@ class PatientSyncClient:
             return {"ok": False, "reason": "no_active_license"}
 
         try:
-            response = requests.post(
+            response = self.http.post(
                 f"{self.central_server_url}/data/upload-patient",
                 json={
                     "activation_id": state["activation_id"],
@@ -94,7 +101,7 @@ class PatientSyncClient:
                     patient["patient_id"], response.text
                 )
             return {"ok": False, "reason": response.text}
-        except requests.RequestException as e:
+        except self.http.RequestException as e:
             logger.warning(f"Patient sync failed, queued for retry: {e}")
             if queue_on_failure:
                 self._queue(patient)

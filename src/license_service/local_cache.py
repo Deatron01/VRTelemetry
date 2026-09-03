@@ -2,11 +2,12 @@
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
+from src.utils.clock import as_stored, parse_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ class LocalLicenseCache:
         server_expires_at: str = None,
         grace_hours: int = 72,
     ) -> None:
-        grace_until = (datetime.utcnow() + timedelta(hours=grace_hours)).isoformat()
+        grace_until = as_stored(utc_now() + timedelta(hours=grace_hours))
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -162,7 +163,11 @@ class LocalLicenseCache:
             ).fetchone()
             if not row or row[0] != "active":
                 return False
-            return datetime.fromisoformat(row[1]) > datetime.utcnow()
+            # An activation with no recorded grace window is not "valid
+            # forever"; it is an activation that never wrote one. Previously
+            # this raised TypeError on the None rather than returning False.
+            grace_until = parse_utc(row[1])
+            return grace_until is not None and grace_until > utc_now()
 
     def get_state(self) -> dict[str, Any] | None:
         with sqlite3.connect(self.db_path) as conn:

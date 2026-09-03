@@ -6,8 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import requests
-
+from src.application.ports import HttpClient
 from src.utils.retry_backoff import is_ready_for_retry
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,12 @@ class SessionUploader:
     or on-demand from the UI.
     """
 
-    def __init__(self, central_server_url: str | Callable[[], str], local_license_cache):
+    def __init__(
+        self,
+        central_server_url: str | Callable[[], str],
+        local_license_cache,
+        http: HttpClient,
+    ):
         # Accepts a callable so the address stays late-bound: POST
         # /api/config/central-server writes a new hub address into the local
         # cache, and before VRT-12 this object had already captured the old one
@@ -29,6 +33,14 @@ class SessionUploader:
         # until the app was restarted -- with nothing anywhere saying so.
         self._central_server_url = central_server_url
         self.local_license_cache = local_license_cache
+
+        #: Required, with no default (VRT-14). A default of `requests` would be
+        #: used the first time a caller forgot to pass one, and the test that
+        #: was supposed to be offline would reach the network instead --
+        #: indistinguishable, from the assertion's side, from a stub that
+        #: raises. `build_container` is the only place that supplies the real
+        #: one; see src/infrastructure/transport.py.
+        self.http = http
 
     @property
     def central_server_url(self) -> str:
@@ -71,7 +83,7 @@ class SessionUploader:
 
         try:
             with open(parquet_path, "rb") as f:
-                response = requests.post(
+                response = self.http.post(
                     f"{self.central_server_url}/data/upload-session",
                     data={
                         "activation_id": state["activation_id"],
@@ -118,7 +130,7 @@ class SessionUploader:
                         session_id, response.text
                     )
                 return {"ok": False, "reason": response.text}
-        except requests.RequestException as e:
+        except self.http.RequestException as e:
             logger.warning(f"Upload failed, queued for retry: {e}")
             if queue_on_failure:
                 self._queue(session_id, parquet_path, metadata)
@@ -138,7 +150,7 @@ class SessionUploader:
         if not state or state.get("status") != "active":
             return {"ok": False, "reason": "no_active_license"}
         try:
-            response = requests.post(
+            response = self.http.post(
                 f"{self.central_server_url}/data/update-session-metadata",
                 data={
                     "activation_id": state["activation_id"],
@@ -155,7 +167,7 @@ class SessionUploader:
                 f"({response.status_code}): {response.text}. Local record is unaffected."
             )
             return {"ok": False, "reason": response.text}
-        except requests.RequestException as e:
+        except self.http.RequestException as e:
             logger.info(
                 f"Metadata re-sync for session {session_id} skipped — central server unreachable: {e}"
             )
@@ -211,7 +223,7 @@ class SessionUploader:
 
         try:
             with open(log_path, "rb") as f:
-                response = requests.post(
+                response = self.http.post(
                     f"{self.central_server_url}/data/upload-session-log",
                     data={
                         "activation_id": state["activation_id"],
@@ -234,7 +246,7 @@ class SessionUploader:
                     session_id, response.text
                 )
             return {"ok": False, "reason": response.text}
-        except requests.RequestException as e:
+        except self.http.RequestException as e:
             logger.warning(f"Log upload failed for session {session_id}, queued for retry: {e}")
             if queue_on_failure:
                 self._queue_log(session_id, log_path)

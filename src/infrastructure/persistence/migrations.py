@@ -120,6 +120,42 @@ _SESSION_METADATA_ADDITIONS: tuple[tuple[str, str], ...] = (
     ("available_extensions_json", "TEXT"),
 )
 
+#: The system-profile block. Appended to ``SESSION_METADATA_SCHEMA``'s CREATE
+#: TABLE when ``collect_system_profile()`` started travelling inside session
+#: metadata -- and, like VRT-22's column before it, **with no migration beside
+#: it**. A database created after that change has the columns because they are
+#: in the CREATE; every database created before it does not, and no migration
+#: ever added them.
+#:
+#: The effect on an established install is total: ``persist_experiment``
+#: names all 68 columns in one INSERT, so a table missing any of them rejects
+#: the whole statement with "table session_metadata has no column named
+#: os_name". Not one session's metadata is written. Found on Bence's own
+#: ``Sessions/vr_metadata.db`` (66 columns, at baselined version 2) while
+#: declaring the SessionMetadataSink port in VRT-14.
+#:
+#: This is the second instance of exactly the failure this module's docstring
+#: describes, which is worth stating plainly: adding a column to the CREATE
+#: TABLE is not a schema change that a new install proves. Only an *old* one
+#: does, and the test for it is
+#: ``test_a_database_predating_the_system_profile_columns_is_migrated``.
+_SESSION_PROFILE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("os_name", "TEXT"),
+    ("os_version", "TEXT"),
+    ("os_release", "TEXT"),
+    ("architecture", "TEXT"),
+    ("hostname", "TEXT"),
+    ("os_user", "TEXT"),
+    ("cpu_name", "TEXT"),
+    ("cpu_cores_logical", "INTEGER"),
+    ("cpu_cores_physical", "INTEGER"),
+    ("total_ram_gb", "REAL"),
+    ("disk_total_gb", "REAL"),
+    ("disk_free_gb", "REAL"),
+    ("gpu_info", "TEXT"),
+    ("app_version", "TEXT"),
+)
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         version=1,
@@ -150,6 +186,16 @@ MIGRATIONS: tuple[Migration, ...] = (
         statements=(
             "CREATE INDEX IF NOT EXISTS idx_session_metadata_created "
             "ON session_metadata(created_at DESC)",
+        ),
+    ),
+    Migration(
+        version=5,
+        description=(
+            "System-profile columns that were added to session_metadata's CREATE "
+            "TABLE without a migration"
+        ),
+        add_columns=tuple(
+            ("session_metadata", column, sql_type) for column, sql_type in _SESSION_PROFILE_COLUMNS
         ),
     ),
 )

@@ -104,7 +104,7 @@ def merge_and_clean():
                     try:
                         f.unlink()
                         print(f"    [-] Deleted: {f.relative_to(PROJECT_ROOT)}")
-                    except Exception as e:
+                    except OSError as e:
                         print(f"    [!] Failed to delete {f.name}: {e}")
 
     print("\n[✓] Merge and cleanup complete!")

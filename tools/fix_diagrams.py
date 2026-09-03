@@ -313,7 +313,11 @@ def hotfix_markdowns(target_dir: str = "Documentation"):
                 file_path.write_text(new_content, encoding="utf-8")
                 print(f"[OK] Fixed syntax in: {file_path.name}")
                 fixed_count += 1
-            except Exception as e:
+            except (OSError, UnicodeError) as e:
+                # The write failed, or the repaired text contains something the
+                # target encoding cannot represent. Both leave the original file
+                # untouched and are worth reporting per-file rather than
+                # stopping the batch.
                 print(f"[ERROR] Could not write {file_path.name}: {e}")
 
     print(f"\nHotfix Complete! {fixed_count} files successfully repaired.")

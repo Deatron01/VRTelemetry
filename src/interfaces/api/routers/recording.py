@@ -20,11 +20,17 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from src.backends.discovery import RuntimeCapabilityDiscovery
+from src.backends.registry import resolve as resolve_backend
 from src.core.engine import TelemetryEngine
-from src.core.exceptions import GDPRConsentError
+from src.core.exceptions import BackendUnavailableError, GDPRConsentError
 from src.domain.session_profile import apply_calibration, apply_health_profile
 from src.interfaces.api.container import RecordingSessionManager
-from src.interfaces.api.dependencies import PatientsDep, RecordingDep, UsageTrackerDep
+from src.interfaces.api.dependencies import (
+    CentralUrlDep,
+    PatientsDep,
+    RecordingDep,
+    UsageTrackerDep,
+)
 from src.interfaces.api.schemas.recording import (
     EventMarkerUpdate,
     HapticTrigger,
@@ -39,11 +45,19 @@ router = APIRouter(tags=["recording"])
 
 
 def run_engine_thread(engine: TelemetryEngine):
-    """Background worker for the telemetry loop."""
+    """Background worker for the telemetry loop.
+
+    ``TelemetryEngine.start()`` handles the failures it anticipates itself and
+    records them on ``engine.failure_reason``; what reaches here is a defect, on
+    a thread with nothing above it to catch. Losing that silently is how a
+    recording ends up "running" in the UI with no engine behind it.
+    """
     try:
         engine.start()
-    except Exception as e:
-        logger.critical(f"Engine background thread crashed: {e}")
+    except Exception as e:  # noqa: BLE001 - thread top level: nothing above it can catch
+        engine.is_running = False
+        engine.failure_reason = engine.failure_reason or f"engine thread crashed: {e}"
+        logger.critical(f"Engine background thread crashed: {e}", exc_info=True)
 
 
 @router.post("/api/recording/start")
@@ -52,6 +66,7 @@ def start_recording(
     patients: PatientsDep,
     recording: RecordingDep,
     usage_tracker: UsageTrackerDep,
+    central_url: CentralUrlDep,
 ):
 
     setup_logging()
@@ -81,6 +96,18 @@ def start_recording(
     )
 
     if config.backend != "quest_udp":
+        # Checked here rather than on the acquisition thread, and before the
+        # capability probe below, which boots a throwaway OpenXR instance.
+        # `backend` is a free-form string on the wire, and an unrecognised one
+        # used to fall through the engine's `else` and start a SteamVR session
+        # -- so a typo in the desktop UI recorded a study on whatever hardware
+        # happened to be attached. `resolve` imports nothing: this costs a dict
+        # lookup.
+        try:
+            resolve_backend(config.backend)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         raw_hardware_capabilities: dict[str, Any] = (
             RuntimeCapabilityDiscovery.extract_static_hardware_metadata()
         )
@@ -98,7 +125,18 @@ def start_recording(
         output_dir=config.output_dir,
         gdpr_consent=config.gdpr_consent,
         hardware_metadata=hardware_capabilities,
-        central_server_url=config.central_server_url,
+        # The machine's configured hub, unless this request names one.
+        #
+        # The engine builds its own uploader from `settings.central.url`, while
+        # everything else resolves the address through the local cache -- which
+        # is where `POST /api/config/central-server` writes, and therefore where
+        # a hub address set in the app actually lives. Those two disagreed, so
+        # the *only* way the engine learned about a hub was the desktop UI
+        # sending it in this request body, which is why that field shipped with
+        # `http://192.168.1.X:9000` hardcoded in it.
+        central_server_url=config.central_server_url or central_url,
+        backend=config.backend,
+        network_port=config.port,
     )
 
     engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = (
@@ -107,8 +145,6 @@ def start_recording(
     engine.subject_metadata["M-IV_Static_Metadata"]["patient_id"] = patient["patient_id"]
     apply_health_profile(engine.subject_metadata, patient, patients.estimate_age_years(patient))
     apply_calibration(engine.subject_metadata, patient, config)
-    engine.configured_backend = config.backend
-    engine.network_port = config.port
 
     try:
         # Publishes the engine and starts the thread under one lock, so the four
@@ -125,15 +161,22 @@ def start_recording(
             "session_id": engine.session_id,
         }
     except GDPRConsentError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except RuntimeError as e:
         # Two requests raced past the is_running check above. Previously the
         # second one won: it overwrote the first engine's reference and left it
         # recording with nothing able to stop it. Now the manager refuses, and
         # the caller gets the same 400 it would have got a microsecond earlier.
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    # Broad: request boundary: every failure owes the caller a status code
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # The last clause of a request handler, which must answer with *some*
+        # status rather than letting the exception become an unlogged 500 from
+        # the framework. The two clauses above name the failures this route
+        # expects; reaching this one means something unanticipated, so it is
+        # logged with its traceback rather than being reduced to a response body.
+        logger.exception("Unexpected failure starting a recording")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/api/recording/stop")
@@ -142,9 +185,11 @@ def stop_recording(recording: RecordingDep, usage_tracker: UsageTrackerDep):
         raise HTTPException(status_code=400, detail="No active recording to stop.")
     # The old code logged this event only on the branch where the engine had a
     # `stop()` method, and silently skipped it on the `is_running = False`
-    # fallback. TelemetryEngine has always had `stop()`, so that fallback never
-    # ran; the manager collapses the two and the event is now always recorded,
-    # which is what the licence audit trail was supposed to contain anyway.
+    # fallback. VRT-12 recorded that as "the fallback never ran"; VRT-14 found
+    # the reverse -- the engine had no `stop()` at all, so the *event* was the
+    # thing that never ran, and the licence audit trail has been missing every
+    # recording_stop it was supposed to contain. The manager collapses the two
+    # and the event is now always recorded.
     usage_tracker.log_event("recording_stop")
     return {"status": "recording_stopped"}
 

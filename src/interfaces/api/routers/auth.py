@@ -8,6 +8,8 @@ tests/characterisation/ is the proof.
 
 from __future__ import annotations
 
+import contextlib
+
 from fastapi import APIRouter, HTTPException
 
 from src.interfaces.api.dependencies import CentralUrlDep, HttpDep, LocalCacheDep
@@ -21,7 +23,7 @@ def api_register(payload: AuthRegisterRequest, http: HttpDep, central_url: Centr
     try:
         r = http.post(f"{central_url}/auth/register", data=payload.dict(), timeout=10)
     except http.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
+        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}") from e
     if r.status_code != 200:
         raise HTTPException(
             status_code=r.status_code, detail=r.json().get("detail", "registration_failed")
@@ -39,7 +41,7 @@ def api_login(
     try:
         r = http.post(f"{central_url}/auth/login", data=payload.dict(), timeout=10)
     except http.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
+        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}") from e
     if r.status_code != 200:
         raise HTTPException(
             status_code=r.status_code, detail=r.json().get("detail", "login_failed")
@@ -56,14 +58,16 @@ def api_login(
 def api_logout(http: HttpDep, central_url: CentralUrlDep, local_cache: LocalCacheDep):
     session = local_cache.get_session()
     if session and session.get("session_token"):
-        try:
+        # Telling the hub is courtesy; clearing the local session is the actual
+        # logout, and it happens below whatever the hub says. Suppressed rather
+        # than logged because "the hub was unreachable while logging out" is the
+        # expected state on a laptop, not an event.
+        with contextlib.suppress(http.RequestException):
             http.post(
                 f"{central_url}/auth/logout",
                 data={"session_token": session["session_token"]},
                 timeout=5,
             )
-        except http.RequestException:
-            pass  # best-effort — clear local state regardless
     local_cache.clear_session()
     return {"ok": True}
 

@@ -19,7 +19,6 @@ substituting it in one application does not touch another.
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +33,8 @@ from src.interfaces.api.app import create_app
 from src.interfaces.api.container import Container, build_container
 
 
-def _container(root: Path) -> Container:
-    return build_container(Settings(paths=PathSettings(data_root=root)))
+def _container(root: Path, http: Any = None) -> Container:
+    return build_container(Settings(paths=PathSettings(data_root=root)), http=http)
 
 
 def test_a_dependency_override_reaches_the_route(tmp_path: Path) -> None:
@@ -129,7 +128,7 @@ class _OneFake:
 def test_the_http_client_is_a_container_attribute_not_a_module_import(
     tmp_path: Path,
 ) -> None:
-    """Replacing it is a dataclass field, not a name in eight router modules.
+    """Replacing it is one constructor argument, not a name in eight modules.
 
     The stub below is reached only if every outbound call in the routers goes
     through ``container.http``. If one of them still imported ``requests``
@@ -153,7 +152,7 @@ def test_the_http_client_is_a_container_attribute_not_a_module_import(
             raise self.RequestException("stubbed")
 
     stub = _Recording()
-    container = dataclasses.replace(_container(tmp_path), http=stub)
+    container = _container(tmp_path, http=stub)
     container.local_cache.set_config("central_server_url", "http://hub.invalid:9000")
     client = TestClient(create_app(container))
 
@@ -165,6 +164,91 @@ def test_the_http_client_is_a_container_attribute_not_a_module_import(
         "http://hub.invalid:9000/auth/login",
         "http://hub.invalid:9000/license/activate",
     ], f"a router bypassed container.http and called the network directly: {stub.calls}"
+
+
+def test_the_uploaders_go_through_the_same_client_as_the_routers(tmp_path: Path) -> None:
+    """The half of the seam VRT-12 did not close (VRT-14).
+
+    ``SessionUploader``, ``PatientSyncClient`` and ``HeartbeatSender`` used to
+    import ``requests`` themselves, so an "offline" container reached the
+    network through them while the routers were correctly stubbed. The
+    characterisation suite worked around it by replacing two bound methods, with
+    a comment naming this ticket.
+
+    This asserts the workaround is no longer needed: creating a patient through
+    the API reaches the hub through the *same* stub the routers use.
+    """
+
+    class _Recording:
+        def __init__(self) -> None:
+            import requests
+
+            self.RequestException = requests.RequestException
+            self.calls: list[str] = []
+
+        def post(self, url: str, *_: Any, **__: Any) -> Any:
+            self.calls.append(url)
+            raise self.RequestException("stubbed")
+
+        def get(self, url: str, *_: Any, **__: Any) -> Any:
+            self.calls.append(url)
+            raise self.RequestException("stubbed")
+
+    stub = _Recording()
+    container = _container(tmp_path, http=stub)
+    container.local_cache.set_config("central_server_url", "http://hub.invalid:9000")
+    # PatientSyncClient declines to call out at all without an active licence,
+    # so the stub would record nothing and the test would pass vacuously.
+    container.local_cache.save(
+        activation_id="ACT-1",
+        license_key="K",
+        hardware_fingerprint="FP-1",
+        license_id="LIC-1",
+        machine_label="bench",
+    )
+    client = TestClient(create_app(container))
+
+    client.post(
+        "/api/patients",
+        json={"display_name": "Subject A", "gdpr_consent_given": True},
+    )
+
+    assert "http://hub.invalid:9000/data/upload-patient" in stub.calls, (
+        "PatientSyncClient bypassed container.http: it is holding its own "
+        f"requests reference again. Calls seen: {stub.calls}"
+    )
+
+
+def test_a_container_whose_clients_disagree_about_the_network_is_refused(
+    tmp_path: Path,
+) -> None:
+    """`dataclasses.replace(container, http=stub)` must not half-work.
+
+    It is the obvious way to build an offline container and it used to repoint
+    the routers only, leaving the three clients on the real library. A test
+    written that way passes while reaching the network. The container refuses
+    the state instead of documenting it.
+    """
+    import dataclasses
+
+    container = _container(tmp_path)
+
+    class _Other:
+        RequestException = RuntimeError
+
+        def get(self, url: str, *_: Any, **__: Any) -> Any: ...
+        def post(self, url: str, *_: Any, **__: Any) -> Any: ...
+        def put(self, url: str, *_: Any, **__: Any) -> Any: ...
+        def delete(self, url: str, *_: Any, **__: Any) -> Any: ...
+
+    with pytest.raises(ValueError) as caught:
+        dataclasses.replace(container, http=_Other())
+
+    message = str(caught.value)
+    assert "session_uploader" in message
+    assert "patient_uploader" in message
+    assert "heartbeat_sender" in message
+    assert "build_container" in message, "the error must say how to do it correctly"
 
 
 def test_a_route_on_an_app_built_outside_create_app_fails_loudly(tmp_path: Path) -> None:

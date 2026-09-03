@@ -79,12 +79,17 @@ def create_app(container: Container | None = None) -> FastAPI:
         CORSMiddleware,
         # Was allow_origins=["*"] with allow_credentials=True -- a combination
         # browsers reject outright, so it was simultaneously over-permissive in
-        # intent and non-functional in practice. Now configured, and narrowed
-        # properly in VRT-16.
+        # intent and non-functional in practice. VRT-6 made it configurable;
+        # VRT-16 narrowed the rest of it.
         allow_origins=list(container.settings.api.allowed_origins),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # False, because nothing sends any. There is not a single
+        # `credentials:` option in the frontend and this API sets no cookies --
+        # auth state lives in the licence cache, server-side. Asking for
+        # credentialed CORS you do not use buys nothing and costs the ability
+        # to reason about who can call this.
+        allow_credentials=False,
+        allow_methods=list(container.settings.api.allowed_methods),
+        allow_headers=list(container.settings.api.allowed_headers),
     )
 
     for router in _ROUTERS:
@@ -123,8 +128,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     ):
         try:
             step()
-        except Exception as exc:
-            logger.warning(f"{label} on boot failed: {exc}")
+        except Exception as exc:  # noqa: BLE001 - boot step: the app must come up without a hub
+            # The tolerant half of the rule this ticket encodes (see
+            # src/core/exceptions.py). These three steps talk to the hub and to
+            # the local databases; a researcher on a laptop away from the lab has
+            # neither reachable, and the local UI must still start. Each is
+            # independently guarded so one failing does not cost the other two.
+            #
+            # What makes this safe rather than lazy: none of the three is a write
+            # path. They are sweeps that retry from durable queues on the next
+            # tick, so a failure here delays work rather than losing it.
+            logger.warning(f"{label} on boot failed: {exc}", exc_info=True)
 
     container.sync_scheduler.start()
     container.heartbeat_sender.start()

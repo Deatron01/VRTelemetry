@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException
 from src.interfaces.api.dependencies import CentralUrlDep, HttpDep, LocalCacheDep
 from src.interfaces.api.schemas.licence import LicenseActivateRequest
 from src.utils.logger import logger
+from src.version import APP_VERSION
 
 if TYPE_CHECKING:
     from src.interfaces.api.container import Container
@@ -94,12 +95,16 @@ def license_activate(
                 "hardware_fingerprint": fingerprint,
                 "machine_label": payload.machine_label,
                 "os_platform": platform.system(),
-                "app_version": "1.0.0",
+                # VRT-16a resolved the version from package metadata precisely so
+                # that it stops being a literal in every call site. This one was
+                # missed, and it is the value the hub records against the seat --
+                # so the Active Clients view would report 1.0.0 forever.
+                "app_version": APP_VERSION,
             },
             timeout=10,
         )
     except http.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}")
+        raise HTTPException(status_code=502, detail=f"Cannot reach central server: {e}") from e
 
     if r.status_code != 200:
         raise HTTPException(

@@ -16,30 +16,204 @@ queues and drains when the hub comes back.
 
 ---
 
-## Quick start
+## What runs where
 
-Requires **Python 3.10+** and Node 20+ for the frontend.
+Three processes, separate on purpose:
+
+| Component | What it is | Where it runs | Default address |
+|---|---|---|---|
+| **Hub** (central server) | Accounts, licences, the admin UI, and the archive every workstation uploads to. | One machine, always on. | `0.0.0.0:9000` |
+| **Workstation API** | Acquisition, patient records, local storage, sync. | The PC with the headset. | `127.0.0.1:8000` |
+| **Desktop app** | The Electron shell the researcher uses. Talks only to the workstation API on its own machine. | The same PC. | — |
+
+The hub is the only component other machines talk to. The workstation API stays
+on loopback: it serves patient records and starts recordings, and there is no
+authentication in front of it because nothing outside the machine is meant to
+reach it. Do not expose it.
+
+---
+
+## Install
+
+**Python 3.10+**, and Node 20+ for the desktop app.
 
 ```bash
-pip install -e ".[dev]"
-pytest -m "not hardware"          # 197 tests, no headset required
+python -m venv venv
+venv\Scripts\activate          # Windows;  source venv/bin/activate elsewhere
 ```
 
-Run the backend the desktop shell talks to:
+Then install the extra for the role that machine plays:
+
+```bash
+pip install -e ".[server]"       # hub machine — needs no VR bindings at all
+pip install -e ".[workstation]"  # recording PC — pyarrow, pyopenxr, openvr, ...
+pip install -e ".[dev]"          # contributor — workstation + tests + linters
+```
+
+Install the package rather than running from the source tree with
+`requirements.txt`: the console commands below come from the install, and
+`src/version.py` reads the version from package metadata.
+
+LibOVR is deliberately not in `workstation` — it does not install everywhere.
+Add `".[workstation,oculus]"` only if you record through it.
+
+---
+
+## 1. Start the hub and its admin UI
+
+On the machine that will hold the archive:
+
+```bash
+vrtelemetry-hub
+```
+
+It binds `0.0.0.0:9000` and logs the admin-UI and health URLs on startup.
+
+**Create the first administrator — once, on the hub machine, before anyone
+opens the admin UI:**
+
+```bash
+vrtelemetry-bootstrap-admin --email you@lab.org --org "Your Lab"
+```
+
+It prompts for a password. This step cannot be done through the web UI and is
+not optional: `POST /auth/register` always creates a *researcher*, and promoting
+anyone requires an admin session — so on a fresh install there is no way in.
+Run the same command against an existing account later to promote it; it is
+idempotent.
+
+Then, in a browser:
+
+| URL | What it is |
+|---|---|
+| `http://<hub-host>:9000/admin-ui/` | Admin dashboard — users, licences, active clients, sessions |
+| `http://<hub-host>:9000/health` | Liveness. `{"ok": true, "service": "vrtelemetry-hub", ...}` |
+| `http://<hub-host>:9000/docs` | Interactive API reference |
+
+Log in, then **Licenses → issue a key** for each researcher. A workstation
+cannot record until it has activated with one.
+
+To move the hub off port 9000, use a `[hub]` block in `config.toml` or:
+
+```bash
+VRT_HUB__HOST=0.0.0.0 VRT_HUB__PORT=9500 vrtelemetry-hub
+```
+
+**Two underscores** between `HUB` and `PORT`. The single-underscore spelling is
+the pre-1.0 form; it is still honoured, but it logs a deprecation warning.
+
+---
+
+## 2. Start the workstation
+
+### The desktop app, in development
+
+From the repository root, once:
+
+```bash
+npm install
+cd src/frontend/VRTelemetry && npm install && cd ../../..
+```
+
+Then, with your virtualenv activated:
+
+```bash
+npm run dev
+```
+
+That starts Vite on `http://localhost:5173` and the Electron shell against it.
+The shell spawns the Python backend itself (`python -m uvicorn src.main:app` on
+127.0.0.1:8000) and waits for the port before showing a window — so do not start
+it separately. Activate the virtualenv first, so the `python` it spawns is the
+one with the dependencies.
+
+### The backend alone
+
+For debugging, or a headless recording box:
 
 ```bash
 vrtelemetry-server                # or: uvicorn src.main:app --port 8000
 ```
 
-Record from the command line, without the UI:
+`http://127.0.0.1:8000/docs` is the API reference. `VRT_API__PORT` moves it —
+but only for this command. The Electron shell hardcodes 8000 in
+`electron/backend-manager.js` and does not read the setting, so if you are using
+the desktop app, leave the port alone.
+
+### Recording from the command line
 
 ```bash
-python -m src.interfaces.cli.record --backend openxr --gdpr-consent
+vrtelemetry-record --gdpr-consent --backend steamvr --subject-id S001
 ```
 
-The `hardware` marker separates tests that need a headset plugged in from the
-ones that do not. CI runs `-m "not hardware"`; you should too, unless you have
-one connected.
+`--gdpr-consent` is mandatory and there is no way around it: the flag *is* the
+record that consent was obtained, and the run refuses to start without it.
+`--backend` takes `auto`, `steamvr`, `openxr`, `openxr_headless`, `oculus` or
+`quest_udp`; `--port` sets the listening port under `quest_udp`.
+
+### Packaging the desktop app
+
+```bash
+npm run package
+```
+
+Builds the frontend, freezes the backend with PyInstaller (`build/backend.spec`)
+and produces an installer in `release/` — NSIS on Windows, DMG on macOS,
+AppImage on Linux.
+
+---
+
+## 3. Point the workstation at the hub
+
+Skip this only if both run on one machine with default ports.
+
+1. **Open the port on the hub machine.** Windows Firewall blocks inbound 9000 by
+   default. This is the most common reason a setup that works on one machine
+   fails across two.
+2. **Find the hub's LAN address** (`ipconfig`, or `ip addr`) and confirm it from
+   the recording PC:
+   ```bash
+   curl http://<hub-ip>:9000/health
+   ```
+   Read the `service` field, not just the status code — a workstation pointed at
+   some other service on the right port gets a reply and otherwise looks
+   connected.
+3. **In the desktop app**, on Live Acquisition, put `http://<hub-ip>:9000` into
+   **Central Server Address** and press **Test**. It reports the hub's name and
+   version, or says exactly what went wrong. The address is saved on the
+   machine — a one-time step, not per session.
+4. **Register or log in, then activate** with a licence key from step 1.
+5. Record. `GET /api/sync/status` reads 0 pending once a session has uploaded.
+
+An unreachable hub is not an error state. Sessions record locally and queue; the
+background scheduler drains them when the hub comes back.
+
+---
+
+## Testing it works
+
+```bash
+pytest -m "not hardware"          # 294 tests, no headset required
+```
+
+The `hardware` marker separates tests that need a headset from the ones that do
+not. CI runs `-m "not hardware"`; so should you, unless one is connected.
+
+---
+
+## Clearing local data
+
+Before a fresh study, or to reset a test machine:
+
+```bash
+python tools/reset_local_data.py --sessions            # dry run: prints what it would delete
+python tools/reset_local_data.py --sessions --apply    # delete
+```
+
+Scopes: `--sessions`, `--hub`, `--patients`, `--activation`, `--licences`,
+`--all`. Nothing happens without `--apply`, nothing outside the configured data
+root is touched, and git-tracked files are refused. `--licences` wipes the
+admin account too — you will bootstrap one again.
 
 ---
 
@@ -181,6 +355,31 @@ lands and inverts one, the docstring explains why — that is the audit trail.
 - Refactors are proven mechanically, not asserted. Moving the API surface means
   generating the OpenAPI document before and after and diffing it.
 - One ticket, one commit, with the reasoning in the message.
+
+---
+
+## Troubleshooting
+
+**"Cannot reach central server" when activating.** The address is wrong, the hub
+is not running, or the firewall is closed. The **Test** button beside the address
+field distinguishes all three, including the case where something that is not a
+hub answered.
+
+**The admin UI rejects your login, or shows nothing.** That account is a
+researcher, not an admin. Run `vrtelemetry-bootstrap-admin --email <that email>`
+on the hub machine.
+
+**Recording starts but no frames are written.** The headset is not reporting
+valid tracking. Frames with no valid source are dropped rather than written as
+all-zero rows; the teardown summary reports what actually reached disk, which is
+the number to trust.
+
+**Sessions record but never appear on the hub.** They are queued, not lost.
+Check `/api/sync/status` on the workstation and `/health` on the hub.
+
+**`pip install` fails on `openvr` or `pyopenxr`.** You are installing the
+`workstation` extra on a machine with no VR runtime. The hub needs `[server]`,
+which requires neither.
 
 ---
 

@@ -6,6 +6,7 @@ import time
 
 import xr
 
+from src.backends.tracking_faults import TrackingFaultLog
 from src.core.datatypes import TelemetryFrame
 from src.core.interfaces import IVRBackend
 from src.eye_tracking.base_driver import IEyeTrackingDriver
@@ -20,6 +21,9 @@ class OpenXRBackend(IVRBackend):
     Hunts for XR_MND_headless to execute silently in the background,
     and handles unified session attachments for external biometric drivers.
     """
+
+    #: OpenXR stamps frames with `predicted_display_time`.
+    timestamp_is_display_time = True
 
     def __init__(self) -> None:
         self.refresh_rate_hz: float | None = None
@@ -46,9 +50,21 @@ class OpenXRBackend(IVRBackend):
 
         self.frame_end_info = xr.FrameEndInfo(environment_blend_mode=xr.EnvironmentBlendMode.OPAQUE)
 
-        # Memory-safe array references to prevent ctypes garbage collection
-        self._action_sets_arr = None
-        self._active_action_sets_arr = None
+        #: Per-source tracking faults (VRT-13). Each `except` in poll_frame
+        #: below records into this instead of `pass`-ing, so a session in which
+        #: the left controller failed to locate on a third of its frames is
+        #: distinguishable afterwards from one in which the subject simply put
+        #: it down -- which produces byte-identical columns.
+        self.faults = TrackingFaultLog("OpenXRBackend")
+        self._frames_polled = 0
+
+        # Memory-safe array references to prevent ctypes garbage collection.
+        # Annotated Optional because that is what they are between construction
+        # and initialize(); the reads below use the local lists they were built
+        # from rather than re-deriving a length from an attribute the checker
+        # cannot prove is set.
+        self._action_sets_arr: ctypes.Array | None = None
+        self._active_action_sets_arr: ctypes.Array | None = None
         self.actions_sync_info = xr.ActionsSyncInfo()
 
     def initialize(self) -> bool:
@@ -104,7 +120,17 @@ class OpenXRBackend(IVRBackend):
                 self.app_space = xr.create_reference_space(
                     self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.LOCAL)
                 )
-            except Exception:
+            except xr.XrException as local_err:
+                # A runtime that offers no LOCAL space -- seated-only or
+                # room-scale-only hardware. Narrowed to the runtime's own
+                # exception type so a mistake in *our* call (a bad enum, a stale
+                # session handle) is not silently retried as STAGE and then
+                # reported as a STAGE failure, which is what made this branch
+                # unreadable. If STAGE fails too, that error travels to
+                # initialize()'s handler and the backend reports it cannot bind.
+                logger.info(
+                    f"LOCAL reference space unavailable, falling back to STAGE: {local_err}"
+                )
                 self.app_space = xr.create_reference_space(
                     self.session, xr.ReferenceSpaceCreateInfo(xr.ReferenceSpaceType.STAGE)
                 )
@@ -123,30 +149,32 @@ class OpenXRBackend(IVRBackend):
             )
             active_action_sets.append(active_main)
 
-            if self.eye_driver and getattr(self.eye_driver, "gaze_action_set", None):
-                action_sets_to_attach.append(self.eye_driver.gaze_action_set)
-                active_eye = xr.ActiveActionSet(
-                    action_set=self.eye_driver.gaze_action_set, subaction_path=xr.NULL_PATH
+            # `getattr(..., None)` until VRT-17, because IEyeTrackingDriver did
+            # not declare the attribute -- so the backend was probing its own
+            # port for a field it hoped one implementation would have. It is
+            # part of the interface now.
+            eye_action_set = self.eye_driver.gaze_action_set if self.eye_driver else None
+            if eye_action_set is not None:
+                action_sets_to_attach.append(eye_action_set)
+                active_action_sets.append(
+                    xr.ActiveActionSet(action_set=eye_action_set, subaction_path=xr.NULL_PATH)
                 )
-                active_action_sets.append(active_eye)
 
             # Retain strict C-references to prevent Python GC from destroying the handles
-            self._action_sets_arr = (xr.ActionSet * len(action_sets_to_attach))(
-                *action_sets_to_attach
-            )
+            action_sets_arr = (xr.ActionSet * len(action_sets_to_attach))(*action_sets_to_attach)
+            self._action_sets_arr = action_sets_arr
             xr.attach_session_action_sets(
                 self.session,
                 xr.SessionActionSetsAttachInfo(
-                    count_action_sets=len(self._action_sets_arr), action_sets=self._action_sets_arr
+                    count_action_sets=len(action_sets_to_attach), action_sets=action_sets_arr
                 ),
             )
 
-            self._active_action_sets_arr = (xr.ActiveActionSet * len(active_action_sets))(
-                *active_action_sets
-            )
+            active_arr = (xr.ActiveActionSet * len(active_action_sets))(*active_action_sets)
+            self._active_action_sets_arr = active_arr
             self.actions_sync_info = xr.ActionsSyncInfo(
-                count_active_action_sets=len(self._active_action_sets_arr),
-                active_action_sets=self._active_action_sets_arr,
+                count_active_action_sets=len(active_action_sets),
+                active_action_sets=active_arr,
             )
 
             logger.info("OpenXR Context established successfully with unified spatial tracking.")
@@ -263,6 +291,7 @@ class OpenXRBackend(IVRBackend):
                 break
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
+        self._frames_polled += 1
         frame = TelemetryFrame.create_empty(frame_index)
         if not self.session:
             time.sleep(0.01)
@@ -292,8 +321,12 @@ class OpenXRBackend(IVRBackend):
 
             try:
                 xr.sync_actions(self.session, self.actions_sync_info)
-            except Exception as sync_err:
-                logger.debug(f"OpenXR Sync Actions Failed: {sync_err}")
+            except xr.XrException as sync_err:
+                # Controller input for this frame is stale; poses below may
+                # still be valid, so the frame is worth keeping. Counted,
+                # because a session where this fails constantly has trigger and
+                # grip columns that are flat rather than genuinely unpressed.
+                self.faults.record("action_sync", sync_err)
 
             # 1. HMD Evaluation
             if self.view_space:
@@ -312,8 +345,8 @@ class OpenXRBackend(IVRBackend):
                             view_loc.pose.orientation.w,
                         )
                         frame.hmd_tracking_valid = 1.0
-                except Exception:
-                    pass
+                except xr.XrException as hmd_err:
+                    self.faults.record("hmd", hmd_err)
 
             # 2. Controllers
             if self.left_space:
@@ -338,8 +371,8 @@ class OpenXRBackend(IVRBackend):
                         )
                         if left_trig.is_active:
                             frame.left_trigger = left_trig.current_state
-                except Exception:
-                    pass
+                except xr.XrException as left_err:
+                    self.faults.record("left_controller", left_err)
 
             if self.right_space:
                 try:
@@ -368,27 +401,37 @@ class OpenXRBackend(IVRBackend):
                         )
                         if right_trig.is_active:
                             frame.right_trigger = right_trig.current_state
-                except Exception:
-                    pass
+                except xr.XrException as right_err:
+                    self.faults.record("right_controller", right_err)
 
             # 3. Eye Tracking Evaluation
             if self.eye_driver:
                 try:
                     self.eye_driver.populate_frame(frame, t)
-                except Exception:
-                    pass
+                except Exception as eye_err:  # noqa: BLE001 - vendor driver called through ctypes
+                    # Broader than the clauses above on purpose. The eye drivers
+                    # are vendor extensions reached through raw ctypes function
+                    # pointers, and a bad pointer surfaces as OSError,
+                    # ValueError or ArgumentError rather than as an XrException.
+                    # Narrowing here would mean an eye-tracking fault killing the
+                    # whole frame, including head and hand data that were fine.
+                    self.faults.record("eye", eye_err)
 
-        except Exception as e:
-            logger.debug(f"Frame lifecycle fault: {e}")
+        except xr.XrException as e:
+            # The frame lifecycle itself -- wait_frame/begin_frame. Losing this
+            # loses every source for this frame, so it is counted separately;
+            # `frame` still returns with all its valid flags at 0.0 and the
+            # engine drops it rather than recording zeros as data.
+            self.faults.record("frame", e)
 
         finally:
             # We MUST end the frame to keep the session alive, but we can safely ignore the headless discard warning
             try:
                 self.frame_end_info.display_time = t
                 xr.end_frame(self.session, self.frame_end_info)
-            except Exception as end_err:
+            except xr.XrException as end_err:
                 if "discarded" not in str(end_err).lower():
-                    logger.debug(f"End frame exception: {end_err}")
+                    self.faults.record("end_frame", end_err)
 
         return frame
 
@@ -418,6 +461,10 @@ class OpenXRBackend(IVRBackend):
             xr.destroy_instance(self.instance)
             self.instance = None
 
+        # Before the "terminated" line, so the last thing in the session log is
+        # not a clean shutdown message sitting on top of a session that lost
+        # tracking for half its frames.
+        self.faults.summarise(self._frames_polled)
         logger.info("OpenXR Context Safely Terminated.")
 
     def _query_refresh_rate(self, enabled_extensions: list) -> None:
@@ -437,7 +484,12 @@ class OpenXRBackend(IVRBackend):
                 logger.info(
                     f"Live HMD refresh rate reported by runtime: {self.refresh_rate_hz:.1f} Hz"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one-off optional probe through a raw ctypes pointer
+            # Called once at startup, through a function pointer resolved by
+            # name from the runtime. Every failure mode -- extension absent,
+            # symbol missing, signature mismatch -- means the same thing to the
+            # caller: no live refresh rate, use the configured sampling cap.
+            # _run_pcvr_mode already logs that fallback at WARNING.
             logger.debug(f"Refresh rate query failed (non-critical): {e}")
 
     def get_refresh_rate_hz(self) -> float | None:

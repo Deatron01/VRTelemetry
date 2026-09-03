@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 from src.config import get_settings
+from src.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class UsageTracker:
         event_type: str,
         detail: str = "",
         researcher_email: str = "",
-        app_version: str = "1.0.0",
+        app_version: str = APP_VERSION,
     ) -> None:
         try:
             with sqlite3.connect(self.db_path) as conn:

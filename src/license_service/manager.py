@@ -3,11 +3,12 @@
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
+from src.utils.clock import as_stored, is_expired, parse_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,7 @@ class LicenseManager:
         license_key = self._generate_license_key()
         license_id = str(uuid.uuid4())
         expires_at = (
-            (datetime.utcnow() + timedelta(days=expires_in_days)).isoformat()
-            if expires_in_days
-            else None
+            as_stored(utc_now() + timedelta(days=expires_in_days)) if expires_in_days else None
         )
 
         with self._conn() as conn:
@@ -94,7 +93,7 @@ class LicenseManager:
                 )
                 return {"ok": False, "reason": lic["status"]}
 
-            if lic["expires_at"] and datetime.fromisoformat(lic["expires_at"]) < datetime.utcnow():
+            if is_expired(lic["expires_at"]):
                 self._log_event(conn, lic["license_id"], None, "reject", "expired", ip_address)
                 return {"ok": False, "reason": "expired"}
 
@@ -184,7 +183,7 @@ class LicenseManager:
                 return {"ok": False, "reason": "machine_revoked"}
             if row["license_status"] != "active":
                 return {"ok": False, "reason": row["license_status"]}
-            if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) < datetime.utcnow():
+            if is_expired(row["expires_at"]):
                 return {"ok": False, "reason": "expired"}
 
             if machine_label:
@@ -311,19 +310,17 @@ class LicenseManager:
             if not lic:
                 return {"ok": False, "reason": "license_not_found"}
 
-            current_expiry = (
-                datetime.fromisoformat(lic["expires_at"]) if lic["expires_at"] else None
-            )
-            base = (
-                current_expiry
-                if (current_expiry and current_expiry > datetime.utcnow())
-                else datetime.utcnow()
-            )
+            # Extending a licence that has already lapsed runs from now, not
+            # from the lapsed date -- otherwise "+30 days" on a licence that
+            # expired in March buys nothing.
+            now = utc_now()
+            current_expiry = parse_utc(lic["expires_at"])
+            base = current_expiry if (current_expiry and current_expiry > now) else now
             new_expiry = base + timedelta(days=additional_days)
 
             conn.execute(
                 "UPDATE licenses SET expires_at = ?, status = CASE WHEN status = 'expired' THEN 'active' ELSE status END WHERE license_key = ?",
-                (new_expiry.isoformat(), license_key),
+                (as_stored(new_expiry), license_key),
             )
             conn.commit()
 
@@ -332,7 +329,7 @@ class LicenseManager:
                 lic["license_id"],
                 None,
                 "extend",
-                f"+{additional_days} days, new expiry {new_expiry.isoformat()}",
+                f"+{additional_days} days, new expiry {as_stored(new_expiry)}",
                 "",
             )
             conn.commit()

@@ -8,7 +8,20 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from src.core.exceptions import StorageWriteError
+
 logger = logging.getLogger(__name__)
+
+#: What a failing Parquet write is allowed to look like. ``ArrowException`` is
+#: the base of every error pyarrow raises for a malformed batch, a schema
+#: mismatch or a closed stream; ``OSError`` covers the disk itself -- full,
+#: disconnected, read-only, or a path that vanished under an open handle.
+#:
+#: Anything outside these two is a defect in this file, not a disk problem, and
+#: it is deliberately not caught: a ``TypeError`` from a frame tuple of the
+#: wrong width used to be counted as a "disk write failure", logged as one, and
+#: eventually reported to the researcher as one.
+_WRITE_FAULTS = (pa.ArrowException, OSError, ValueError)
 
 
 class AsyncParquetWriter:
@@ -142,9 +155,13 @@ class AsyncParquetWriter:
             self.write_failed = False
             self.consecutive_write_failures = 0
             logger.info(f"Parquet storage pipeline opened: {self.output_path.name}")
-        except Exception as e:
+        except _WRITE_FAULTS as e:
+            # Raised, not returned. A recording whose sink never opened is not a
+            # recording, and the engine's caller needs to hear that as a stated
+            # reason rather than as a session that runs to completion with an
+            # empty file at the end of it.
             logger.error(f"Failed to initialize Parquet writer: {e}")
-            raise
+            raise StorageWriteError(f"Could not open {self.output_path} for writing: {e}") from e
 
     def push(self, frame_tuple: tuple) -> None:
         """
@@ -197,7 +214,11 @@ class AsyncParquetWriter:
             try:
                 self._file_obj.flush()
                 os.fsync(self._file_obj.fileno())
-            except Exception as fsync_err:
+            except (OSError, ValueError) as fsync_err:
+                # Genuinely non-fatal: the row group is written and the OS will
+                # flush it. ValueError is here because a closed file object
+                # raises that rather than OSError, which is reachable when stop()
+                # races a flush.
                 logger.debug(
                     f"fsync after flush failed (non-fatal, data still buffered by OS): {fsync_err}"
                 )
@@ -205,11 +226,19 @@ class AsyncParquetWriter:
             self.buffer.clear()
             self.consecutive_write_failures = 0
 
-        except Exception as e:
+        except _WRITE_FAULTS as e:
+            # Counted rather than raised, and this is the one place in the write
+            # path where that is correct: the caller is the asyncio consumer
+            # thread, and an exception here kills it, after which every
+            # subsequent frame is dropped by a loop that is no longer running --
+            # silently, which is the failure mode this ticket exists to remove.
+            # The failure is surfaced instead: `write_failed` stops acquisition
+            # in the engine's loop and is reported again at teardown.
             self.consecutive_write_failures += 1
             logger.error(
                 f"Critical disk write failure during Parquet flush "
-                f"(consecutive failures: {self.consecutive_write_failures}/{self.max_consecutive_failures}): {e}"
+                f"(consecutive failures: {self.consecutive_write_failures}/{self.max_consecutive_failures}): {e}",
+                exc_info=True,
             )
 
             if self.consecutive_write_failures >= self.max_consecutive_failures:
@@ -231,10 +260,14 @@ class AsyncParquetWriter:
                 try:
                     self.writer.close()
                     logger.info("Parquet storage pipeline sealed successfully.")
-                except Exception as e:
-                    logger.error(f"Error sealing Parquet writer: {e}")
+                except _WRITE_FAULTS as e:
+                    # A file that could not be sealed is very likely truncated,
+                    # so this marks the session unreliable for the same reason a
+                    # mid-session flush failure does.
+                    self.write_failed = True
+                    logger.error(f"Error sealing Parquet writer: {e}", exc_info=True)
             if self._file_obj:
                 try:
                     self._file_obj.close()
-                except Exception as e:
+                except OSError as e:
                     logger.debug(f"Error closing underlying file handle: {e}")

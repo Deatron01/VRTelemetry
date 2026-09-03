@@ -47,11 +47,22 @@ def _try_get_parquet_row_count(parquet_path: Path) -> int | None:
     real total_frames instead of leaving it null forever (session_metadata.db
     doesn't store a frame count; that only ever existed in engine memory).
     """
+    # Imported here rather than at module scope: this module is reachable from
+    # the API's boot sweep on a machine where the workstation extra was never
+    # installed, and a missing pyarrow should cost a frame count, not the sweep.
     try:
+        import pyarrow as pa
         import pyarrow.parquet as pq
+    except ImportError as e:
+        logger.debug(f"pyarrow unavailable, no row count for {parquet_path}: {e}")
+        return None
 
+    try:
         return pq.ParquetFile(str(parquet_path)).metadata.num_rows
-    except Exception as e:
+    except (OSError, pa.ArrowException) as e:
+        # The file is truncated, mid-write, or not a Parquet file at all -- all
+        # of which are exactly the sessions this sweep exists to find, so the
+        # backfill continues without a frame count rather than skipping them.
         logger.debug(f"Could not read Parquet row count for {parquet_path}: {e}")
         return None
 
@@ -106,8 +117,14 @@ def backfill_unsynced_sessions(
             for row in db_manager.list_all_sessions()
             if row.get("session_id")
         }
+    # Broad: the sweep reports its own abort rather than raising
     except Exception as e:
-        logger.error(f"Backfill sweep aborted — could not list local sessions: {e}")
+        # Deliberately not narrowed to sqlite3.Error: DatabaseManager is free to
+        # wrap its storage, and this sweep's contract with both its callers (the
+        # lifespan and POST /api/sync/backfill) is that it returns a summary.
+        # The summary it returns here says zero sessions found, and the reason is
+        # logged at ERROR with its traceback -- an abort that announces itself.
+        logger.error(f"Backfill sweep aborted — could not list local sessions: {e}", exc_info=True)
         return summary
 
     parquet_files = _scan_session_ids(output_path, PARQUET_PREFIX, PARQUET_SUFFIX)

@@ -56,11 +56,14 @@ workstation = [
     "pandas>=2.2,<3.0",
     "psutil>=5.9.8",
     "pyopenxr>=1.0.31",
-    # `import openvr` in backend_steamvr.py is unguarded, and src/core/__init__.py
-    # imports the engine eagerly, so today this is required to import ANY module
-    # under src.core -- including from the unit tests. It belongs behind a
-    # runtime capability check; VRT-14 moves backend selection behind a registry
-    # so an absent binding degrades instead of breaking the import graph.
+    # `import openvr` in backend_steamvr.py is still unguarded, but it is no
+    # longer reached at import time: VRT-14 moved backend selection into
+    # src/backends/registry.py, which imports the chosen backend and only that
+    # one. Importing src.core.engine on a machine with no VR bindings at all now
+    # works, and tests/unit/test_backend_registry.py asserts it with the imports
+    # blocked at the meta path. This stays in the workstation extra because a
+    # workstation that records on SteamVR needs it -- which is a different claim
+    # from "nothing imports without it".
     "openvr>=1.26",
 ]
 
@@ -101,6 +104,10 @@ dev = [
 vrtelemetry-server = "src.server_entrypoint:boot_server_context"
 vrtelemetry-record = "src.tert_runner:boot_framework_context"
 vrtelemetry-hub = "src.central_server.server:main"
+# The first admin cannot be created over HTTP by design: registration always
+# makes a researcher, and promotion requires an admin session. Without this
+# a fresh hub can never issue a licence, so no workstation can activate.
+vrtelemetry-bootstrap-admin = "src.license_service.bootstrap_admin:main"
 
 [tool.hatch.build.targets.wheel]
 # The import root is `src` today, matching the existing `from src.core import ...`
@@ -208,21 +215,16 @@ ignore = [
 # bootstrap_admin.py is an interactive CLI for creating the first admin account.
 "src/license_service/bootstrap_admin.py" = ["T20"]
 # Tests assert on private state and use hardcoded fixtures by design.
-"tests/*" = ["S105", "S106", "S104", "S108", "ARG001", "SLF001"]
+# S607: a couple of tests shell out to `git` to build a fixture repository;
+# a full path would be less portable than the partial one, not safer.
+"tests/*" = ["S105", "S106", "S104", "S108", "ARG001", "SLF001", "S607"]
 
 # VRT-10 moved these handlers out of src/main.py unchanged, so the exemptions
 # followed the code rather than being new debt. VRT-12 then deleted src/main.py's
-# own entry entirely -- the file is 95 lines and clean. What remains here is the
-# error-handling debt: BLE001/B904/SIM105 -> VRT-13, S608 -> VRT-11.
-"src/interfaces/api/app.py" = ["BLE001"]
-"src/interfaces/api/routers/auth.py" = ["B904", "SIM105"]
-"src/interfaces/api/routers/licence.py" = ["B904"]
-"src/interfaces/api/routers/patients.py" = ["B904"]
-"src/interfaces/api/routers/questionnaires.py" = ["BLE001"]
-"src/interfaces/api/routers/recording.py" = ["B904", "BLE001"]
-"src/interfaces/api/routers/sessions.py" = ["B904", "S608", "W291"]
-"src/interfaces/api/routers/sync.py" = ["BLE001"]
-"src/interfaces/cli/record.py" = ["BLE001"]
+# own entry entirely, and VRT-13 has now cleared the error-handling debt from
+# all nine router/CLI entries that stood here. What is left is one file with
+# SQL built by interpolation, which belongs to VRT-11.
+"src/interfaces/api/routers/sessions.py" = ["S608", "W291"]
 
 # ── Inherited debt, scoped per file ──────────────────────────────────────────
 # These rules stay SELECTED globally, so any new or newly-touched file is held
@@ -230,13 +232,25 @@ ignore = [
 # violate which rule today. This is a ratchet: entries are deleted as the owning
 # ticket lands, and nothing is ever added without one.
 #
-#   BLE001  blind `except Exception`, 70 sites ................ VRT-13
-#   B904    `raise` inside `except` without `from` ............. VRT-13
-#   S110    `try/except/pass` ............................. .... VRT-13
-#   SIM105  use contextlib.suppress ......................... .. VRT-13
-#   DTZ003  naive `datetime.utcnow()` -- compared against stored
-#           ISO strings for licence expiry and session windows,
-#           so this is a correctness bug, not a style nit ...... VRT-21 (new)
+#   BLE001, B904, S110, SIM105 ..................... VRT-13, DONE
+#           69 sites across 30 files. Every one was decided
+#           individually: narrowed to what the call can actually
+#           raise, suppressed with a written reason, or kept broad
+#           with a `# noqa: BLE001` naming why. The rules are now
+#           enforced everywhere with no exemptions, which means a
+#           new blind `except Exception` fails CI rather than
+#           joining a list. Do not re-add an entry for these four.
+#   DTZ003, DTZ007 ................................. VRT-21, DONE
+#           All 17 sites go through src/utils/clock.py now. The
+#           backlog's description of this one was wrong and the
+#           correction is in that module's docstring: naive-UTC
+#           compared against naive-UTC is timezone-independent
+#           and those comparisons were correct. What was wrong
+#           is that the convention was never stated -- so aware
+#           and naive values coexist one TypeError apart, a NULL
+#           expiry raised instead of meaning "no expiry", and
+#           the zone-less wire format was read as local time by
+#           the hub's dashboard. Do not re-add these two.
 #   S608    SQL built by string interpolation (column names
 #           only; values are parameterised) ................... VRT-11
 #   E402    imports below module-level code; src/main.py's four
@@ -246,47 +260,33 @@ ignore = [
 #           guard's side effect. The fix is to move it to the
 #           decorator's `dependencies=[...]` ................. VRT-15
 #   PTH*    os.path/open instead of pathlib ................... VRT-20
-#   S104    binding 0.0.0.0 -- deliberate for the LAN UDP
-#           receiver and hub; to be made configurable ......... VRT-16
+#   S104 ............................................ VRT-16, DONE
+#           The two per-file entries were stale: VRT-6 moved
+#           every bind address into settings.py, which carries
+#           its own `# noqa: S104 - LAN service by design` at
+#           the two literals that remain. Nothing under src/
+#           hardcodes an address any more.
 #   S602/S607  subprocess without a full path ................. VRT-20
 #   others  naming, comprehension and mutable-default nits .... VRT-20
-"src/backends/backend_ocolus.py" = ["BLE001"]
-"src/backends/backend_openxr.py" = ["BLE001", "S110", "SIM105"]
-"src/backends/backend_steamvr.py" = ["BLE001"]
-"src/backends/openxr_headless.py" = ["BLE001", "N806"]
-"src/backends/udp_receiver.py" = ["BLE001", "S104"]
+"src/backends/openxr_headless.py" = ["N806"]
 "src/central_server/data_manager.py" = ["S608"]
 "src/central_server/data_schema.py" = ["N806", "W293"]
-"src/central_server/server.py" = ["ARG001", "B904", "BLE001", "DTZ003", "E402", "RUF034"]
+"src/central_server/server.py" = ["ARG001", "E402", "RUF034"]
 "src/core/derived_metrics.py" = ["B905"]
-"src/core/engine.py" = ["BLE001", "N806", "S104"]
-"src/core/synchronizer.py" = ["BLE001"]
 "src/eye_tracking/factory.py" = ["RUF012"]
-"src/eye_tracking/fb_social.py" = ["BLE001"]
-"src/eye_tracking/htc_tracker.py" = ["BLE001"]
-"src/license_service/auth_manager.py" = ["DTZ003"]
-"src/license_service/local_cache.py" = ["DTZ003", "RUF013"]
-"src/license_service/manager.py" = ["DTZ003"]
-"src/patients/patient_manager.py" = ["DTZ003", "DTZ007", "RUF005", "S608"]
+"src/license_service/local_cache.py" = ["RUF013"]
+"src/patients/patient_manager.py" = ["RUF005", "S608"]
 "src/storage/ai_preprocessor.py" = ["RUF012"]
 "src/storage/database_manager.py" = ["RUF005", "S608", "W293"]
-"src/storage/heartbeat_client.py" = ["BLE001"]
-"src/storage/parquet_writer.py" = ["B905", "BLE001", "PTH123", "SIM115"]
-"src/storage/session_backfill.py" = ["BLE001"]
+"src/storage/parquet_writer.py" = ["B905", "PTH123", "SIM115"]
 "src/storage/session_uploader.py" = ["PTH123"]
-"src/storage/sync_scheduler.py" = ["BLE001"]
-"src/utils/hardware_monitor.py" = ["BLE001", "S110", "S607"]
-"src/utils/retry_backoff.py" = ["DTZ003"]
-"src/utils/system_profiler.py" = ["BLE001", "E741", "S607"]
-"tests/integration/test_pipeline.py" = ["PTH202"]
+"src/utils/hardware_monitor.py" = ["S607"]
+"src/utils/system_profiler.py" = ["E741", "S607"]
 "tools/append_structure.py" = ["B007", "B905", "C414"]
-"tools/clean_svgs.py" = ["BLE001"]
-"tools/fix_diagrams.py" = ["BLE001"]
-"tools/generate_docs.py" = ["BLE001", "PTH123", "RUF005", "S608"]
-"tools/generate_graphs.py" = ["BLE001", "PTH107", "PTH123", "S602", "SIM105"]
-"tools/merge_and_clean_docs.py" = ["B905", "BLE001", "C414"]
-"tools/read_data.py" = ["BLE001"]
-"tools/run_documentation_pipeline.py" = ["BLE001", "F841"]
+"tools/generate_docs.py" = ["PTH123", "RUF005", "S608"]
+"tools/generate_graphs.py" = ["PTH107", "PTH123", "S602"]
+"tools/merge_and_clean_docs.py" = ["B905", "C414"]
+"tools/run_documentation_pipeline.py" = ["F841"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
@@ -336,6 +336,16 @@ module = [
     "src.core.interfaces",
     "src.utils.log_redaction",
     "src.analytics.questionnaires",
+    # Joined in VRT-14. New modules go in here on the day they are written --
+    # a module is never easier to make strict than before anything imports it.
+    "src.application.ports",
+    "src.application.recording_context",
+    "src.infrastructure.transport",
+    "src.backends.registry",
+    "src.backends.tracking_faults",
+    "src.eye_tracking.base_driver",
+    "src.utils.clock",
+    "src.version",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -352,23 +362,28 @@ strict_equality = true
 # lands, the count only ever falls, and nothing joins this list without a
 # ticket beside it.
 #
-# Worth knowing: 11 of the errors in core/engine.py are `union-attr` on
-# `self.backend`, which mypy only started seeing because VRT-5.2 gave the
-# attribute a real Optional type. They are not new bugs -- they are the
-# already-present possibility of calling a method on None, finally visible.
+# VRT-14 cleared six of these modules by fixing the code rather than the list:
+# the engine's eleven were `union-attr` on `self.backend` and `self._async_loop`,
+# both legitimately Optional between construction and start(), and both fixed by
+# passing the value into the method that uses it instead of reading it back off
+# `self`. The two `configured_backend` / `network_port` errors were the API route
+# and the CLI assigning attributes the class never declared; they are constructor
+# arguments now.
+#
+# VRT-17 then cleared the two OpenXR modules as well. Their errors were ctypes
+# handles annotated `None` in __init__ and assigned real handles later,
+# `ctypes.windll` on a non-Windows checker, and two reads of
+# `eye_driver.gaze_action_set` -- an attribute `IEyeTrackingDriver` did not
+# declare. Declaring it is what led to the bug in that note: the EXT driver
+# attached its own session action sets, which made the OpenXR backend fail to
+# bind on every headset that selected it. See tests/unit/test_eye_tracking_contract.py.
+#
+# Every module under src/backends is now type-checked.
 module = [
-    "src.backends.backend_openxr",                 #  4 error(s) - VRT-14
-    "src.backends.openxr_headless",                #  9 error(s) - VRT-14
-    "src.backends.udp_receiver",                   #  2 error(s) - VRT-14
     "src.central_server.server",                   #  1 error(s) - VRT-15
-    "src.core.engine",                             # 11 error(s) - VRT-14 (ports; most are `backend` being Optional, which is correct and now visible)
-    "src.core.synchronizer",                       #  3 error(s) - VRT-14
     "src.license_service.local_cache",             #  4 error(s) - VRT-11
-    "src.interfaces.api.dependencies",       #  1 error(s) - VRT-12
     "src.interfaces.api.routers.licence",    #  8 error(s) - VRT-11 (LocalLicenseCache signatures)
     "src.interfaces.api.routers.questionnaires", #  2 error(s) - VRT-20
-    "src.interfaces.api.routers.recording",  #  4 error(s) - VRT-14
-    "src.interfaces.cli.record",             #  2 error(s) - VRT-14
     "src.patients.patient_manager",                #  1 error(s) - VRT-11
     "src.storage.database_manager",                #  3 error(s) - VRT-11
     "src.storage.parquet_writer",                  #  3 error(s) - VRT-11

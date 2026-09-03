@@ -9,6 +9,7 @@ from typing import Any
 
 from src.config import get_settings
 from src.core.exceptions import GDPRConsentError
+from src.utils.clock import utc_now_iso, utc_today
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,7 @@ class PatientManager:
             )
 
         patient_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
 
         with self._get_connection() as conn:
             conn.execute(
@@ -250,7 +251,7 @@ class PatientManager:
         if not set_fields:
             return existing
 
-        set_fields["updated_at"] = datetime.utcnow().isoformat()
+        set_fields["updated_at"] = utc_now_iso()
         set_clause = ", ".join(f"{k} = ?" for k in set_fields)
         values = list(set_fields.values()) + [patient_id]
 
@@ -265,7 +266,7 @@ class PatientManager:
         existing = self.get_patient(patient_id)
         if not existing:
             return None
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE patients SET gdpr_consent_given = 0, gdpr_consent_withdrawn_at = ?, updated_at = ? WHERE patient_id = ?",
@@ -289,8 +290,12 @@ class PatientManager:
         if dob:
             for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
                 try:
-                    born = datetime.strptime(dob[:10], fmt)
-                    today = datetime.utcnow()
+                    # `.date()` on both sides: an age is calendar arithmetic
+                    # between two dates. Comparing a birth date against a UTC
+                    # *instant* is off by a day around a birthday depending on
+                    # where the machine is standing.
+                    born = datetime.strptime(dob[:10], fmt).date()  # noqa: DTZ007
+                    today = utc_today()
                     age = (
                         today.year - born.year - ((today.month, today.day) < (born.month, born.day))
                     )
@@ -317,7 +322,7 @@ class PatientManager:
             if hard_delete:
                 conn.execute("DELETE FROM patients WHERE patient_id = ?", (patient_id,))
             else:
-                now = datetime.utcnow().isoformat()
+                now = utc_now_iso()
                 # Right-to-erasure scrubs the health/demographic profile too — these
                 # are special-category data under the same consent umbrella as the
                 # identifying fields, so an erasure request has to clear all of it,

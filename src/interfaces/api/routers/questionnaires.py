@@ -98,7 +98,13 @@ def submit_questionnaire(
     updated_row = sessions.get(session_id)
     try:
         session_uploader.update_remote_metadata(session_id, updated_row)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - the write already succeeded; this is the copy
+        # Ordering is what makes this safe: `save_questionnaire` above has
+        # already committed and returned 500 if it did not. By the time control
+        # reaches here the researcher's data is durable locally, and the hub
+        # copy is a convenience the sync scheduler will reconcile. Catching
+        # broadly at a point where nothing can still be lost is a different act
+        # from catching broadly around the write itself.
         logger.info(f"Questionnaire saved locally; central re-sync skipped: {e}")
 
     return {"ok": True, "ssq": ssq_scores, "nasa_tlx": tlx_scores}

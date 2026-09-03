@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import uvicorn
 
+from src.config import get_settings
 from src.interfaces.api.app import create_app
 from src.utils.logger import logger, setup_logging
 
@@ -27,14 +28,22 @@ def boot_server_context() -> None:
     As opposed to ``src/interfaces/cli/record.py``, which drives the same
     acquisition pipeline directly from the command line with no HTTP involved.
 
-    Binds to loopback deliberately: the workstation API is the desktop app's
-    own backend, not a LAN service. Making that address configurable, and
-    reconciling it with the CORS allow-list, is VRT-16.
+    Binds to loopback **by default and on purpose**: this API serves patient
+    records and starts recordings, and only the desktop app on this machine
+    should reach it. The hub is the thing other machines talk to.
+
+    The address comes from :class:`~src.config.settings.ApiSettings` rather than
+    from two literals here. It was hardcoded to ``127.0.0.1:8000`` while
+    ``VRT_API__HOST`` / ``VRT_API__PORT`` existed, were documented in
+    ``config.example.toml``, were validated for port collisions against the hub,
+    and did nothing -- so an installation that moved the port got a desktop
+    shell talking to a backend that was not there.
     """
     setup_logging()
-    logger.info("Bootstrapping VRTelemetry backend server for desktop shell...")
+    api = get_settings().api
+    logger.info(f"Bootstrapping VRTelemetry backend server on {api.host}:{api.port}...")
 
-    uvicorn.run(create_app(), host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(create_app(), host=api.host, port=api.port, log_level="info")
 
 
 if __name__ == "__main__":

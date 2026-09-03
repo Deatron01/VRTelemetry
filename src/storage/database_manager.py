@@ -135,10 +135,19 @@ class DatabaseManager:
         """Sessions linked to one patient. Delegates to the repository."""
         return self._repo.list_for_patient(patient_id)
 
-    def persist_experiment(self, metadata: dict[str, Any]) -> None:
+    def persist_experiment(self, metadata: dict[str, Any]) -> bool:
         """
         Extracts nested category dicts from the static context definition and
         flattens them into the relational ledger for long-term tracking.
+
+        Returns:
+            Whether the row was written. Annotated ``-> None`` until VRT-14,
+            although the body has always returned True or False and the engine
+            has always branched on it -- ``src.storage.database_manager`` is in
+            mypy's ignore list (VRT-11), so nothing checked. Declaring
+            :class:`~src.application.ports.SessionMetadataSink` is what surfaced
+            it: a port is a claim about a type, and the checker compares the
+            implementation against it whether or not the module is exempt.
         """
         static_meta = metadata.get("M-IV_Static_Metadata", {})
         calib_meta = metadata.get("C-V_Calibration", {})

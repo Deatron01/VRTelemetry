@@ -49,9 +49,9 @@ def create_patient(
             relevant_health_conditions=payload.relevant_health_conditions,
         )
     except GDPRConsentError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     patient_uploader.sync_patient(patient)
     return patient
 
@@ -68,7 +68,7 @@ def update_patient(
             patient_id, {k: v for k, v in payload.dict().items() if v is not None}
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     if not updated:
         raise HTTPException(status_code=404, detail="Patient not found")
     patient_uploader.sync_patient(updated)

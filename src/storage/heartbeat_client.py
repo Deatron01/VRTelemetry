@@ -5,7 +5,8 @@ import platform
 import threading
 from collections.abc import Callable
 
-import requests
+from src.application.ports import HttpClient
+from src.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,14 @@ class HeartbeatSender:
         self,
         central_server_url_provider: Callable[[], str],
         local_license_cache,
+        http: HttpClient,
         interval_sec: float = 30.0,
         status_provider: Callable[[], str] | None = None,
         pending_count_provider: Callable[[], int] | None = None,
-        app_version: str = "1.0.0",
+        app_version: str = APP_VERSION,
     ):
+        #: Required, with no default -- see SessionUploader for why (VRT-14).
+        self.http = http
         self._url_provider = central_server_url_provider
         self.local_license_cache = local_license_cache
         self.interval_sec = interval_sec
@@ -69,10 +73,16 @@ class HeartbeatSender:
         while not self._stop_event.is_set():
             try:
                 self.send_once()
+            # Broad: thread top level: this loop must never die
             except Exception as e:
-                # Defensive: this thread must never die, or the client silently
-                # stops reporting as "online" for the rest of the process lifetime.
-                logger.warning(f"Heartbeat tick raised unexpectedly: {e}")
+                # send_once() already handles the expected failure -- an
+                # unreachable hub -- and returns False. Reaching here means
+                # something else went wrong, and the choice is between losing
+                # this machine's online status for the rest of the process
+                # lifetime and losing one tick. One tick is 30 seconds; the
+                # other is until someone restarts the app and wonders why the
+                # dashboard said this workstation was offline all week.
+                logger.warning(f"Heartbeat tick raised unexpectedly: {e}", exc_info=True)
             self._stop_event.wait(self.interval_sec)
 
     def send_once(self) -> bool:
@@ -82,7 +92,7 @@ class HeartbeatSender:
             return False  # nothing activated on this machine yet — nothing to report
 
         try:
-            response = requests.post(
+            response = self.http.post(
                 f"{self._url_provider().rstrip('/')}/client/heartbeat",
                 data={
                     "activation_id": state["activation_id"],
@@ -99,6 +109,6 @@ class HeartbeatSender:
                 logger.debug(f"Heartbeat ping rejected ({response.status_code}): {response.text}")
                 return False
             return True
-        except requests.RequestException as e:
+        except self.http.RequestException as e:
             logger.debug(f"Heartbeat ping failed, will retry in {self.interval_sec}s: {e}")
             return False

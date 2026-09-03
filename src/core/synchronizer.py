@@ -29,7 +29,8 @@ class BiometricSynchronizer:
         self.hardware = hardware_monitor
         self.live_state = live_state
 
-        self._buffer = deque(maxlen=buffer_size)
+        self._buffer_size = buffer_size
+        self._buffer: deque[tuple] = deque(maxlen=buffer_size)
         self._is_running = False
         self._async_task: asyncio.Task | None = None
 
@@ -42,13 +43,38 @@ class BiometricSynchronizer:
         self._last_backpressure_log = 0
         self._last_oversample_log = 0
 
+        #: Batches the consumer loop failed to hand to the writer. Counted
+        #: because the loop deliberately keeps running through a failure (see
+        #: :meth:`_consume_loop`), and a survivable fault that nobody counts is
+        #: how a session ends up short of frames with a clean-looking log.
+        self.consume_faults = 0
+
     def set_max_hz(self, max_hz: float) -> None:
         """Adjust the sampling ceiling at runtime — e.g. once the real device refresh rate is known."""
         self.max_hz = max_hz
         self._min_interval_ns = int(1e9 / max_hz) if max_hz else None
 
-    def push_frame(self, frame: TelemetryFrame) -> None:
-        """Called directly by the hardware/ingestion thread. Must be non-blocking."""
+    @property
+    def sample_interval_ns(self) -> int | None:
+        """Nanoseconds between accepted samples, or None when uncapped.
+
+        Public because the acquisition loop paces itself to it. Before VRT-24
+        that loop had no pacing at all: against a backend that returns without
+        blocking -- which SteamVR's overlay path does, since it reads predicted
+        poses rather than waiting on the compositor -- it polled at about
+        130,000 Hz and this class discarded 99.9% of what it produced.
+        """
+        return self._min_interval_ns
+
+    def push_frame(self, frame: TelemetryFrame) -> bool:
+        """Called directly by the hardware/ingestion thread. Must be non-blocking.
+
+        Returns:
+            Whether the frame was accepted into the buffer. The caller counts
+            accepted frames; it used to count *offered* ones, which is how a
+            session that persisted 322 samples reported 392,956 of them to the
+            hub (VRT-24).
+        """
         if self._min_interval_ns is not None and self._last_accepted_ts_ns is not None:
             delta = frame.timestamp_ns - self._last_accepted_ts_ns
             if 0 <= delta < self._min_interval_ns:
@@ -60,7 +86,7 @@ class BiometricSynchronizer:
                         f"samples faster than the physical sensor rate."
                     )
                     self._last_oversample_log = self.dropped_oversampling
-                return
+                return False
 
         self._last_accepted_ts_ns = frame.timestamp_ns
 
@@ -89,7 +115,9 @@ class BiometricSynchronizer:
                     (frame.right_pos_x, frame.right_pos_y, frame.right_pos_z), (tx, ty, tz)
                 )
 
-        if len(self._buffer) >= self._buffer.maxlen:
+        # `self._buffer_size`, not `self._buffer.maxlen`: deque types maxlen as
+        # `int | None` because an unbounded deque is legal, and this one never is.
+        if len(self._buffer) >= self._buffer_size:
             self.dropped_backpressure += 1
             if self.dropped_backpressure - self._last_backpressure_log >= 500:
                 logger.warning(
@@ -99,6 +127,7 @@ class BiometricSynchronizer:
                 self._last_backpressure_log = self.dropped_backpressure
 
         self._buffer.append(frame.to_tuple())
+        return True
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._is_running = True
@@ -109,7 +138,7 @@ class BiometricSynchronizer:
     async def _consume_loop(self) -> None:
         while self._is_running or len(self._buffer) > 0:
             try:
-                batch = []
+                batch: list[tuple] = []
                 while len(self._buffer) > 0 and len(batch) < 120:
                     batch.append(self._buffer.popleft())
 
@@ -119,8 +148,24 @@ class BiometricSynchronizer:
                 else:
                     await asyncio.sleep(0.001)
 
+            # Broad on purpose (ruff accepts it here because the traceback is
+            # logged rather than discarded).
             except Exception as e:
-                logger.error(f"Synchronizer Batch Error: {e}")
+                # The one asyncio task draining the ring buffer into the writer.
+                # If it raises, it is gone for the rest of the session and every
+                # frame pushed afterwards is silently discarded by a producer
+                # that has no idea -- the worst outcome available here, and worse
+                # than continuing past one bad batch. So the catch stays broad
+                # and the fault is counted and reported instead of swallowed.
+                #
+                # `batch` has already been popped off the buffer at this point,
+                # so those frames are lost; that is what the count measures.
+                self.consume_faults += 1
+                logger.error(
+                    f"Synchronizer batch {self.consume_faults} failed "
+                    f"({len(batch)} frame(s) lost): {e}",
+                    exc_info=True,
+                )
 
     def stop(self) -> None:
         self._is_running = False
@@ -129,3 +174,9 @@ class BiometricSynchronizer:
             f"Dropped: {self.dropped_backpressure} (backpressure), "
             f"{self.dropped_oversampling} (oversampling cap)."
         )
+        if self.consume_faults:
+            logger.critical(
+                f"{self.consume_faults} consumer batch(es) failed during this session -- "
+                f"frames in those batches never reached the writer. This session's frame "
+                f"count overstates what was persisted; treat the data as incomplete."
+            )

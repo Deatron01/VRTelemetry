@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 
@@ -58,7 +59,11 @@ def analyze_parquet_dataset(file_path: str) -> None:
                 f"HMD Optical Lock:    {df['hmd_tracking_valid'].sum():.0f}/{len(df)} frames valid"
             )
 
-    except Exception as e:
+    except (OSError, ValueError, KeyError, pa.ArrowException) as e:
+        # The file is missing, truncated, not Parquet, or lacks a column this
+        # inspection expects -- which is exactly what an operator points this
+        # script at a suspect session to find out. Reported rather than raised
+        # so the message is the answer instead of a traceback.
         print(f"Catastrophic failure parsing Parquet time-series data: {e}")
 
 

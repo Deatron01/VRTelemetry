@@ -117,8 +117,13 @@ def run_session_backfill(container: Container) -> dict[str, Any]:
             local_license_cache=container.local_cache,
             log_dir=container.sessions_log_dir,
         )
-    except Exception as e:
-        logger.warning(f"Historical session backfill sweep failed: {e}")
+    except Exception as e:  # noqa: BLE001 - documented above: a sweep must not take boot or the request down
+        # Broad because this runs from the lifespan, where an exception aborts
+        # application startup entirely, and the sweep is an optimisation: every
+        # session it would have queued is still on disk and still found by the
+        # next sweep. The failure is returned to the caller rather than hidden,
+        # which is what makes this a report rather than a swallow.
+        logger.warning(f"Historical session backfill sweep failed: {e}", exc_info=True)
         return {"error": str(e)}
 
 

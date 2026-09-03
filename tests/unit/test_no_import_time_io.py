@@ -105,7 +105,30 @@ import src  # noqa: E402
 from src.config import settings as _warm_settings  # noqa: E402,F401
 
 skipped = []
-names = [m.name for m in pkgutil.walk_packages(src.__path__, prefix="src.", onerror=lambda _n: None)]
+
+# Walked from the filesystem, not with pkgutil.walk_packages.
+#
+# walk_packages descends only into directories that are packages *it* can
+# import, and `src/central_server/` and `src/license_service/` have no
+# __init__.py -- they are namespace directories. It silently yielded neither,
+# so this test reported "no import-time I/O" while covering 84 of the
+# repository's 100 modules and omitting, of all things, the two that open
+# databases at import. Zero violations and zero skips, for the wrong reason.
+import os
+
+names = []
+for dirpath, dirnames, filenames in os.walk(SRC):
+    dirnames[:] = [d for d in dirnames if d not in {{"__pycache__", "frontend"}}]
+    for filename in sorted(filenames):
+        if not filename.endswith(".py"):
+            continue
+        rel = os.path.relpath(os.path.join(dirpath, filename), SRC)
+        parts = rel[:-3].split(os.sep)
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        if parts:
+            names.append("src." + ".".join(parts))
+names = sorted(set(names))
 
 armed[0] = True
 for name in names:
@@ -118,7 +141,7 @@ for name in names:
         skipped.append((name, "{{}}: {{}}".format(type(exc).__name__, exc)))
 
 armed[0] = False
-print(json.dumps({{"violations": violations, "skipped": skipped}}))
+print(json.dumps({{"violations": violations, "skipped": skipped, "walked": names}}))
 """
 
 
@@ -136,6 +159,25 @@ def _run_probe() -> dict:
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
+#: Modules known to perform I/O at import, each against the ticket that will
+#: stop it. Same ratchet rule as pyproject.toml's lint and type exemptions:
+#: entries are deleted as tickets land, and nothing joins without one.
+#:
+#: ``src/central_server/server.py`` calls ``initialize_license_schema()`` and
+#: ``initialize_data_schema()`` at module scope, so importing the hub creates
+#: and opens two SQLite databases. That is the workstation's pre-VRT-12 disease
+#: in the other deployable, and the cure is the same -- move it into the
+#: application's lifespan. It belongs with VRT-15, which is redrawing the
+#: boundary between these services anyway.
+#:
+#: It was not exempted before this because it was not *seen* before this: the
+#: probe used ``pkgutil.walk_packages``, which skips directories without an
+#: ``__init__.py``, so the entire hub and the entire licence service went
+#: unwalked. The test reported zero violations across 84 of 100 modules,
+#: omitting precisely the two packages that open databases at import.
+KNOWN_IMPORT_TIME_IO: frozenset[str] = frozenset({"src.central_server.server"})  # VRT-15
+
+
 def test_no_module_under_src_performs_io_at_import() -> None:
     """The acceptance criterion for VRT-12, stated executably.
 
@@ -145,7 +187,7 @@ def test_no_module_under_src_performs_io_at_import() -> None:
     """
     report = _run_probe()
 
-    violations = report["violations"]
+    violations = [v for v in report["violations"] if v[2] not in KNOWN_IMPORT_TIME_IO]
     detail = "\n".join(
         f"  {module or '<during src import>'}: {call}({target})"
         for call, target, module in violations
@@ -177,8 +219,44 @@ def test_the_probe_actually_imported_the_application() -> None:
         "src.interfaces.api.dependencies",
         "src.config.settings",
         "src.infrastructure.persistence.migrations",
+        # The two namespace packages the old pkgutil walk silently omitted.
+        # Listed by name so that losing them again fails here rather than
+        # showing up as a suspiciously clean run.
+        "src.central_server.server",
+        "src.license_service.manager",
     ):
         assert critical not in unreachable, (
             f"{critical} could not be imported by the probe, so the I/O "
             f"assertion says nothing about it: {unreachable[critical]}"
         )
+
+
+def test_the_probe_walks_every_module_including_the_namespace_packages() -> None:
+    """The hole this test had, closed and pinned.
+
+    ``pkgutil.walk_packages`` descends only into importable packages, and
+    ``src/central_server/`` and ``src/license_service/`` have no ``__init__.py``.
+    Sixteen modules -- the whole hub and the whole licence service -- were never
+    walked, and the assertion above passed by not looking.
+    """
+    report = _run_probe()
+    walked = set(report["walked"])
+
+    on_disk = {
+        "src." + path.relative_to(REPO_ROOT / "src").with_suffix("").as_posix().replace("/", ".")
+        for path in (REPO_ROOT / "src").rglob("*.py")
+        if "frontend" not in path.parts and "__pycache__" not in path.parts
+    }
+    on_disk = {
+        name[: -len(".__init__")] if name.endswith(".__init__") else name for name in on_disk
+    }
+
+    assert on_disk - walked == set(), (
+        f"modules never imported by the probe: {sorted(on_disk - walked)}"
+    )
+
+    # Named rather than counted. A threshold is a number someone lowers; these
+    # are the two directories that were actually missing, and the reason they
+    # were missing -- no __init__.py -- is a property they still have.
+    assert "src.central_server.server" in walked
+    assert "src.license_service.db_schema" in walked
