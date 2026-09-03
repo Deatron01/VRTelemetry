@@ -6,6 +6,11 @@ from collections.abc import Callable
 from typing import Any
 
 from src.application.ports import HttpClient
+from src.storage.hub_address import (
+    HUB_NOT_CONFIGURED,
+    HUB_NOT_CONFIGURED_MESSAGE,
+    is_configured,
+)
 from src.utils.retry_backoff import is_ready_for_retry
 
 logger = logging.getLogger(__name__)
@@ -80,6 +85,16 @@ class PatientSyncClient:
             if queue_on_failure:
                 self._queue(patient)
             return {"ok": False, "reason": "no_active_license"}
+
+        # Before the request, not inside the except: an empty address makes the
+        # URL relative, and requests raises MissingSchema -- a RequestException,
+        # so it used to be reported as an unreachable server. See
+        # src/storage/hub_address.py.
+        if not is_configured(self.central_server_url):
+            logger.warning(f"Patient sync deferred — {HUB_NOT_CONFIGURED_MESSAGE}.")
+            if queue_on_failure:
+                self._queue(patient)
+            return {"ok": False, "reason": HUB_NOT_CONFIGURED}
 
         try:
             response = self.http.post(

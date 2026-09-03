@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from src.application.ports import HttpClient
+from src.storage.hub_address import (
+    HUB_NOT_CONFIGURED,
+    HUB_NOT_CONFIGURED_MESSAGE,
+    is_configured,
+)
 from src.utils.retry_backoff import is_ready_for_retry
 
 logger = logging.getLogger(__name__)
@@ -81,6 +86,16 @@ class SessionUploader:
             self.local_license_cache.clear_pending_upload(session_id)
             return {"ok": False, "reason": "file_not_found_removed_from_queue"}
 
+        # Before the request, not inside the except: an empty address makes the
+        # URL relative, and requests raises MissingSchema -- a RequestException,
+        # so it used to be reported as an unreachable server. See
+        # src/storage/hub_address.py.
+        if not is_configured(self.central_server_url):
+            logger.warning(f"Session {session_id} kept locally — {HUB_NOT_CONFIGURED_MESSAGE}.")
+            if queue_on_failure:
+                self._queue(session_id, parquet_path, metadata)
+            return {"ok": False, "reason": HUB_NOT_CONFIGURED}
+
         try:
             with open(parquet_path, "rb") as f:
                 response = self.http.post(
@@ -149,6 +164,11 @@ class SessionUploader:
         state = self.local_license_cache.get_state()
         if not state or state.get("status") != "active":
             return {"ok": False, "reason": "no_active_license"}
+        if not is_configured(self.central_server_url):
+            # Not queued, deliberately: this method never queues. The local row
+            # is the source of truth, so there is nothing to lose here.
+            logger.debug(f"Metadata re-sync for session {session_id} skipped — no hub configured.")
+            return {"ok": False, "reason": HUB_NOT_CONFIGURED}
         try:
             response = self.http.post(
                 f"{self.central_server_url}/data/update-session-metadata",
@@ -220,6 +240,14 @@ class SessionUploader:
             )
             self.local_license_cache.clear_pending_session_log(session_id)
             return {"ok": False, "reason": "file_not_found_removed_from_queue"}
+
+        if not is_configured(self.central_server_url):
+            logger.warning(
+                f"Session log for {session_id} kept locally — {HUB_NOT_CONFIGURED_MESSAGE}."
+            )
+            if queue_on_failure:
+                self._queue_log(session_id, log_path)
+            return {"ok": False, "reason": HUB_NOT_CONFIGURED}
 
         try:
             with open(log_path, "rb") as f:

@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 
 from src.application.ports import HttpClient
+from src.storage.hub_address import is_configured
 from src.version import APP_VERSION
 
 logger = logging.getLogger(__name__)
@@ -91,9 +92,18 @@ class HeartbeatSender:
         if not state or state.get("status") != "active" or not state.get("activation_id"):
             return False  # nothing activated on this machine yet — nothing to report
 
+        hub = (self._url_provider() or "").rstrip("/")
+        if not is_configured(hub):
+            # Every 30 seconds, forever, on a workstation that has no hub. The
+            # request could never be sent anyway -- an empty address makes the
+            # URL relative and requests raises MissingSchema. Not even at debug
+            # level: this is the steady state of an unconfigured install, not an
+            # event. See src/storage/hub_address.py.
+            return False
+
         try:
             response = self.http.post(
-                f"{self._url_provider().rstrip('/')}/client/heartbeat",
+                f"{hub}/client/heartbeat",
                 data={
                     "activation_id": state["activation_id"],
                     "license_id": state.get("license_id") or "",
