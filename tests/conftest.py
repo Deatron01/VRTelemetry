@@ -88,3 +88,34 @@ def mock_telemetry_frame():
     from src.core.datatypes import TelemetryFrame
 
     return TelemetryFrame.create_empty(frame_idx=0)
+
+
+@pytest.fixture
+def consent_payload():
+    """Build the body the consent screen sends, for the configured wording (GDPR-09).
+
+    Every participant box ticked and both researcher confirmations given, with
+    the hash of every text -- i.e. a consent the server accepts. Tests that
+    need a refusal change one field of the result.
+
+    Args (of the returned builder):
+        consent_settings: The ``[consent]`` section the application under test
+            was built with. Defaults to the defaults, which is what every
+            test container uses unless it says otherwise.
+    """
+    from src.config import ConsentSettings
+    from src.patients.consent_texts import RESEARCHER, build_catalogue
+
+    def build(consent_settings: ConsentSettings | None = None) -> dict:
+        catalogue = build_catalogue(consent_settings or ConsentSettings())
+        return {
+            "text_version": catalogue.text_version,
+            "language": "en",
+            "choices": {i.id: True for i in catalogue.items if i.group != RESEARCHER},
+            "researcher_confirmations": {
+                i.id: True for i in catalogue.items if i.group == RESEARCHER
+            },
+            "displayed_sha256": {i.id: i.sha256 for i in catalogue.items},
+        }
+
+    return build

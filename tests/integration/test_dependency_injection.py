@@ -79,7 +79,7 @@ class _Empty:
         return []
 
 
-def test_two_applications_do_not_share_collaborators(tmp_path: Path) -> None:
+def test_two_applications_do_not_share_collaborators(tmp_path: Path, consent_payload: Any) -> None:
     """Writing through one application must be invisible to the other.
 
     This is what the module-level singletons made impossible, and it is why the
@@ -94,7 +94,7 @@ def test_two_applications_do_not_share_collaborators(tmp_path: Path) -> None:
         TestClient(first)
         .post(
             "/api/patients",
-            json={"display_name": "Only In Lab A", "gdpr_consent_given": True},
+            json={"display_name": "Only In Lab A", "consent": consent_payload()},
         )
         .json()
     )
@@ -166,7 +166,9 @@ def test_the_http_client_is_a_container_attribute_not_a_module_import(
     ], f"a router bypassed container.http and called the network directly: {stub.calls}"
 
 
-def test_the_uploaders_go_through_the_same_client_as_the_routers(tmp_path: Path) -> None:
+def test_the_uploaders_go_through_the_same_client_as_the_routers(
+    tmp_path: Path, consent_payload: Any
+) -> None:
     """The half of the seam VRT-12 did not close (VRT-14).
 
     ``SessionUploader``, ``PatientSyncClient`` and ``HeartbeatSender`` used to
@@ -210,7 +212,7 @@ def test_the_uploaders_go_through_the_same_client_as_the_routers(tmp_path: Path)
 
     client.post(
         "/api/patients",
-        json={"display_name": "Subject A", "gdpr_consent_given": True},
+        json={"display_name": "Subject A", "consent": consent_payload()},
     )
 
     assert "http://hub.invalid:9000/data/upload-patient" in stub.calls, (

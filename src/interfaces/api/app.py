@@ -25,6 +25,7 @@ from src.interfaces.api.container import Container, build_container
 from src.interfaces.api.routers import (
     auth,
     config,
+    consent,
     licence,
     patients,
     questionnaires,
@@ -44,6 +45,7 @@ _ROUTERS = (
     questionnaires.router,
     recording.router,
     patients.router,
+    consent.router,
     auth.router,
     licence.router,
     sync.router,

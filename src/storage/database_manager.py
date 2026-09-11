@@ -93,6 +93,9 @@ SESSION_METADATA_COLUMNS: tuple[str, ...] = (
     "app_version",
     "available_extensions_json",
     "raw_json",
+    # GDPR-09. Added by migration 6, which is what brings an established
+    # database into line -- a column added here alone is VRT-22 again.
+    "consent_id",
 )
 
 
@@ -233,6 +236,7 @@ class DatabaseManager:
             "1.0.0",
             json.dumps(hw_meta.get("available_extensions", [])),
             json.dumps(metadata),
+            static_meta.get("consent_id"),
         )
 
         if len(values) != len(SESSION_METADATA_COLUMNS):

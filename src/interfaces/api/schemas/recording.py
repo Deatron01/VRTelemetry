@@ -11,7 +11,11 @@ class SessionStartConfig(BaseModel):
     subject_id: str = "SUB_UNKN_01"
     backend: str = "auto"
     port: int = 5005
-    gdpr_consent: bool
+    #: The consent this recording is made under (GDPR-09). None means the
+    #: participant's current consent for the configured study. The old
+    #: ``gdpr_consent: bool`` -- a box the researcher ticked -- is gone; the
+    #: participant's recorded consent is what authorises a recording now.
+    consent_id: str | None = None
     output_dir: str | None = None
     # None means "use the configured hub"; the placeholder address this
     # used to default to shipped as a live value (VRT-6).

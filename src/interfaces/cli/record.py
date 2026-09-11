@@ -15,11 +15,15 @@ import argparse
 import sys
 from typing import Any
 
+from src.application.consent import ConsentService
 from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.backends.registry import known_backends
+from src.config import get_settings
 from src.core.engine import TelemetryEngine
 from src.core.exceptions import GDPRConsentError
 from src.eye_tracking.factory import EyeTrackingFactory
+from src.infrastructure.persistence.consent_repository import ConsentRepository
+from src.patients.consent_texts import build_catalogue
 from src.utils.logger import logger, setup_logging
 from src.utils.metadata import sanitize_metadata
 
@@ -35,10 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
         description="VRTelemetry: Headless Biometric Acquisition Framework"
     )
     parser.add_argument(
-        "--gdpr-consent",
-        action="store_true",
-        help="Explicitly confirm subject consent for biometric data collection. Must be provided to run.",
+        "--consent-id",
+        type=str,
+        default=None,
+        help=(
+            "The participant consent this recording is made under, from the consent register "
+            "(shown in the desktop app and returned by POST /api/patients). Required."
+        ),
     )
+    # The old flag. Kept only so that using it produces an explanation rather
+    # than argparse's bare "unrecognized arguments" (GDPR-09).
+    parser.add_argument("--gdpr-consent", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--output",
         type=str,
@@ -48,8 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--subject-id",
         type=str,
-        default="SUB_UNKN_01",
-        help="Anonymized UUID for the active test subject.",
+        default=None,
+        help="Pseudonymous subject label. Defaults to the consent's patient id.",
     )
     parser.add_argument(
         "--backend",
@@ -71,6 +82,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _consent_service() -> ConsentService:
+    """The consent register for this installation's patients database."""
+    settings = get_settings()
+    return ConsentService(
+        ConsentRepository(settings.paths.patients_db),
+        catalogue_provider=lambda: build_catalogue(settings.consent),
+    )
+
+
+def _patient_for_consent(consent_id: str) -> str:
+    """The participant a consent id belongs to; unknown ids are refused downstream."""
+    record = _consent_service().repository.get(consent_id)
+    return record["patient_id"] if record else ""
+
+
 def parse_arguments() -> argparse.Namespace:
     """Parse ``sys.argv`` with :func:`build_parser`."""
     return build_parser().parse_args()
@@ -86,8 +112,23 @@ def execute_pipeline() -> None:
 
     logger.info("=== VRTelemetry Pro Background Session ===")
 
-    if not args.gdpr_consent:
-        logger.error("Launch aborted: Biometric tracking requires explicit --gdpr-consent flag.")
+    if not args.consent_id:
+        if args.gdpr_consent:
+            logger.error(
+                "Launch aborted: --gdpr-consent is no longer accepted. A flag records only that "
+                "someone typed it; it is not evidence of the participant's consent (GDPR-09). "
+                "Record the participant's consent in the desktop app and pass --consent-id."
+            )
+        else:
+            logger.error("Launch aborted: --consent-id is required.")
+        sys.exit(1)
+
+    try:
+        consent = _consent_service().require_for_recording(
+            _patient_for_consent(args.consent_id), args.consent_id
+        )
+    except GDPRConsentError as e:
+        logger.error(f"Launch aborted: {e}")
         sys.exit(1)
 
     logger.info(f"Selected execution pipeline mode: Enforced Backend -> [{args.backend.upper()}]")
@@ -118,14 +159,17 @@ def execute_pipeline() -> None:
     # Engine requires robust static context for AI downstream tracking
     engine = TelemetryEngine(
         output_dir=args.output,
-        gdpr_consent=args.gdpr_consent,
+        gdpr_consent=True,  # established above, from the consent register
         hardware_metadata=hardware_capabilities,
         backend=args.backend,
         network_port=args.port,
     )
 
     # Inject runtime execution configurations into context maps before startup sequence
-    engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = args.subject_id
+    static = engine.subject_metadata["M-IV_Static_Metadata"]
+    static["subject_id"] = args.subject_id or consent["patient_id"]
+    static["patient_id"] = consent["patient_id"]
+    static["consent_id"] = consent["consent_id"]
 
     try:
         engine.start()

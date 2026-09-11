@@ -295,6 +295,54 @@ class AcquisitionSettings(BaseSettings):
     udp_port: int = Field(default=5005, ge=1, le=65535)
 
 
+class ConsentSettings(BaseSettings):
+    """What the participant consent screen says about *this* study (GDPR-09).
+
+    The consent wording is fixed in :mod:`src.patients.consent_texts`; these
+    values are filled into it. They are configuration rather than code because
+    they differ per laboratory and per study, and because a participant must be
+    told who is responsible and why *before* consenting (Art. 13 GDPR).
+
+    The defaults are visible placeholders on purpose. Consent obtained with
+    "[Laboratory Name]" on the screen does not tell anyone anything, so the
+    consent catalogue reports ``configured: false`` until they are replaced and
+    the desktop app shows that as a warning.
+    """
+
+    laboratory_name: str = "[Laboratory Name]"
+    laboratory_contact: str = "[Laboratory Contact Email]"
+    provider_name: str = "[Company Name]"
+    provider_contact: str = "[Company Privacy Contact Email]"
+
+    #: Consent is specific to a study: a consent given for one study never
+    #: authorises a recording for another.
+    study_id: str = "default"
+    study_title: str = "[Study Title]"
+    study_purpose: str = "[short description of the research aim]"
+    retention: str = "[date or event, e.g. X years after the end of the study]"
+
+    #: Version of the participant privacy notice the screen links to.
+    notice_version: str = "1.0"
+    notice_url: str = ""
+
+    #: Whether participants are offered the optional consent for the provider's
+    #: de-identified research dataset (Terms of Service 6.4(f)).
+    offer_provider_research: bool = True
+    provider_research_purpose: str = (
+        "scientific research and to improve its VR measurement software"
+    )
+
+    #: Sensors named in the consent wording. A sensor that is not recorded must
+    #: not be named, and one that is recorded must be.
+    records_heart_rate: bool = True
+    records_voice_level: bool = True
+
+    #: Language of the wording above. Not called ``language``: a nested
+    #: settings section also reads unprefixed environment variables, and
+    #: ``LANGUAGE`` is set on most Linux machines.
+    wording_language: str = "en"
+
+
 class SyncSettings(BaseSettings):
     """Background upload and heartbeat loops."""
 
@@ -322,6 +370,7 @@ class Settings(BaseSettings):
     hub: HubSettings = Field(default_factory=HubSettings)
     acquisition: AcquisitionSettings = Field(default_factory=AcquisitionSettings)
     sync: SyncSettings = Field(default_factory=SyncSettings)
+    consent: ConsentSettings = Field(default_factory=ConsentSettings)
 
     @model_validator(mode="after")
     def _no_port_collision(self) -> Settings:

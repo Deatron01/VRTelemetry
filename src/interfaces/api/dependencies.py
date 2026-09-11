@@ -43,6 +43,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, Request
 
+from src.application.consent import ConsentService
 from src.config import Settings
 from src.infrastructure.persistence import SessionRepository
 from src.interfaces.api.container import Container, RecordingSessionManager
@@ -57,6 +58,7 @@ from src.storage.usage_tracker import UsageTracker
 
 __all__ = [
     "CentralUrlDep",
+    "ConsentsDep",
     "ContainerDep",
     "DbManagerDep",
     "HeartbeatDep",
@@ -126,6 +128,11 @@ def get_patients(container: ContainerDep) -> PatientManager:
     return container.patients
 
 
+def get_consents(container: ContainerDep) -> ConsentService:
+    """The participant consent register (GDPR-09)."""
+    return container.consents
+
+
 def get_local_cache(container: ContainerDep) -> LocalLicenseCache:
     """Licence state, the auth session and the local key/value config."""
     return container.local_cache
@@ -191,6 +198,7 @@ def get_central_url(container: ContainerDep) -> str:
 SettingsDep = Annotated[Settings, Depends(get_settings_for_request)]
 SessionsDep = Annotated[SessionRepository, Depends(get_sessions)]
 PatientsDep = Annotated[PatientManager, Depends(get_patients)]
+ConsentsDep = Annotated[ConsentService, Depends(get_consents)]
 LocalCacheDep = Annotated[LocalLicenseCache, Depends(get_local_cache)]
 SessionUploaderDep = Annotated[SessionUploader, Depends(get_session_uploader)]
 PatientUploaderDep = Annotated[PatientSyncClient, Depends(get_patient_uploader)]

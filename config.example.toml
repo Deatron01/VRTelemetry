@@ -64,3 +64,24 @@
 # interval_sec = 20.0
 # heartbeat_interval_sec = 30.0
 # max_frames_to_client = 60000     # downsample cap for the browser
+
+[consent]
+# What the participant consent screen says about THIS study (GDPR-09). The
+# wording itself is fixed in src/patients/consent_texts.py; these values are
+# filled into it. Until the bracketed placeholders are replaced, the app warns
+# that the consent screen is not configured -- consent to "[Laboratory Name]"
+# informs nobody of anything.
+# laboratory_name = "Example University VR Lab"
+# laboratory_contact = "vrlab-privacy@example.edu"
+# provider_name = "Example Company Kft."
+# provider_contact = "privacy@example.com"
+# study_id = "vr-balance-2026"          # consent never carries over to another study
+# study_title = "Balance and gaze in virtual reality"
+# study_purpose = "to measure how people keep their balance while looking at moving targets"
+# retention = "5 years after the end of the study"
+# notice_version = "1.0"                # version of the participant privacy notice
+# notice_url = ""                       # where the full notice can be read
+# offer_provider_research = true        # the optional P-C5 box (Terms of Service 6.4)
+# records_heart_rate = true             # name only the sensors actually recorded
+# records_voice_level = true
+# wording_language = "en"

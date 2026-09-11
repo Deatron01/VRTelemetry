@@ -35,11 +35,14 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from src.application.consent import ConsentService
 from src.application.ports import HttpClient
 from src.config import Settings, get_settings
 from src.infrastructure.persistence import SessionRepository
+from src.infrastructure.persistence.consent_repository import ConsentRepository
 from src.infrastructure.transport import default_http_client
 from src.license_service.local_cache import LocalLicenseCache
+from src.patients.consent_texts import build_catalogue
 from src.patients.patient_manager import PatientManager
 from src.storage.database_manager import DatabaseManager
 from src.storage.heartbeat_client import HeartbeatSender
@@ -153,6 +156,10 @@ class Container:
     settings: Settings
     sessions: SessionRepository
     patients: PatientManager
+    #: The consent register and its rules (GDPR-09). Shares ``patients.db``
+    #: with the patient registry, so a participant and the evidence of their
+    #: consent live in one file.
+    consents: ConsentService
     local_cache: LocalLicenseCache
     session_uploader: SessionUploader
     patient_uploader: PatientSyncClient
@@ -287,6 +294,12 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
         settings=settings,
         sessions=SessionRepository(settings.paths.metadata_db),
         patients=PatientManager(settings.paths.patients_db),
+        consents=ConsentService(
+            ConsentRepository(settings.paths.patients_db),
+            # Built on each call rather than once: cheap, and it keeps the
+            # wording in step with the settings object this container holds.
+            catalogue_provider=lambda: build_catalogue(settings.consent),
+        ),
         local_cache=local_cache,
         session_uploader=session_uploader,
         patient_uploader=patient_uploader,

@@ -19,6 +19,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from src.application.consent import ConsentValidationError
 from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.backends.registry import resolve as resolve_backend
 from src.core.engine import TelemetryEngine
@@ -27,6 +28,7 @@ from src.domain.session_profile import apply_calibration, apply_health_profile
 from src.interfaces.api.container import RecordingSessionManager
 from src.interfaces.api.dependencies import (
     CentralUrlDep,
+    ConsentsDep,
     PatientsDep,
     RecordingDep,
     UsageTrackerDep,
@@ -64,6 +66,7 @@ def run_engine_thread(engine: TelemetryEngine):
 def start_recording(
     config: SessionStartConfig,
     patients: PatientsDep,
+    consents: ConsentsDep,
     recording: RecordingDep,
     usage_tracker: UsageTrackerDep,
     central_url: CentralUrlDep,
@@ -74,11 +77,6 @@ def start_recording(
     if recording.is_running:
         raise HTTPException(status_code=400, detail="A telemetry session is already running.")
 
-    if not config.gdpr_consent:
-        raise HTTPException(
-            status_code=403, detail="Biometric tracking requires explicit GDPR consent."
-        )
-
     patient = patients.get_patient(config.patient_id)
     if not patient or patient["is_anonymized"]:
         raise HTTPException(
@@ -88,8 +86,15 @@ def start_recording(
         raise HTTPException(
             status_code=403,
             detail="This patient's GDPR consent is not active (never given, or withdrawn). "
-            "Recording cannot start until consent is re-established for a new patient record.",
+            "Recording cannot start until the participant gives consent again.",
         )
+    # The participant's recorded consent, not a box on this request, is what
+    # authorises the recording (GDPR-09). Its id travels with the session so
+    # every recording can be traced to the consent it was made under.
+    try:
+        consent = consents.require_for_recording(patient["patient_id"], config.consent_id)
+    except ConsentValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
     logger.info(
         f"API Request: Start Pipeline -> Backend: [{config.backend.upper()}], Patient: {patient['patient_id']}"
@@ -123,7 +128,7 @@ def start_recording(
 
     engine = TelemetryEngine(
         output_dir=config.output_dir,
-        gdpr_consent=config.gdpr_consent,
+        gdpr_consent=True,  # established above, from the consent register
         hardware_metadata=hardware_capabilities,
         # The machine's configured hub, unless this request names one.
         #
@@ -146,6 +151,7 @@ def start_recording(
         config.subject_id or patient["patient_id"]
     )
     engine.subject_metadata["M-IV_Static_Metadata"]["patient_id"] = patient["patient_id"]
+    engine.subject_metadata["M-IV_Static_Metadata"]["consent_id"] = consent["consent_id"]
     apply_health_profile(engine.subject_metadata, patient, patients.estimate_age_years(patient))
     apply_calibration(engine.subject_metadata, patient, config)
 
@@ -162,6 +168,7 @@ def start_recording(
             "patient_id": patient["patient_id"],
             "backend": config.backend,
             "session_id": engine.session_id,
+            "consent_id": consent["consent_id"],
         }
     except GDPRConsentError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e

@@ -150,3 +150,39 @@ class SessionUploadPort(Protocol):
     def upload_log(self, log_path: Path, session_id: str) -> dict[str, Any]: ...
 
     def retry_pending(self) -> dict[str, Any]: ...
+
+
+class ConsentStore(Protocol):
+    """Append-only storage for consent evidence (GDPR-09).
+
+    Implemented by
+    :class:`src.infrastructure.persistence.consent_repository.ConsentRepository`,
+    which also makes the rows immutable at the database level. There is no
+    update and no delete here on purpose: a consent store that can rewrite its
+    own history cannot demonstrate anything (Art. 7(1) GDPR).
+    """
+
+    def insert_consent(self, record: dict[str, Any]) -> None: ...
+
+    def insert_event(
+        self,
+        *,
+        patient_id: str,
+        event_type: str,
+        occurred_at_utc: str,
+        consent_id: str | None = None,
+        scope: str | None = None,
+        detail: str | None = None,
+    ) -> None: ...
+
+    def get(self, consent_id: str) -> dict[str, Any] | None: ...
+
+    def list_for_patient(self, patient_id: str) -> list[dict[str, Any]]: ...
+
+    def find_by_withdrawal_code_hash(self, code_sha256: str) -> dict[str, Any] | None: ...
+
+    def events_for_patient(self, patient_id: str) -> list[dict[str, Any]]: ...
+
+    def is_ended(self, consent_id: str) -> bool: ...
+
+    def is_research_withdrawn(self, consent_id: str) -> bool: ...

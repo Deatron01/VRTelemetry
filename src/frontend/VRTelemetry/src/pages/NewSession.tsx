@@ -40,7 +40,6 @@ export const NewSession = () => {
     subject_id: '',
     backend: 'auto',
     port: 5005,
-    gdpr_consent: false
   });
 
   // The hub address is a property of this machine, not of this session.
@@ -105,11 +104,7 @@ export const NewSession = () => {
       return;
     }
     if (selectedPatient && !selectedPatient.gdpr_consent_given) {
-      setError("This patient's GDPR consent is not active. Re-consent them from the Patients page first.");
-      return;
-    }
-    if (!form.gdpr_consent) {
-      setError("Explicit GDPR consent confirmation is required to begin biometric acquisition.");
+      setError("This patient's GDPR consent is not active. Record a new consent from the Patients page first.");
       return;
     }
 
@@ -293,23 +288,17 @@ export const NewSession = () => {
             )}
           </div>
 
-          <label className="mt-auto flex cursor-pointer items-start gap-3 pt-4" style={{ borderTop: '1px solid var(--hair)' }}>
-            <input
-              type="checkbox"
-              checked={form.gdpr_consent}
-              onChange={e => setForm({ ...form, gdpr_consent: e.target.checked })}
-              className="mt-0.5 h-4 w-4 flex-none cursor-pointer"
-              style={{ accentColor: 'var(--s1)' }}
-            />
+          <div className="mt-auto flex items-start gap-3 pt-4" style={{ borderTop: '1px solid var(--hair)' }}>
+            <ShieldCheck className="mt-0.5 h-4 w-4 flex-none" style={{ color: 'var(--s1)' }} />
             <div>
-              <span className="text-[13px] font-medium">Explicit Subject Consent Confirmed</span>
+              <span className="text-[13px] font-medium">Authorised by the participant's recorded consent</span>
               <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
-                By checking this box, the researcher verifies that the subject has provided informed GDPR consent for
-                the collection and processing of biophysical telemetry, including spatial kinematics and eye-tracking
-                profiles.
+                Recording starts only if the selected participant has an active consent for the configured study,
+                given on the consent screen. The session is stamped with that consent's id. If there is none, the
+                server says so and nothing is recorded.
               </p>
             </div>
-          </label>
+          </div>
         </div>
 
         {/* --- Status + action --------------------------------------------- */}
@@ -340,7 +329,7 @@ export const NewSession = () => {
             {!isRecording ? (
               <button
                 onClick={handleStart}
-                disabled={isLoading || !form.gdpr_consent}
+                disabled={isLoading || !selectedPatient?.gdpr_consent_given}
                 className="btn-accent btn-accent-lg w-full justify-center"
               >
                 <PlayCircle className="h-[18px] w-[18px]" />

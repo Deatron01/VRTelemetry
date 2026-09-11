@@ -45,6 +45,11 @@ EXPECTED_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("DELETE", "/api/patients/{patient_id}"),
         ("POST", "/api/patients/{patient_id}/withdraw-consent"),
         ("GET", "/api/patients/{patient_id}/sessions"),
+        # Added in GDPR-09: the participant consent register.
+        ("POST", "/api/patients/{patient_id}/consents"),
+        ("GET", "/api/patients/{patient_id}/consents"),
+        ("GET", "/api/consent/texts"),
+        ("POST", "/api/consent/withdrawal-code"),
         ("POST", "/api/auth/register"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
@@ -138,6 +143,7 @@ def test_routes_carry_tags_so_the_docs_group_sensibly(app: Any) -> None:
         "questionnaires",
         "recording",
         "patients",
+        "consent",  # GDPR-09
         "auth",
         "licence",
         "sync",

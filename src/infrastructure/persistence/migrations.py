@@ -198,6 +198,14 @@ MIGRATIONS: tuple[Migration, ...] = (
             ("session_metadata", column, sql_type) for column, sql_type in _SESSION_PROFILE_COLUMNS
         ),
     ),
+    Migration(
+        version=6,
+        description=(
+            "consent_id on session_metadata: the participant consent each recording "
+            "was made under (GDPR-09)"
+        ),
+        add_columns=(("session_metadata", "consent_id", "TEXT"),),
+    ),
 )
 
 

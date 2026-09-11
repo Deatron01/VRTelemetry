@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Edit2, Save, Trash2, ShieldCheck, ShieldOff, X, AlertCircle, Database, Search } from 'lucide-react';
+import { Plus, Edit2, Save, Trash2, ShieldCheck, ShieldOff, ShieldPlus, X, AlertCircle, Database, Search } from 'lucide-react';
+import { ParticipantConsentFlow, type ConsentSubmission, type RecordedConsent } from '../components/ParticipantConsentFlow';
+
+const API = 'http://localhost:8000';
 
 interface Patient {
   patient_id: string;
@@ -33,7 +36,6 @@ const emptyForm = {
   date_of_birth: '',
   biological_sex: '',
   notes: '',
-  gdpr_consent_given: false,
   age_years: '',
   height_cm: '',
   weight_kg: '',
@@ -85,6 +87,10 @@ export const Patients = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'consented' | 'withdrawn'>('all');
 
+  // The participant consent flow (GDPR-09): for a new patient, or a new consent
+  // for an existing one (new study, new wording, or after a withdrawal).
+  const [consentFlow, setConsentFlow] = useState<null | { mode: 'create' } | { mode: 'reconsent'; patient: Patient }>(null);
+
   const [editing, setEditing] = useState<Patient | null>(null);
   const [editForm, setEditForm] = useState<Record<string, any>>({});
 
@@ -110,27 +116,45 @@ export const Patients = () => {
       setCreateError('Display name is required.');
       return;
     }
-    if (!createForm.gdpr_consent_given) {
-      setCreateError('Explicit GDPR consent is required to create a patient record.');
-      return;
-    }
+    // Nothing is stored yet. The record is created only together with the
+    // participant's own consent, in one request, at the end of the flow.
+    setConsentFlow({ mode: 'create' });
+  };
+
+  const submitNewPatient = async (consent: ConsentSubmission): Promise<RecordedConsent> => {
     setIsSaving(true);
     try {
-      const res = await fetch('http://localhost:8000/api/patients', {
+      const res = await fetch(`${API}/api/patients`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPatientPayload(createForm)),
+        body: JSON.stringify({ ...buildPatientPayload(createForm), consent }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to create patient.');
-      setShowCreate(false);
-      setCreateForm(emptyForm);
-      fetchPatients();
-    } catch (e) {
-      setCreateError(e instanceof Error ? e.message : 'Network error.');
+      return data.consent as RecordedConsent;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const submitReconsent = (patientId: string) => async (consent: ConsentSubmission): Promise<RecordedConsent> => {
+    const res = await fetch(`${API}/api/patients/${patientId}/consents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(consent),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to record consent.');
+    return data as RecordedConsent;
+  };
+
+  const closeConsentFlow = (recorded: RecordedConsent | null) => {
+    if (recorded && consentFlow?.mode === 'create') {
+      setShowCreate(false);
+      setCreateForm(emptyForm);
+    }
+    setConsentFlow(null);
+    fetchPatients();
   };
 
   const openEdit = (p: Patient) => {
@@ -178,7 +202,7 @@ export const Patients = () => {
   };
 
   const handleWithdrawConsent = async (patientId: string) => {
-    if (!confirm('Withdraw GDPR consent for this patient? New sessions cannot be started for them until a fresh consented record exists. Existing recordings are unaffected.')) return;
+    if (!confirm('Withdraw consent for this participant? No new sessions can be recorded until they give consent again. Existing recordings are kept.')) return;
     await fetch(`http://localhost:8000/api/patients/${patientId}/withdraw-consent`, { method: 'POST' });
     fetchPatients();
   };
@@ -339,9 +363,13 @@ export const Patients = () => {
                               <button onClick={() => openEdit(p)} aria-label="Edit patient" title="Edit patient" className="btn-ghost" style={{ color: 'var(--s1)' }}>
                                 <Edit2 className="h-4 w-4" />
                               </button>
-                              {p.gdpr_consent_given === 1 && (
+                              {p.gdpr_consent_given === 1 ? (
                                 <button onClick={() => handleWithdrawConsent(p.patient_id)} aria-label="Withdraw consent" title="Withdraw consent" className="btn-ghost" style={{ color: 'var(--s4)' }}>
                                   <ShieldOff className="h-4 w-4" />
+                                </button>
+                              ) : (
+                                <button onClick={() => setConsentFlow({ mode: 'reconsent', patient: p })} aria-label="Record new consent" title="Record new consent (participant)" className="btn-ghost" style={{ color: 'var(--s6)' }}>
+                                  <ShieldPlus className="h-4 w-4" />
                                 </button>
                               )}
                               <button onClick={() => handleErase(p.patient_id)} aria-label="Erase patient data (GDPR right to erasure)" title="Erase (GDPR right to erasure)" className="btn-ghost" style={{ color: 'var(--s2)' }}>
@@ -416,7 +444,7 @@ export const Patients = () => {
                 <p className="section-title mb-3">Health & Demographic Profile (self-reported)</p>
                 <p className="mb-3 text-[12px] leading-relaxed text-ink-3">
                   Captured once per patient and combined with per-session telemetry (SSQ, NASA-TLX, frame data)
-                  for scientific analysis. Covered by the same GDPR consent below and scrubbed on erasure.
+                  for scientific analysis. Covered by the participant's consent (P-C4) and scrubbed on erasure.
                 </p>
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div>
@@ -527,29 +555,34 @@ export const Patients = () => {
                   onChange={e => setCreateForm({ ...createForm, notes: e.target.value })} />
               </div>
 
-              <label className="flex cursor-pointer items-start gap-3 pt-4" style={{ borderTop: '1px solid var(--hair)' }}>
-                <input type="checkbox" className="mt-0.5 h-4 w-4 flex-none" style={{ accentColor: 'var(--s1)' }}
-                  checked={createForm.gdpr_consent_given}
-                  onChange={e => setCreateForm({ ...createForm, gdpr_consent_given: e.target.checked })} />
+              <div className="flex items-start gap-3 pt-4" style={{ borderTop: '1px solid var(--hair)' }}>
+                <ShieldCheck className="mt-0.5 h-4 w-4 flex-none" style={{ color: 'var(--s1)' }} />
                 <div>
-                  <span className="text-[13px] font-medium">Explicit GDPR Consent Confirmed *</span>
+                  <span className="text-[13px] font-medium">Next: the participant gives consent themselves</span>
                   <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
-                    The subject has been informed of, and has explicitly consented to, the collection and
-                    processing of their biometric telemetry, identifying record, and self-reported health/
-                    demographic profile (special-category health data). Consent is logged with a version and
-                    timestamp, and can be withdrawn at any time from this screen.
+                    Hand the screen to the participant. They read the short notice and tick their own consent
+                    boxes; you then confirm how consent was obtained. Nothing on this form is stored unless they
+                    agree. The consent, its exact wording and your confirmation are recorded as evidence
+                    (GDPR Art. 7(1), Art. 9(2)(a)).
                   </p>
                 </div>
-              </label>
+              </div>
             </div>
             <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid var(--hair)' }}>
               <button onClick={() => setShowCreate(false)} className="btn-clay">Cancel</button>
               <button onClick={handleCreate} disabled={isSaving} className="btn-accent">
-                {isSaving ? 'Saving...' : 'Create Patient'}
+                {isSaving ? 'Saving...' : 'Continue to participant consent'}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {consentFlow && (
+        <ParticipantConsentFlow
+          onSubmit={consentFlow.mode === 'create' ? submitNewPatient : submitReconsent(consentFlow.patient.patient_id)}
+          onClose={closeConsentFlow}
+        />
       )}
 
       {/* Edit Modal */}

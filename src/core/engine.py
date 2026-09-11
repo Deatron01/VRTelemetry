@@ -47,8 +47,10 @@ class TelemetryEngine:
 
         Args:
             output_dir: Where the Parquet file goes. Defaults to configuration.
-            gdpr_consent: Must be true. This is the operator asserting they have
-                consent; the patient record is checked separately by the caller.
+            gdpr_consent: Must be true. A last-line guard, not the consent
+                check itself: both callers (the recording route and the CLI)
+                pass True only after the participant's recorded consent has
+                been validated against the consent register (GDPR-09).
             subject_metadata: Pre-built metadata block, or None to construct the
                 default one.
             hardware_metadata: Capability map, folded into the default block.

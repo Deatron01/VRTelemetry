@@ -9,11 +9,14 @@ from typing import Any
 from src.config import get_settings
 from src.core.exceptions import GDPRConsentError
 from src.domain.hub_projection import age_from_date_of_birth
+from src.patients.consent_texts import CONSENT_TEXT_VERSION
 from src.utils.clock import utc_now_iso, utc_today
 
 logger = logging.getLogger(__name__)
 
-CURRENT_CONSENT_VERSION = "1.0"
+#: The consent wording version a new record is stamped with. Kept in step with
+#: the wording itself, which lives in src/patients/consent_texts.py (GDPR-09).
+CURRENT_CONSENT_VERSION = CONSENT_TEXT_VERSION
 
 
 class PatientManager:
@@ -28,6 +31,10 @@ class PatientManager:
         (gdpr_consent_given=True). This mirrors the GDPRConsentError already
         enforced for live biometric acquisition (src.core.exceptions), extended
         to cover at-rest storage of the subject's identifying/demographic profile.
+      - The ``gdpr_consent_*`` columns are a *summary*. The evidence -- the
+        participant's own choices, the exact wording, who supervised -- is the
+        consent register (GDPR-09): see src/application/consent.py, which is
+        the only route by which the HTTP API creates a patient.
       - Consent can be withdrawn independently of deletion (Art. 7(3) — as easy
         to withdraw as to give). Withdrawing blocks starting new sessions against
         this patient but does not delete existing recordings.
@@ -259,6 +266,32 @@ class PatientManager:
             conn.execute(f"UPDATE patients SET {set_clause} WHERE patient_id = ?", values)
             conn.commit()
 
+        return self.get_patient(patient_id)
+
+    def mark_consent_given(
+        self, patient_id: str, version: str, given_at_utc: str
+    ) -> dict[str, Any] | None:
+        """Reflect a newly recorded consent on the patient row.
+
+        The consent register (``consent_records``) is the evidence; these
+        columns are a summary of it, kept so the patient list and the hub can
+        show a consent state without reading the register. A re-consent after a
+        withdrawal clears ``gdpr_consent_withdrawn_at``.
+        """
+        existing = self.get_patient(patient_id)
+        if not existing:
+            return None
+        if existing["is_anonymized"]:
+            raise ValueError("Cannot record consent for an erased patient record.")
+        with self._get_connection() as conn:
+            conn.execute(
+                """UPDATE patients SET gdpr_consent_given = 1, gdpr_consent_version = ?,
+                       gdpr_consent_timestamp = ?, gdpr_consent_withdrawn_at = NULL,
+                       updated_at = ?
+                   WHERE patient_id = ?""",
+                (version, given_at_utc, utc_now_iso(), patient_id),
+            )
+            conn.commit()
         return self.get_patient(patient_id)
 
     def withdraw_consent(self, patient_id: str) -> dict[str, Any] | None:

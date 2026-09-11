@@ -161,11 +161,14 @@ the desktop app, leave the port alone.
 ### Recording from the command line
 
 ```bash
-vrtelemetry-record --gdpr-consent --backend steamvr --subject-id S001
+vrtelemetry-record --consent-id <consent id> --backend steamvr
 ```
 
-`--gdpr-consent` is mandatory and there is no way around it: the flag *is* the
-record that consent was obtained, and the run refuses to start without it.
+`--consent-id` is mandatory. It names a consent the participant gave on the
+desktop app's consent screen, and the run refuses to start unless that consent
+is on record, belongs to the configured study and wording, and has not been
+withdrawn. The old `--gdpr-consent` flag is refused with an explanation: a flag
+records only that someone typed it, not that the participant agreed (GDPR-09).
 `--backend` takes `auto`, `steamvr`, `openxr`, `openxr_headless`, `oculus` or
 `quest_udp`; `--port` sets the listening port under `quest_udp`.
 

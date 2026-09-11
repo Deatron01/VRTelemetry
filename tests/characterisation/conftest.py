@@ -142,9 +142,16 @@ def client(app: FastAPI) -> TestClient:
 
 
 @pytest.fixture
-def patient(workstation: Container) -> dict[str, Any]:
-    """A consented patient, created directly through PatientManager."""
-    return workstation.patients.create_patient(
+def patient(workstation: Container, consent_payload) -> dict[str, Any]:
+    """A consented patient: a PatientManager row *and* a recorded consent.
+
+    Since GDPR-09 the flag on the row is only a summary; a recording is
+    authorised by the consent register. A fixture that set only the flag would
+    describe a patient the application can no longer produce.
+    """
+    from src.interfaces.api.schemas.patients import ConsentSubmissionModel
+
+    created = workstation.patients.create_patient(
         display_name="Test Subject",
         gdpr_consent_given=True,
         biological_sex="female",
@@ -153,6 +160,9 @@ def patient(workstation: Container) -> dict[str, Any]:
         dominant_hand="right",
         vr_experience_level="intermediate",
     )
+    submission = ConsentSubmissionModel(**consent_payload()).to_domain()
+    consent = workstation.consents.give(created["patient_id"], submission)
+    return {**created, "consent_id": consent["consent_id"]}
 
 
 @pytest.fixture

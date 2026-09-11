@@ -3,12 +3,45 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
+
+from src.application.consent import ConsentSubmission, WithdrawalScope
+
+
+class ConsentSubmissionModel(BaseModel):
+    """The participant's answers from the consent screen (GDPR-09).
+
+    ``displayed_sha256`` carries the hash of every text the screen displayed,
+    as served by ``GET /api/consent/texts``; the server refuses a consent whose
+    hashes do not match the current wording. Booleans are strict: ``"yes"`` or
+    ``1`` is not an unambiguous affirmative act, ``true`` is.
+    """
+
+    text_version: str
+    choices: dict[str, StrictBool]
+    displayed_sha256: dict[str, str]
+    researcher_confirmations: dict[str, StrictBool]
+    language: str = "en"
+
+    def to_domain(self) -> ConsentSubmission:
+        return ConsentSubmission(
+            text_version=self.text_version,
+            choices=dict(self.choices),
+            displayed_sha256=dict(self.displayed_sha256),
+            researcher_confirmations=dict(self.researcher_confirmations),
+            language=self.language,
+        )
 
 
 class PatientCreateRequest(BaseModel):
+    """A new participant, and the consent they gave on screen.
+
+    ``gdpr_consent_given`` -- a boolean the researcher ticked -- is gone
+    (GDPR-09). A request without ``consent`` is refused with 403.
+    """
+
     display_name: str
-    gdpr_consent_given: bool
+    consent: ConsentSubmissionModel | None = None
     external_ref: str = ""
     date_of_birth: str = ""
     biological_sex: str = ""
@@ -46,3 +79,13 @@ class PatientUpdateRequest(BaseModel):
     vision_impairment: str | None = None
     motion_sickness_susceptibility: str | None = None
     relevant_health_conditions: str | None = None
+
+
+class WithdrawalRequest(BaseModel):
+    """What the participant chose on the withdrawal dialog.
+
+    Defaults to ``FUTURE_ONLY`` -- stop recording, keep what exists -- because
+    that is what an empty ``POST .../withdraw-consent`` has always meant.
+    """
+
+    scope: WithdrawalScope = WithdrawalScope.FUTURE_ONLY

@@ -213,3 +213,27 @@ def test_persist_experiment_reports_whether_it_wrote(tmp_path: Path) -> None:
         conn.commit()
 
     assert db.persist_experiment(SAMPLE_METADATA) is False
+
+
+def test_a_session_records_the_consent_it_was_made_under(tmp_path: Path) -> None:
+    """GDPR-09: every recording traces to a consent, including on an old database.
+
+    The database here predates migration 6, so this also checks that the
+    consent_id column arrives through the migration rather than only through a
+    fresh CREATE TABLE -- the VRT-22/VRT-23 failure, a third time.
+    """
+    db_path = tmp_path / "pre_consent.db"
+    legacy_columns = [c for c in SESSION_METADATA_COLUMNS if c != "consent_id"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE session_metadata (" + ", ".join(f"{c} TEXT" for c in legacy_columns) + ")"
+        )
+
+    db = DatabaseManager(db_path=str(db_path))
+    metadata = {
+        **SAMPLE_METADATA,
+        "M-IV_Static_Metadata": {**SAMPLE_METADATA["M-IV_Static_Metadata"], "consent_id": "c-1"},
+    }
+
+    assert db.persist_experiment(metadata) is True
+    assert db.get_session_row("20260527_133428")["consent_id"] == "c-1"

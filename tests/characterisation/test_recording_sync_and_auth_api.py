@@ -29,7 +29,6 @@ START_BODY = {
     "patient_id": "",
     "subject_id": "SUB_TEST_01",
     "backend": "auto",
-    "gdpr_consent": True,
 }
 
 
@@ -38,16 +37,40 @@ START_BODY = {
 # --------------------------------------------------------------------------- #
 
 
-def test_recording_start_requires_consent_on_the_request(
-    client: TestClient, patient: dict[str, Any]
+def test_recording_start_requires_a_recorded_participant_consent(
+    client: TestClient, workstation: Any
 ) -> None:
+    """Inverted in GDPR-09, deliberately.
+
+    This used to assert that the *request's* ``gdpr_consent`` boolean -- a box
+    the researcher ticked -- was required. That box is gone. A patient row
+    whose consent flag is set but who has no consent in the register (the only
+    kind of patient that could exist before GDPR-09) cannot be recorded, and
+    ``"gdpr_consent": true`` on the request changes nothing.
+    """
+    legacy = workstation.patients.create_patient(display_name="Legacy", gdpr_consent_given=True)
+
     response = client.post(
         "/api/recording/start",
-        json={**START_BODY, "patient_id": patient["patient_id"], "gdpr_consent": False},
+        json={**START_BODY, "patient_id": legacy["patient_id"], "gdpr_consent": True},
     )
 
     assert response.status_code == 403
-    assert "GDPR consent" in response.json()["detail"]
+    assert "no valid consent" in response.json()["detail"]
+
+
+def test_recording_start_refuses_a_consent_that_belongs_to_someone_else(
+    client: TestClient, workstation: Any, patient: dict[str, Any]
+) -> None:
+    other = workstation.patients.create_patient(display_name="Other", gdpr_consent_given=True)
+
+    response = client.post(
+        "/api/recording/start",
+        json={**START_BODY, "patient_id": other["patient_id"], "consent_id": patient["consent_id"]},
+    )
+
+    assert response.status_code == 403
+    assert "does not belong" in response.json()["detail"]
 
 
 def test_recording_start_requires_a_known_patient(client: TestClient) -> None:
@@ -59,12 +82,7 @@ def test_recording_start_requires_a_known_patient(client: TestClient) -> None:
 def test_recording_start_is_refused_after_consent_withdrawal(
     client: TestClient, workstation: Any, patient: dict[str, Any]
 ) -> None:
-    """Consent withdrawn on the patient record outranks consent asserted in the request.
-
-    The request body's `gdpr_consent` is the operator confirming they have
-    consent; the patient record is the system's own memory of it. When they
-    disagree, the record wins.
-    """
+    """A withdrawn consent stops recording, whatever the request says."""
     workstation.patients.withdraw_consent(patient["patient_id"])
 
     response = client.post(
