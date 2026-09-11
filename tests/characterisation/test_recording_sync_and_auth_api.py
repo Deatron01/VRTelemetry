@@ -277,16 +277,20 @@ def test_central_server_url_is_empty_until_configured(client: TestClient) -> Non
 
 
 def test_a_configured_url_is_returned_and_used(client: TestClient) -> None:
-    """Setting one works exactly as before; only the unset case changed."""
-    client.post("/api/config/central-server", json={"central_server_url": "http://10.0.0.9:9000"})
+    """Setting one works as before; only the unset case changed.
+
+    An ``https://`` address since GDPR-01: plain HTTP to a LAN host is refused
+    at save time, see tests/integration/test_hub_connection.py.
+    """
+    client.post("/api/config/central-server", json={"central_server_url": "https://10.0.0.9:9000"})
 
     assert client.get("/api/config/central-server").json() == {
-        "central_server_url": "http://10.0.0.9:9000"
+        "central_server_url": "https://10.0.0.9:9000"
     }
 
 
 def test_central_server_url_round_trips_through_the_local_cache(client: TestClient) -> None:
-    new_url = "http://192.168.1.50:9000"
+    new_url = "https://192.168.1.50:9000"
 
     assert client.post(
         "/api/config/central-server", json={"central_server_url": new_url}
@@ -314,7 +318,7 @@ def test_changing_the_central_url_repoints_the_live_uploaders(
     this test asserted the opposite and said, in its docstring, that it would
     need inverting when VRT-12 landed. This is that inversion.
     """
-    new_url = "http://10.0.0.9:9000"
+    new_url = "https://10.0.0.9:9000"
 
     client.post("/api/config/central-server", json={"central_server_url": new_url})
 

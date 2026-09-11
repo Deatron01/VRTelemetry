@@ -69,6 +69,11 @@ FORBIDDEN: tuple[tuple[str, str], ...] = (
         "Python bytecode cache.",
     ),
     (
+        r"\.(pem|key)$",
+        "TLS private key or certificate. A leaked hub key lets anyone on the LAN "
+        "impersonate the hub and receive participant data (GDPR-01).",
+    ),
+    (
         r"(^|/)\.env$|(^|/)\.env\.(?!example)",
         "Environment file. May contain credentials; commit .env.example instead.",
     ),

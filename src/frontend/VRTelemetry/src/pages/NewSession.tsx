@@ -264,7 +264,7 @@ export const NewSession = () => {
                 value={hubUrl}
                 onChange={e => { setHubUrl(e.target.value); setHubCheck(null); }}
                 onBlur={e => saveHubUrl(e.target.value.trim())}
-                placeholder="http://192.168.1.50:9000"
+                placeholder="https://192.168.1.50:9000"
                 className="field field-mono flex-1"
               />
               <button

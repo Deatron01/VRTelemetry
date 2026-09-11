@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from src.interfaces.api.dependencies import CentralUrlDep, HttpDep, LocalCacheDep
+from src.infrastructure.transport import insecure_transport_reason
+from src.interfaces.api.dependencies import CentralUrlDep, HttpDep, LocalCacheDep, SettingsDep
 from src.interfaces.api.schemas.auth import CentralUrlCheck, CentralUrlConfig
 
 router = APIRouter(tags=["config"])
@@ -30,7 +31,22 @@ def get_central_config(central_url: CentralUrlDep):
 
 
 @router.post("/api/config/central-server")
-def set_central_config(payload: CentralUrlConfig, local_cache: LocalCacheDep):
+def set_central_config(
+    payload: CentralUrlConfig, local_cache: LocalCacheDep, settings: SettingsDep
+):
+    """Save the hub address -- refusing one that would carry data in clear text.
+
+    GDPR-01. The transport refuses such requests anyway; refusing here as well
+    means the researcher learns it while typing the address, not from a queue
+    of uploads that never leave the machine.
+    """
+    url = (payload.central_server_url or "").strip()
+    if url:
+        reason = insecure_transport_reason(
+            url, allow_insecure_http=settings.central.allow_insecure_http
+        )
+        if reason is not None:
+            raise HTTPException(status_code=400, detail=reason)
     local_cache.set_config("central_server_url", payload.central_server_url)
     return {"ok": True, "central_server_url": payload.central_server_url}
 

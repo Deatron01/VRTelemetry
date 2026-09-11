@@ -26,6 +26,13 @@ LicenseServer/
 *.db-wal
 *.db-shm
 
+# TLS keys and certificates (GDPR-01). tools/generate_hub_certificate.py writes
+# them under CentralServer/tls/, which is ignored above; this catches a copy
+# made anywhere else in the tree. A leaked hub key lets anyone on the LAN
+# impersonate the hub and receive participant data.
+*.pem
+*.key
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Python
 # ─────────────────────────────────────────────────────────────────────────────

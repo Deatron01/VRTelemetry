@@ -25,8 +25,15 @@
 # "http://192.168.1.X:9000" — a placeholder with a letter where an octet
 # belongs — so an unconfigured install failed with a DNS error instead of
 # telling you to configure it. That exact string is now rejected.
-# url = "http://192.168.1.50:9000"
+# url = "https://192.168.1.50:9000"
 # timeout_sec = 10.0
+#
+# TLS (GDPR-01). Participant data is never sent over plain http:// except to
+# this machine's own loopback. A LAN hub with a certificate from
+# tools/generate_hub_certificate.py needs its CA here:
+# ca_bundle = "C:/VRTelemetry/hub-ca.pem"
+# Disposable test setups only -- logs a warning for every request:
+# allow_insecure_http = false
 
 [api]
 # The workstation's own API, spawned by the Electron shell. Loopback on
@@ -40,6 +47,12 @@
 # host = "0.0.0.0"
 # port = 9000
 # client_online_threshold_sec = 90
+#
+# TLS (GDPR-01). Required on any non-loopback interface; the hub refuses to
+# start without it. Create both with tools/generate_hub_certificate.py.
+# tls_certfile = "C:/VRTelemetry/CentralServer/tls/hub-cert.pem"   # absolute paths
+# tls_keyfile = "C:/VRTelemetry/CentralServer/tls/hub-key.pem"
+# allow_insecure_http = false     # disposable test setups only
 
 [acquisition]
 # default_max_sampling_hz = 120.0

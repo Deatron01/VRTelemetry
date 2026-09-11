@@ -11,6 +11,7 @@ from src.central_server.data_manager import CentralDataManager
 from src.central_server.data_schema import initialize_data_schema
 from src.config import get_settings
 from src.infrastructure.persistence.connection import describe_health
+from src.infrastructure.transport import is_loopback_host
 from src.license_service.auth_manager import AuthManager
 from src.license_service.db_schema import initialize_license_schema
 from src.license_service.manager import LicenseManager
@@ -705,6 +706,62 @@ def resolve_bind_address() -> tuple[str, int]:
     return host, port
 
 
+class HubTlsNotConfiguredError(RuntimeError):
+    """The hub was asked to listen on the network without TLS (GDPR-01)."""
+
+
+def resolve_tls(host: str) -> dict[str, str]:
+    """The uvicorn TLS arguments for this hub, or a refusal to start without them.
+
+    The hub receives participant records and eye-tracking telemetry from every
+    workstation on the LAN. Served over plain HTTP, all of it crosses the
+    network in clear text, which Art. 32 GDPR does not allow for data of this
+    sensitivity. So:
+
+    * certificate and key configured -- serve HTTPS;
+    * bound to loopback only -- plain HTTP is allowed (a one-machine
+      development setup: the traffic never leaves the host);
+    * ``hub.allow_insecure_http`` set -- plain HTTP, with a warning on start;
+    * otherwise -- refuse, naming the fix.
+
+    Args:
+        host: The interface the hub will bind, from :func:`resolve_bind_address`.
+
+    Returns:
+        ``{"ssl_certfile": ..., "ssl_keyfile": ...}`` or ``{}`` for plain HTTP.
+
+    Raises:
+        HubTlsNotConfiguredError: on a network interface with no certificate
+            and no explicit opt-out, or when a configured file is missing.
+    """
+    settings = get_settings().hub
+    if settings.tls_certfile and settings.tls_keyfile:
+        for label, path in (("certificate", settings.tls_certfile), ("key", settings.tls_keyfile)):
+            if not Path(path).is_file():
+                raise HubTlsNotConfiguredError(f"TLS {label} file not found: {path}")
+        return {
+            "ssl_certfile": str(settings.tls_certfile),
+            "ssl_keyfile": str(settings.tls_keyfile),
+        }
+
+    if is_loopback_host(host):
+        return {}
+
+    if settings.allow_insecure_http:
+        logger.warning(
+            "hub.allow_insecure_http is set: this hub accepts participant data over "
+            "PLAIN HTTP on the network. Never use this with real participants."
+        )
+        return {}
+
+    raise HubTlsNotConfiguredError(
+        f"Refusing to serve participant data on {host} without TLS. Create a certificate "
+        "with `python tools/generate_hub_certificate.py --host <this hub's LAN IP>`, then set "
+        "hub.tls_certfile and hub.tls_keyfile in config.toml (or VRT_HUB__TLS_CERTFILE / "
+        "VRT_HUB__TLS_KEYFILE). For a disposable test setup only, hub.allow_insecure_http = true."
+    )
+
+
 def main() -> None:
     """Entry point for the ``vrtelemetry-hub`` console script.
 
@@ -729,11 +786,17 @@ def main() -> None:
     import uvicorn
 
     host, port = resolve_bind_address()
+    try:
+        tls = resolve_tls(host)
+    except HubTlsNotConfiguredError as exc:
+        logger.error(str(exc))
+        raise SystemExit(2) from exc
+    scheme = "https" if tls else "http"
 
-    logger.info(f"Starting VRTelemetry central hub on {host}:{port}")
-    logger.info(f"  admin UI:     http://{host}:{port}/admin-ui")
-    logger.info(f"  health check: http://{host}:{port}/health")
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    logger.info(f"Starting VRTelemetry central hub on {scheme}://{host}:{port}")
+    logger.info(f"  admin UI:     {scheme}://{host}:{port}/admin-ui")
+    logger.info(f"  health check: {scheme}://{host}:{port}/health")
+    uvicorn.run(app, host=host, port=port, log_level="info", **tls)
 
 
 if __name__ == "__main__":

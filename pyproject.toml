@@ -77,7 +77,9 @@ oculus = ["pyovr>=1.4"]
 # src.central_server, src.license_service and src.utils. Declared explicitly so
 # that a server deployment is a documented install rather than an accident of
 # which extras someone happened to type.
-server = []
+# The hub. `cryptography` is for tools/generate_hub_certificate.py, which
+# creates the TLS certificate a networked hub refuses to start without (GDPR-01).
+server = ["cryptography>=42"]
 
 # tools/ documentation pipeline. Not needed to run or test the application.
 docs = [

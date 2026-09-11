@@ -61,13 +61,27 @@ Add `".[workstation,oculus]"` only if you record through it.
 
 ## 1. Start the hub and its admin UI
 
-On the machine that will hold the archive:
+On the machine that will hold the archive, first create a TLS certificate for
+the hub's LAN address. The hub carries participant data and eye-tracking
+telemetry, so it refuses to listen on the network over plain HTTP (GDPR-01):
+
+```bash
+python tools/generate_hub_certificate.py --host <hub-ip>
+```
+
+It writes `hub-cert.pem`, `hub-key.pem` and `hub-ca.pem` to
+`CentralServer/tls/` and prints the `config.toml` lines for the hub
+(`[hub] tls_certfile` / `tls_keyfile`) and for each workstation
+(`[central] ca_bundle`, pointing at a copy of `hub-ca.pem`). Then:
 
 ```bash
 vrtelemetry-hub
 ```
 
-It binds `0.0.0.0:9000` and logs the admin-UI and health URLs on startup.
+It binds `0.0.0.0:9000` over HTTPS and logs the admin-UI and health URLs on
+startup. Bound to `127.0.0.1` it may run without a certificate, for a
+one-machine setup; `hub.allow_insecure_http = true` exists for disposable test
+setups only.
 
 **Create the first administrator — once, on the hub machine, before anyone
 opens the admin UI:**
@@ -86,9 +100,13 @@ Then, in a browser:
 
 | URL | What it is |
 |---|---|
-| `http://<hub-host>:9000/admin-ui/` | Admin dashboard — users, licences, active clients, sessions |
-| `http://<hub-host>:9000/health` | Liveness. `{"ok": true, "service": "vrtelemetry-hub", ...}` |
-| `http://<hub-host>:9000/docs` | Interactive API reference |
+| `https://<hub-host>:9000/admin-ui/` | Admin dashboard — users, licences, active clients, sessions |
+| `https://<hub-host>:9000/health` | Liveness. `{"ok": true, "service": "vrtelemetry-hub", ...}` |
+| `https://<hub-host>:9000/docs` | Interactive API reference |
+
+A browser warns about the certificate until `hub-ca.pem` is imported into its
+trust store; the warning is about who issued the certificate, not about
+encryption, which is in force either way.
 
 Log in, then **Licenses → issue a key** for each researcher. A workstation
 cannot record until it has activated with one.
@@ -173,13 +191,15 @@ Skip this only if both run on one machine with default ports.
 2. **Find the hub's LAN address** (`ipconfig`, or `ip addr`) and confirm it from
    the recording PC:
    ```bash
-   curl http://<hub-ip>:9000/health
+   curl --cacert hub-ca.pem https://<hub-ip>:9000/health
    ```
    Read the `service` field, not just the status code — a workstation pointed at
    some other service on the right port gets a reply and otherwise looks
    connected.
-3. **In the desktop app**, on Live Acquisition, put `http://<hub-ip>:9000` into
-   **Central Server Address** and press **Test**. It reports the hub's name and
+3. **Copy `hub-ca.pem` to the workstation** and set `ca_bundle` to it under
+   `[central]` in the workstation's `config.toml`. Then, **in the desktop app**,
+   on Live Acquisition, put `https://<hub-ip>:9000` into **Central Server
+   Address** and press **Test**. A plain `http://` LAN address is refused. It reports the hub's name and
    version, or says exactly what went wrong. The address is saved on the
    machine — a one-time step, not per session.
 4. **Register or log in, then activate** with a licence key from step 1.

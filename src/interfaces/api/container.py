@@ -251,7 +251,10 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
     """
     settings = settings or get_settings()
     settings.ensure_directories()
-    http = http if http is not None else default_http_client()
+    # The production client is held to the TLS policy (GDPR-01). A test that
+    # passes its own stub gets exactly that stub: the policy has its own tests
+    # in tests/unit/test_transport.py.
+    http = http if http is not None else default_http_client(settings.central)
 
     local_cache = LocalLicenseCache(settings.paths.license_cache_db)
     recording = RecordingSessionManager()

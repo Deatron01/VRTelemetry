@@ -166,6 +166,36 @@ class CentralServerSettings(BaseSettings):
     #: must never stall a recording.
     timeout_sec: float = Field(default=10.0, gt=0, le=120)
 
+    #: PEM file holding the certificate authority that signed the hub's TLS
+    #: certificate (GDPR-01). Needed when the hub uses a certificate from its
+    #: own small CA -- which ``tools/generate_hub_certificate.py`` creates --
+    #: rather than one a public CA issued. None means the operating system's
+    #: normal trust store, which is right for a publicly-issued certificate.
+    ca_bundle: Path | None = None
+
+    #: Development escape hatch, and nothing else (GDPR-01). Participant data
+    #: and eye-tracking telemetry are refused over plain ``http://`` to any
+    #: host but this machine's own loopback. Set this only on a disposable test
+    #: setup; the application logs a warning for every request it lets through.
+    allow_insecure_http: bool = False
+
+    @field_validator("ca_bundle")
+    @classmethod
+    def _ca_bundle_exists(cls, value: Path | None) -> Path | None:
+        """Fail at startup, naming the file, rather than on the first upload.
+
+        ``requests`` reports a missing bundle as an ``OSError`` raised from
+        inside the adapter -- not a ``RequestException`` -- so every client's
+        "hub unreachable" handling would miss it and the upload path would
+        crash instead of queueing.
+        """
+        if value is None:
+            return None
+        value = value.expanduser().resolve()
+        if not value.is_file():
+            raise ValueError(f"central.ca_bundle {value} does not exist or is not a file")
+        return value
+
     @field_validator("url")
     @classmethod
     def _looks_like_a_url(cls, value: str | None) -> str | None:
@@ -230,6 +260,25 @@ class HubSettings(BaseSettings):
     #: Heartbeats older than this mark a client offline in the admin view.
     #: Three times the client's 30 s ping gives room for a blip.
     client_online_threshold_sec: int = Field(default=90, gt=0)
+
+    #: TLS certificate and private key, both PEM (GDPR-01). The hub receives
+    #: participant data and eye-tracking telemetry, so on anything but loopback
+    #: it refuses to start without them -- see
+    #: :func:`src.central_server.server.resolve_tls`.
+    #: ``tools/generate_hub_certificate.py`` creates a pair for a LAN hub.
+    tls_certfile: Path | None = None
+    tls_keyfile: Path | None = None
+
+    #: Start on plain HTTP on a non-loopback interface anyway. For a disposable
+    #: test setup only; every start logs that the hub is running insecurely.
+    allow_insecure_http: bool = False
+
+    @model_validator(mode="after")
+    def _tls_pair(self) -> HubSettings:
+        """A certificate without its key (or the reverse) is a typo, not a choice."""
+        if (self.tls_certfile is None) != (self.tls_keyfile is None):
+            raise ValueError("hub.tls_certfile and hub.tls_keyfile must be set together")
+        return self
 
 
 class AcquisitionSettings(BaseSettings):

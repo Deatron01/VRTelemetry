@@ -254,3 +254,128 @@ def test_a_non_200_from_the_port_is_reported_with_its_status(tmp_path: Path) -> 
 
     assert body["reachable"] is False
     assert "HTTP 404" in body["detail"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TLS (GDPR-01)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def hub_settings(monkeypatch, tmp_path: Path):
+    """Point get_settings() at the environment this test sets, and back afterwards.
+
+    The data root moves to ``tmp_path`` as well, so a ``config.toml`` in the
+    developer's own data root -- where a real hub's TLS settings live -- cannot
+    change what these tests observe.
+    """
+    from src.config import get_settings
+
+    monkeypatch.setenv("VRT_PATHS__DATA_ROOT", str(tmp_path))
+    for key in (
+        "VRT_HUB__TLS_CERTFILE",
+        "VRT_HUB__TLS_KEYFILE",
+        "VRT_HUB__ALLOW_INSECURE_HTTP",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+    yield monkeypatch
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+
+def test_a_networked_hub_without_a_certificate_refuses_to_start(hub_settings) -> None:
+    from src.central_server.server import HubTlsNotConfiguredError, resolve_tls
+
+    with pytest.raises(HubTlsNotConfiguredError, match="generate_hub_certificate"):
+        resolve_tls("0.0.0.0")
+
+
+def test_a_loopback_hub_may_serve_plain_http(hub_settings) -> None:
+    from src.central_server.server import resolve_tls
+
+    assert resolve_tls("127.0.0.1") == {}
+
+
+def test_the_insecure_opt_out_is_explicit(hub_settings) -> None:
+    from src.central_server.server import resolve_tls
+
+    hub_settings.setenv("VRT_HUB__ALLOW_INSECURE_HTTP", "true")
+
+    assert resolve_tls("0.0.0.0") == {}
+
+
+def test_a_configured_certificate_is_served(hub_settings, tmp_path: Path) -> None:
+    from src.central_server.server import resolve_tls
+
+    cert, key = tmp_path / "hub-cert.pem", tmp_path / "hub-key.pem"
+    cert.write_text("cert")
+    key.write_text("key")
+    hub_settings.setenv("VRT_HUB__TLS_CERTFILE", str(cert))
+    hub_settings.setenv("VRT_HUB__TLS_KEYFILE", str(key))
+
+    assert resolve_tls("0.0.0.0") == {"ssl_certfile": str(cert), "ssl_keyfile": str(key)}
+
+
+def test_saving_a_plain_http_lan_address_is_refused(tmp_path: Path) -> None:
+    """The researcher learns it while typing the address, not from a stuck queue."""
+    client = _client(tmp_path, _Unreachable())
+
+    response = client.post(
+        "/api/config/central-server", json={"central_server_url": "http://192.168.1.50:9000"}
+    )
+
+    assert response.status_code == 400
+    assert "insecure_transport_refused" in response.json()["detail"]
+    assert client.get("/api/config/central-server").json()["central_server_url"] == ""
+
+
+def test_generated_certificates_complete_a_verified_handshake(tmp_path: Path) -> None:
+    """The tool's output works end to end, in strict X.509 mode, against the CA only."""
+    pytest.importorskip("cryptography")
+    import importlib.util
+    import socket
+    import ssl
+    import threading
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_hub_certificate", REPO_ROOT / "tools" / "generate_hub_certificate.py"
+    )
+    assert spec and spec.loader
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    paths = tool.generate(["127.0.0.1", "localhost"], tmp_path)
+
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(paths["cert"], paths["key"])
+    listener = socket.create_server(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+
+    server_errors: list[BaseException] = []
+
+    def serve() -> None:
+        # The server answers before either side closes. Without the reply the
+        # client could close while the server was still finishing its half of
+        # the handshake, which Windows reports as WinError 10053 on the thread.
+        try:
+            conn, _ = listener.accept()
+            with server_ctx.wrap_socket(conn, server_side=True) as tls:
+                assert tls.recv(1) == b"x"
+                tls.sendall(b"y")
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the test thread below
+            server_errors.append(exc)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+
+    client_ctx = ssl.create_default_context(cafile=str(paths["ca"]))
+    client_ctx.verify_flags |= ssl.VERIFY_X509_STRICT
+    with (
+        socket.create_connection(("127.0.0.1", port)) as raw,
+        client_ctx.wrap_socket(raw, server_hostname="127.0.0.1") as tls,
+    ):
+        assert tls.version() in {"TLSv1.2", "TLSv1.3"}
+        tls.sendall(b"x")
+        assert tls.recv(1) == b"y"
+    thread.join(timeout=5)
+    listener.close()
+    assert not server_errors, server_errors

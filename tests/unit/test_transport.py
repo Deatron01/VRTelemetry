@@ -87,3 +87,133 @@ def test_a_stub_missing_a_verb_is_not_a_client(missing: str):
 
     stub_type = type("_PartialClient", (), namespace)
     assert not isinstance(stub_type(), HttpClient)
+
+
+# --------------------------------------------------------------------------- #
+# The TLS policy (GDPR-01)
+# --------------------------------------------------------------------------- #
+
+
+class _Recorder:
+    """An inner client that records what it was asked to send, and sends nothing."""
+
+    def __init__(self) -> None:
+        import requests
+
+        self.RequestException = requests.RequestException
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def _call(self, method: str, url: str, kwargs: dict[str, Any]) -> str:
+        self.calls.append((method, url, kwargs))
+        return "sent"
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        return self._call("GET", url, kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> Any:
+        return self._call("POST", url, kwargs)
+
+    def put(self, url: str, **kwargs: Any) -> Any:
+        return self._call("PUT", url, kwargs)
+
+    def delete(self, url: str, **kwargs: Any) -> Any:
+        return self._call("DELETE", url, kwargs)
+
+
+def _client(**policy: Any):
+    from src.infrastructure.transport import PolicyEnforcingHttpClient, TlsPolicy
+
+    inner = _Recorder()
+    return PolicyEnforcingHttpClient(inner, TlsPolicy(**policy)), inner
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://192.168.1.50:9000/data/upload-patient",
+        "http://hub.lab.local:9000/health",
+        "ftp://192.168.1.50/x",
+    ],
+)
+def test_plain_http_to_the_network_is_refused_before_anything_is_sent(url: str) -> None:
+    """The refusal is a RequestException, so every caller queues instead of crashing."""
+    client, inner = _client()
+
+    with pytest.raises(client.RequestException, match="insecure_transport_refused"):
+        client.post(url, json={"patient": {"patient_id": "p"}})
+
+    assert inner.calls == [], "the request reached the wire"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.1:9000/health", "http://localhost:9000/health", "http://[::1]:9000/health"],
+)
+def test_plain_http_to_loopback_is_allowed(url: str) -> None:
+    """A one-machine setup: the traffic never leaves the host."""
+    client, inner = _client()
+
+    assert client.get(url) == "sent"
+    assert inner.calls[0][1] == url
+
+
+def test_https_is_allowed_and_trusts_the_configured_ca(tmp_path) -> None:
+    ca = tmp_path / "hub-ca.pem"
+    ca.write_text("-----BEGIN CERTIFICATE-----\n")
+    client, inner = _client(ca_bundle=ca)
+
+    client.post("https://192.168.1.50:9000/data/upload-session", data={})
+
+    assert inner.calls[0][2]["verify"] == str(ca)
+
+
+def test_an_explicit_verify_argument_is_not_overridden(tmp_path) -> None:
+    client, inner = _client(ca_bundle=tmp_path / "hub-ca.pem")
+
+    client.get("https://hub:9000/health", verify=False)
+
+    assert inner.calls[0][2]["verify"] is False
+
+
+def test_without_a_ca_bundle_the_system_trust_store_is_used() -> None:
+    client, inner = _client()
+
+    client.get("https://hub.example.org/health")
+
+    assert "verify" not in inner.calls[0][2]
+
+
+def test_the_development_flag_lets_plain_http_through() -> None:
+    client, _ = _client(allow_insecure_http=True)
+
+    assert client.post("http://192.168.1.50:9000/data/upload-patient") == "sent"
+
+
+def test_the_production_client_carries_the_policy() -> None:
+    """`default_http_client` returns the wrapper, not bare `requests`."""
+    from src.config.settings import CentralServerSettings
+    from src.infrastructure.transport import PolicyEnforcingHttpClient
+
+    client = default_http_client(CentralServerSettings())
+
+    assert isinstance(client, PolicyEnforcingHttpClient)
+    with pytest.raises(client.RequestException, match="insecure_transport_refused"):
+        client.get("http://10.0.0.9:9000/health", timeout=0.01)
+
+
+def test_a_missing_ca_bundle_fails_at_startup_naming_the_file(tmp_path) -> None:
+    from pydantic import ValidationError
+
+    from src.config.settings import CentralServerSettings
+
+    with pytest.raises(ValidationError, match="does not exist"):
+        CentralServerSettings(ca_bundle=tmp_path / "nope.pem")
+
+
+def test_a_hub_certificate_without_its_key_is_rejected(tmp_path) -> None:
+    from pydantic import ValidationError
+
+    from src.config.settings import HubSettings
+
+    with pytest.raises(ValidationError, match="set together"):
+        HubSettings(tls_certfile=tmp_path / "hub-cert.pem")
