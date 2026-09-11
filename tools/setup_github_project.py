@@ -57,7 +57,7 @@ TICKETS: list[tuple[str, str, str, str, str]] = [
     ),
     (
         "GDPR-02",
-        "Fix README's false \"no external transmission\" claim",
+        'Fix README\'s false "no external transmission" claim',
         "track: gdpr",
         "P0 Critical",
         "The README explicitly states that data never leaves the local disk. It does "
@@ -151,8 +151,7 @@ TICKETS: list[tuple[str, str, str, str, str]] = [
         "Export charts / report as PDF or PNG",
         "track: stats",
         "P2 Medium",
-        "Researchers need to pull a chart or a full report out of the app for papers "
-        "and records.",
+        "Researchers need to pull a chart or a full report out of the app for papers and records.",
     ),
     (
         "STAT-05",
@@ -262,15 +261,9 @@ def preflight(owner: str) -> None:
             "Install it from https://cli.github.com/ and run `gh auth login`."
         )
 
-    proc = subprocess.run(
-        ["gh", "auth", "status"], capture_output=True, text=True
-    )
+    proc = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(
-            "gh is not logged in. Run:\n"
-            "    gh auth login\n"
-            "    gh auth refresh -s project"
-        )
+        sys.exit("gh is not logged in. Run:\n    gh auth login\n    gh auth refresh -s project")
 
     status = proc.stdout + proc.stderr
     if "project" not in status:
@@ -293,10 +286,16 @@ def ensure_labels() -> None:
     for name, color, desc in LABELS:
         run(
             [
-                "gh", "label", "create", name,
-                "--repo", REPO,
-                "--color", color,
-                "--description", desc,
+                "gh",
+                "label",
+                "create",
+                name,
+                "--repo",
+                REPO,
+                "--color",
+                color,
+                "--description",
+                desc,
                 "--force",
             ],
             mutating=True,
@@ -311,15 +310,24 @@ def existing_by_ticket_id() -> dict[str, str]:
     '[GDPR-01] Foo', 'GDPR-01: Foo' and 'GDPR-01 Foo' count as the same
     ticket. Matching on the full title instead once created 19 duplicates.
     """
-    items = run_json(
-        [
-            "gh", "issue", "list",
-            "--repo", REPO,
-            "--state", "all",
-            "--limit", "500",
-            "--json", "title,url",
-        ]
-    ) or []
+    items = (
+        run_json(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                REPO,
+                "--state",
+                "all",
+                "--limit",
+                "500",
+                "--json",
+                "title,url",
+            ]
+        )
+        or []
+    )
 
     found: dict[str, str] = {}
     for issue in items:
@@ -351,12 +359,19 @@ def create_issues() -> list[str]:
         full_body = f"{body}\n\n---\n_Ticket `{ticket_id}`, imported from `PROJECT_BOARD.md`._"
         url = run(
             [
-                "gh", "issue", "create",
-                "--repo", REPO,
-                "--title", full_title,
-                "--body", full_body,
-                "--label", track,
-                "--label", priority,
+                "gh",
+                "issue",
+                "create",
+                "--repo",
+                REPO,
+                "--title",
+                full_title,
+                "--body",
+                full_body,
+                "--label",
+                track,
+                "--label",
+                priority,
             ],
             mutating=True,
         )
@@ -370,9 +385,10 @@ def create_issues() -> list[str]:
 
 def find_or_create_project(owner: str, title: str) -> dict[str, Any]:
     print("\n[3/6] Project board")
-    projects = run_json(
-        ["gh", "project", "list", "--owner", owner, "--format", "json", "--limit", "100"]
-    ) or {}
+    projects = (
+        run_json(["gh", "project", "list", "--owner", owner, "--format", "json", "--limit", "100"])
+        or {}
+    )
     for p in projects.get("projects", []):
         if p.get("title") == title:
             print(f"    found existing project #{p['number']} ({title})")
@@ -384,42 +400,56 @@ def find_or_create_project(owner: str, title: str) -> dict[str, Any]:
 
     created = run_json(
         [
-            "gh", "project", "create",
-            "--owner", owner,
-            "--title", title,
-            "--format", "json",
+            "gh",
+            "project",
+            "create",
+            "--owner",
+            owner,
+            "--title",
+            title,
+            "--format",
+            "json",
         ]
     )
     print(f"    created project #{created['number']} ({title})")
     return created
 
 
-def configure_status_field(owner: str, number: int, project_id: str) -> None:
+def configure_status_field(owner: str, number: int) -> None:
     """Rename the default Status options to our five columns."""
     print("\n[4/6] Status columns")
     if DRY_RUN:
         print(f"    [dry-run] would set columns to: {', '.join(STATUS_OPTIONS)}")
         return
 
-    fields = run_json(
-        ["gh", "project", "field-list", str(number),
-         "--owner", owner, "--format", "json", "--limit", "50"]
-    ) or {}
-    status = next(
-        (f for f in fields.get("fields", []) if f.get("name") == "Status"), None
+    fields = (
+        run_json(
+            [
+                "gh",
+                "project",
+                "field-list",
+                str(number),
+                "--owner",
+                owner,
+                "--format",
+                "json",
+                "--limit",
+                "50",
+            ]
+        )
+        or {}
     )
+    status = next((f for f in fields.get("fields", []) if f.get("name") == "Status"), None)
     if not status:
         print("    no Status field found -- skipping")
         return
 
-    options = ", ".join(
-        '{name: "%s", color: GRAY, description: ""}' % o for o in STATUS_OPTIONS
-    )
+    options = ", ".join(f'{{name: "{o}", color: GRAY, description: ""}}' for o in STATUS_OPTIONS)
+    field_id = status["id"]
     query = (
-        'mutation { updateProjectV2Field(input: {fieldId: "%s", '
-        'singleSelectOptions: [%s]}) { projectV2Field { '
-        '... on ProjectV2SingleSelectField { id options { id name } } } } }'
-        % (status["id"], options)
+        f'mutation {{ updateProjectV2Field(input: {{fieldId: "{field_id}", '
+        f"singleSelectOptions: [{options}]}}) {{ projectV2Field {{ "
+        "... on ProjectV2SingleSelectField { id options { id name } } } } }"
     )
     try:
         run(["gh", "api", "graphql", "-f", f"query={query}"], mutating=True)
@@ -435,8 +465,7 @@ def add_items(owner: str, number: int, urls: list[str]) -> None:
     for url in urls:
         try:
             run(
-                ["gh", "project", "item-add", str(number),
-                 "--owner", owner, "--url", url],
+                ["gh", "project", "item-add", str(number), "--owner", owner, "--url", url],
                 mutating=True,
             )
             print(f"    added {url}")
@@ -451,29 +480,51 @@ def set_initial_status(owner: str, number: int, project_id: str, status: str) ->
         print(f"    [dry-run] would set every statusless item to {status}")
         return
 
-    fields = run_json(
-        ["gh", "project", "field-list", str(number),
-         "--owner", owner, "--format", "json", "--limit", "50"]
-    ) or {}
-    field = next(
-        (f for f in fields.get("fields", []) if f.get("name") == "Status"), None
+    fields = (
+        run_json(
+            [
+                "gh",
+                "project",
+                "field-list",
+                str(number),
+                "--owner",
+                owner,
+                "--format",
+                "json",
+                "--limit",
+                "50",
+            ]
+        )
+        or {}
     )
+    field = next((f for f in fields.get("fields", []) if f.get("name") == "Status"), None)
     if not field:
         print("    no Status field found -- skipping")
         return
 
-    option = next(
-        (o for o in field.get("options", []) if o.get("name") == status), None
-    )
+    option = next((o for o in field.get("options", []) if o.get("name") == status), None)
     if not option:
         names = ", ".join(o.get("name", "?") for o in field.get("options", []))
         print(f"    no '{status}' option (have: {names}) -- skipping")
         return
 
-    items = run_json(
-        ["gh", "project", "item-list", str(number),
-         "--owner", owner, "--format", "json", "--limit", "200"]
-    ) or {}
+    items = (
+        run_json(
+            [
+                "gh",
+                "project",
+                "item-list",
+                str(number),
+                "--owner",
+                owner,
+                "--format",
+                "json",
+                "--limit",
+                "200",
+            ]
+        )
+        or {}
+    )
 
     done = 0
     for item in items.get("items", []):
@@ -481,11 +532,19 @@ def set_initial_status(owner: str, number: int, project_id: str, status: str) ->
             continue
         try:
             run(
-                ["gh", "project", "item-edit",
-                 "--id", item["id"],
-                 "--project-id", project_id,
-                 "--field-id", field["id"],
-                 "--single-select-option-id", option["id"]],
+                [
+                    "gh",
+                    "project",
+                    "item-edit",
+                    "--id",
+                    item["id"],
+                    "--project-id",
+                    project_id,
+                    "--field-id",
+                    field["id"],
+                    "--single-select-option-id",
+                    option["id"],
+                ],
                 mutating=True,
             )
             done += 1
@@ -540,12 +599,10 @@ def main() -> None:
     number = int(project.get("number", 0))
 
     if number:
-        configure_status_field(owner, number, project.get("id", ""))
+        configure_status_field(owner, number)
         add_items(owner, number, urls)
         if args.set_status:
-            set_initial_status(
-                owner, number, project.get("id", ""), args.set_status
-            )
+            set_initial_status(owner, number, project.get("id", ""), args.set_status)
         print(
             f"\nDone. Board: https://github.com/users/{owner}/projects/{number}"
             "\n(If your owner is an organization, the URL is "

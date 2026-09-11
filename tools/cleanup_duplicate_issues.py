@@ -50,8 +50,9 @@ TICKET_IDS = (
 )
 
 # "[GDPR-01] ..." -> the duplicate set. "GDPR-01: ..." -> the originals.
-DUPLICATE_RE = re.compile(r"^\[\s*(%s)\s*\]" % "|".join(TICKET_IDS), re.I)
-ORIGINAL_RE = re.compile(r"^\s*(%s)\s*[:\-]" % "|".join(TICKET_IDS), re.I)
+_TICKET_ALT = "|".join(TICKET_IDS)
+DUPLICATE_RE = re.compile(rf"^\[\s*({_TICKET_ALT})\s*\]", re.I)
+ORIGINAL_RE = re.compile(rf"^\s*({_TICKET_ALT})\s*[:\-]", re.I)
 
 DRY_RUN = False
 
@@ -76,10 +77,24 @@ def run_json(args: list[str]) -> Any:
 
 def classify() -> tuple[dict[str, dict], dict[str, dict]]:
     """Return (originals, duplicates), each ticket_id -> issue dict."""
-    issues = run_json(
-        ["gh", "issue", "list", "--repo", REPO, "--state", "all",
-         "--limit", "500", "--json", "number,title,url,state"]
-    ) or []
+    issues = (
+        run_json(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                REPO,
+                "--state",
+                "all",
+                "--limit",
+                "500",
+                "--json",
+                "number,title,url,state",
+            ]
+        )
+        or []
+    )
 
     originals: dict[str, dict] = {}
     duplicates: dict[str, dict] = {}
@@ -109,8 +124,10 @@ def close_duplicates(originals: dict[str, dict], duplicates: dict[str, dict]) ->
             print(f"    {ticket_id}: no duplicate found -- nothing to do")
             continue
         if not orig:
-            print(f"    {ticket_id}: WARNING duplicate #{dup['number']} found but no "
-                  f"original -- leaving it open")
+            print(
+                f"    {ticket_id}: WARNING duplicate #{dup['number']} found but no "
+                f"original -- leaving it open"
+            )
             continue
         if dup["state"].upper() == "CLOSED":
             print(f"    {ticket_id}: #{dup['number']} already closed")
@@ -122,10 +139,14 @@ def close_duplicates(originals: dict[str, dict], duplicates: dict[str, dict]) ->
             f"(it carries the milestone, labels and action items). Closing this "
             f"one; work tracked on #{orig['number']}."
         )
-        run(["gh", "issue", "comment", str(dup["number"]),
-             "--repo", REPO, "--body", comment], mutating=True)
-        run(["gh", "issue", "close", str(dup["number"]),
-             "--repo", REPO, "--reason", "not planned"], mutating=True)
+        run(
+            ["gh", "issue", "comment", str(dup["number"]), "--repo", REPO, "--body", comment],
+            mutating=True,
+        )
+        run(
+            ["gh", "issue", "close", str(dup["number"]), "--repo", REPO, "--reason", "not planned"],
+            mutating=True,
+        )
         print(f"    {ticket_id}: closed #{dup['number']} (dupe of #{orig['number']})")
         closed.append(dup["number"])
 
@@ -135,19 +156,43 @@ def close_duplicates(originals: dict[str, dict], duplicates: dict[str, dict]) ->
 def prune_board(keep_numbers: set[int]) -> None:
     print("\n[2/2] Pruning the Roadmap board")
 
-    project = run_json(
-        ["gh", "project", "view", str(PROJECT_NUMBER),
-         "--owner", PROJECT_OWNER, "--format", "json"]
-    ) or {}
+    project = (
+        run_json(
+            [
+                "gh",
+                "project",
+                "view",
+                str(PROJECT_NUMBER),
+                "--owner",
+                PROJECT_OWNER,
+                "--format",
+                "json",
+            ]
+        )
+        or {}
+    )
     project_id = project.get("id")
     if not project_id:
         print("    could not resolve the project id -- skipping")
         return
 
-    items = run_json(
-        ["gh", "project", "item-list", str(PROJECT_NUMBER),
-         "--owner", PROJECT_OWNER, "--format", "json", "--limit", "300"]
-    ) or {}
+    items = (
+        run_json(
+            [
+                "gh",
+                "project",
+                "item-list",
+                str(PROJECT_NUMBER),
+                "--owner",
+                PROJECT_OWNER,
+                "--format",
+                "json",
+                "--limit",
+                "300",
+            ]
+        )
+        or {}
+    )
 
     removed = 0
     for item in items.get("items", []):
@@ -156,8 +201,19 @@ def prune_board(keep_numbers: set[int]) -> None:
             continue
         title = item.get("title", f"#{number}")
         try:
-            run(["gh", "project", "item-delete", str(PROJECT_NUMBER),
-                 "--owner", PROJECT_OWNER, "--id", item["id"]], mutating=True)
+            run(
+                [
+                    "gh",
+                    "project",
+                    "item-delete",
+                    str(PROJECT_NUMBER),
+                    "--owner",
+                    PROJECT_OWNER,
+                    "--id",
+                    item["id"],
+                ],
+                mutating=True,
+            )
             print(f"    removed #{number}  {title}")
             removed += 1
         except RuntimeError as exc:
@@ -171,8 +227,7 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true", help="show actions, change nothing")
-    ap.add_argument("--no-prune-board", action="store_true",
-                    help="leave every board item in place")
+    ap.add_argument("--no-prune-board", action="store_true", help="leave every board item in place")
     args = ap.parse_args()
     DRY_RUN = args.dry_run
 
@@ -197,10 +252,7 @@ def main() -> None:
         keep = {o["number"] for o in originals.values()}
         prune_board(keep)
 
-    print(
-        f"\nDone. Board: https://github.com/users/{PROJECT_OWNER}/"
-        f"projects/{PROJECT_NUMBER}"
-    )
+    print(f"\nDone. Board: https://github.com/users/{PROJECT_OWNER}/projects/{PROJECT_NUMBER}")
 
 
 if __name__ == "__main__":
