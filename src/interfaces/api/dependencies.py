@@ -44,6 +44,7 @@ from typing import Annotated, Any
 from fastapi import Depends, Request
 
 from src.application.consent import ConsentService
+from src.application.erasure import ErasureService
 from src.config import Settings
 from src.infrastructure.persistence import SessionRepository
 from src.interfaces.api.container import Container, RecordingSessionManager
@@ -61,6 +62,7 @@ __all__ = [
     "ConsentsDep",
     "ContainerDep",
     "DbManagerDep",
+    "ErasureDep",
     "HeartbeatDep",
     "HttpDep",
     "LocalCacheDep",
@@ -133,6 +135,11 @@ def get_consents(container: ContainerDep) -> ConsentService:
     return container.consents
 
 
+def get_erasure(container: ContainerDep) -> ErasureService:
+    """The right-to-erasure service (GDPR-10)."""
+    return container.erasure
+
+
 def get_local_cache(container: ContainerDep) -> LocalLicenseCache:
     """Licence state, the auth session and the local key/value config."""
     return container.local_cache
@@ -199,6 +206,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings_for_request)]
 SessionsDep = Annotated[SessionRepository, Depends(get_sessions)]
 PatientsDep = Annotated[PatientManager, Depends(get_patients)]
 ConsentsDep = Annotated[ConsentService, Depends(get_consents)]
+ErasureDep = Annotated[ErasureService, Depends(get_erasure)]
 LocalCacheDep = Annotated[LocalLicenseCache, Depends(get_local_cache)]
 SessionUploaderDep = Annotated[SessionUploader, Depends(get_session_uploader)]
 PatientUploaderDep = Annotated[PatientSyncClient, Depends(get_patient_uploader)]

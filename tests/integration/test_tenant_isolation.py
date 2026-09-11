@@ -263,3 +263,63 @@ def test_rejection_logs_identifiers_but_not_payload(
     assert "Cross-tenant write rejected" in text
     assert two_tenants["alpha"]["activation_id"] in text
     assert "Test Subject" not in text
+
+
+# --------------------------------------------------------------------------- #
+# Erasure (GDPR-10)
+# --------------------------------------------------------------------------- #
+
+
+def _upload(client: TestClient, tenant: dict[str, str], session_id: str) -> None:
+    response = client.post(
+        "/data/upload-session",
+        data={
+            "activation_id": tenant["activation_id"],
+            "license_id": tenant["license_id"],
+            "session_id": session_id,
+            "metadata_json": '{"patient_id": "pat-1"}',
+        },
+        files={"file": (f"{session_id}.parquet", b"PAR1-bytes", "application/octet-stream")},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_an_erasure_cannot_reach_another_tenant(
+    client: TestClient, two_tenants: dict[str, dict[str, str]]
+) -> None:
+    response = client.post(
+        "/data/erase-patient",
+        json={
+            "activation_id": two_tenants["alpha"]["activation_id"],
+            "license_id": two_tenants["beta"]["license_id"],
+            "patient_id": "pat-1",
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_an_erasure_deletes_this_tenants_copies_and_only_those(
+    client: TestClient, server: Any, two_tenants: dict[str, dict[str, str]]
+) -> None:
+    """Both tenants have a "pat-1" -- ids are per workstation, not global."""
+    alpha, beta = two_tenants["alpha"], two_tenants["beta"]
+    _upload(client, alpha, "s-alpha")
+    _upload(client, beta, "s-beta")
+    alpha_file = server.data_mgr.storage_root / alpha["license_id"] / "s-alpha.parquet"
+    assert alpha_file.exists()
+
+    response = client.post(
+        "/data/erase-patient",
+        json={
+            "activation_id": alpha["activation_id"],
+            "license_id": alpha["license_id"],
+            "patient_id": "pat-1",
+            "session_ids": ["s-alpha"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["sessions_deleted"] == 1
+    assert not alpha_file.exists()
+    assert {s["session_id"] for s in server.data_mgr.list_sessions()} == {"s-beta"}

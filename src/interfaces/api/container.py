@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.application.consent import ConsentService
+from src.application.erasure import ErasureService
 from src.application.ports import HttpClient
 from src.config import Settings, get_settings
 from src.infrastructure.persistence import SessionRepository
@@ -160,6 +161,8 @@ class Container:
     #: with the patient registry, so a participant and the evidence of their
     #: consent live in one file.
     consents: ConsentService
+    #: Right to erasure across workstation files, metadata and the hub (GDPR-10).
+    erasure: ErasureService
     local_cache: LocalLicenseCache
     session_uploader: SessionUploader
     patient_uploader: PatientSyncClient
@@ -285,20 +288,42 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
                 len(local_cache.list_pending_uploads())
                 + len(local_cache.list_pending_session_logs())
                 + len(local_cache.list_pending_patient_syncs())
+                + len(local_cache.list_pending_erasures())
             )
         except Exception as exc:  # noqa: BLE001 - a status probe must never raise
             logger.debug(f"Pending count unavailable: {exc}")
             return 0
 
+    sessions = SessionRepository(settings.paths.metadata_db)
+    patients = PatientManager(settings.paths.patients_db)
+    consents = ConsentService(
+        ConsentRepository(settings.paths.patients_db),
+        # Built on each call rather than once: cheap, and it keeps the
+        # wording in step with the settings object this container holds.
+        catalogue_provider=lambda: build_catalogue(settings.consent),
+    )
+
+    def _is_recording_patient(patient_id: str) -> bool:
+        engine = recording.engine
+        if not recording.is_running or engine is None:
+            return False
+        static = engine.subject_metadata.get("M-IV_Static_Metadata", {})
+        return bool(static.get("patient_id") == patient_id)
+
     container = Container(
         settings=settings,
-        sessions=SessionRepository(settings.paths.metadata_db),
-        patients=PatientManager(settings.paths.patients_db),
-        consents=ConsentService(
-            ConsentRepository(settings.paths.patients_db),
-            # Built on each call rather than once: cheap, and it keeps the
-            # wording in step with the settings object this container holds.
-            catalogue_provider=lambda: build_catalogue(settings.consent),
+        sessions=sessions,
+        patients=patients,
+        consents=consents,
+        erasure=ErasureService(
+            patients=patients,
+            sessions=sessions,
+            consents=consents,
+            queues=local_cache,
+            hub=patient_uploader,
+            sessions_dir=settings.paths.sessions_dir,
+            session_logs_dir=settings.paths.session_logs_dir,
+            is_recording_patient=_is_recording_patient,
         ),
         local_cache=local_cache,
         session_uploader=session_uploader,

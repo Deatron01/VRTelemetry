@@ -18,9 +18,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from src.application.consent import ConsentValidationError, WithdrawalScope
+from src.application.erasure import ErasureBlockedError
 from src.core.exceptions import GDPRConsentError
 from src.interfaces.api.dependencies import (
     ConsentsDep,
+    ErasureDep,
     LocalCacheDep,
     PatientsDep,
     PatientUploaderDep,
@@ -201,20 +203,36 @@ def withdraw_patient_consent(
     patient_id: str,
     patients: PatientsDep,
     consents: ConsentsDep,
+    erasure: ErasureDep,
     patient_uploader: PatientUploaderDep,
     payload: WithdrawalRequest | None = None,
 ):
     """Withdraw consent, with the scope the participant chose (Art. 7(3) GDPR).
 
     An empty body means ``FUTURE_ONLY``, which is what this route always did.
+    ``ALL_DELETE`` records the withdrawal and then erases the participant
+    everywhere (GDPR-10); the response is the erased record plus the report.
     """
     scope = payload.scope if payload else WithdrawalScope.FUTURE_ONLY
     if not patients.get_patient(patient_id):
         raise HTTPException(status_code=404, detail="Patient not found")
+
     if scope is WithdrawalScope.ALL_DELETE:
-        raise HTTPException(
-            status_code=501, detail="Withdrawal with erasure is not available in this build."
-        )
+        # Refuse up front while this participant is being recorded, so the
+        # withdrawal is not half-applied: recorded, but with nothing erased.
+        if erasure.is_recording_patient(patient_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This participant is being recorded right now. Stop the recording first.",
+            )
+        affected = consents.withdraw(patient_id, scope)
+        patients.withdraw_consent(patient_id)
+        report = _erase_or_409(erasure, patient_id, hard_delete=False)
+        return {
+            **(patients.get_patient(patient_id) or {"patient_id": patient_id}),
+            "withdrawal": {"scope": scope.value, "consents": affected},
+            "erasure": report,
+        }
 
     affected = consents.withdraw(patient_id, scope)
     if scope is WithdrawalScope.PROVIDER_RESEARCH_ONLY:
@@ -227,23 +245,35 @@ def withdraw_patient_consent(
     return {**updated, "withdrawal": {"scope": scope.value, "consents": affected}}
 
 
+def _erase_or_409(erasure: Any, patient_id: str, *, hard_delete: bool) -> dict[str, Any]:
+    """Run an erasure, translating its refusals into HTTP statuses."""
+    try:
+        return erasure.erase(patient_id, hard_delete=hard_delete).as_dict()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail="Patient not found") from e
+    except ErasureBlockedError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
 @router.delete("/api/patients/{patient_id}")
 def delete_patient(
     patient_id: str,
-    patients: PatientsDep,
-    patient_uploader: PatientUploaderDep,
+    erasure: ErasureDep,
     hard_delete: bool = False,
 ):
-    ok = patients.delete_patient(patient_id, hard_delete=hard_delete)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Patient not found")
-    if not hard_delete:
-        # Push the now-anonymized record so central's copy reflects the erasure
-        # instead of silently keeping the pre-erasure PII forever.
-        anonymized = patients.get_patient(patient_id)
-        if anonymized:
-            patient_uploader.sync_patient(anonymized)
-    return {"ok": True}
+    """Right to erasure (Art. 17 GDPR): the participant's data, everywhere (GDPR-10).
+
+    This used to blank the identifying fields on the patient row and nothing
+    else; every recording stayed on disk and on the hub, linked to the same
+    id. It now deletes the workstation's recordings, logs and session rows,
+    anonymises the patient row (or removes it with ``hard_delete``), and asks
+    the hub to delete its copies -- queued if the hub cannot be reached. The
+    consent evidence is kept; see :mod:`src.application.erasure`.
+
+    ``hard_delete`` can no longer orphan session rows (GDPR-05): they are
+    deleted first.
+    """
+    return {"ok": True, "erasure": _erase_or_409(erasure, patient_id, hard_delete=hard_delete)}
 
 
 @router.get("/api/patients/{patient_id}/sessions")

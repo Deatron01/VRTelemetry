@@ -38,11 +38,11 @@ class PatientManager:
       - Consent can be withdrawn independently of deletion (Art. 7(3) — as easy
         to withdraw as to give). Withdrawing blocks starting new sessions against
         this patient but does not delete existing recordings.
-      - delete_patient() implements a right-to-erasure request: identifying
-        fields are anonymized in place (not hard-deleted) so historical
-        session_metadata rows referencing this patient_id keep referential
-        integrity. Pass hard_delete=True to fully remove the row when nothing
-        references it.
+      - delete_patient() handles *this row only*: identifying fields are
+        anonymized in place, or the row removed with hard_delete=True. It is
+        not the right to erasure by itself -- recordings, session rows and hub
+        copies are other stores. src/application/erasure.py (GDPR-10) is the
+        right to erasure; it deletes those first and calls this last.
     """
 
     def __init__(self, db_path: str | Path | None = None):
@@ -330,11 +330,13 @@ class PatientManager:
 
     def delete_patient(self, patient_id: str, hard_delete: bool = False) -> bool:
         """
-        Default behavior fulfills a right-to-erasure request by scrubbing
-        identifying fields in place (soft erasure) so historical session_metadata
-        rows referencing this patient_id don't dangle. hard_delete=True instead
-        removes the row entirely — only safe when the caller has confirmed no
-        sessions reference this patient.
+        Scrubs identifying and health fields in place (soft erasure), leaving a
+        tombstone with the pseudonymous id; hard_delete=True removes the row.
+
+        Only one step of an erasure. Call it through
+        :class:`src.application.erasure.ErasureService`, which deletes the
+        participant's recordings, session rows and hub copies first -- which is
+        also what makes hard_delete safe: nothing references the row any more.
         """
         existing = self.get_patient(patient_id)
         if not existing:

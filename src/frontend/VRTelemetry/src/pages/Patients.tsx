@@ -4,6 +4,29 @@ import { ParticipantConsentFlow, type ConsentSubmission, type RecordedConsent } 
 
 const API = 'http://localhost:8000';
 
+type WithdrawalScope = 'ALL_DELETE' | 'FUTURE_ONLY' | 'PROVIDER_RESEARCH_ONLY';
+
+const WITHDRAWAL_OPTIONS: { scope: WithdrawalScope; title: string; body: string }[] = [
+  {
+    scope: 'ALL_DELETE',
+    title: 'Stop taking part and delete all my data',
+    body: 'Your profile, recordings and results linked to you will be permanently deleted from this computer and '
+      + 'the central server, including any optional copy held by the software provider. Results that have already '
+      + 'been made anonymous or published as group statistics cannot be removed.',
+  },
+  {
+    scope: 'FUTURE_ONLY',
+    title: 'Stop future recordings only',
+    body: 'No new recordings will be made. Data collected before today stays in the study under the consent you '
+      + 'gave earlier. You can still ask for deletion later.',
+  },
+  {
+    scope: 'PROVIDER_RESEARCH_ONLY',
+    title: 'Withdraw only the optional research use by the software provider',
+    body: "The provider's copy of your data will be deleted. Your participation in the study continues.",
+  },
+];
+
 interface Patient {
   patient_id: string;
   display_name: string;
@@ -201,15 +224,50 @@ export const Patients = () => {
     }
   };
 
-  const handleWithdrawConsent = async (patientId: string) => {
-    if (!confirm('Withdraw consent for this participant? No new sessions can be recorded until they give consent again. Existing recordings are kept.')) return;
-    await fetch(`http://localhost:8000/api/patients/${patientId}/withdraw-consent`, { method: 'POST' });
+  // Withdrawal (Art. 7(3) GDPR): the participant chooses the scope (GDPR-10).
+  const [withdrawFor, setWithdrawFor] = useState<Patient | null>(null);
+  const [withdrawScope, setWithdrawScope] = useState<WithdrawalScope>('FUTURE_ONLY');
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
+  const handleWithdrawConsent = (patientId: string) => {
+    setWithdrawFor(patients.find(p => p.patient_id === patientId) ?? null);
+    setWithdrawScope('FUTURE_ONLY');
+    setWithdrawError(null);
+  };
+
+  const confirmWithdrawal = async () => {
+    if (!withdrawFor) return;
+    setWithdrawError(null);
+    const res = await fetch(`${API}/api/patients/${withdrawFor.patient_id}/withdraw-consent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: withdrawScope }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setWithdrawError(data.detail || 'The withdrawal could not be recorded.');
+      return;
+    }
+    setWithdrawFor(null);
     fetchPatients();
   };
 
   const handleErase = async (patientId: string) => {
-    if (!confirm('Erase this patient record (GDPR right to erasure)? Identifying fields will be permanently scrubbed. This cannot be undone.')) return;
-    await fetch(`http://localhost:8000/api/patients/${patientId}`, { method: 'DELETE' });
+    if (!confirm(
+      'Erase this participant? This permanently deletes their profile, recordings and all derived results from this ' +
+      'workstation and the central server. The consent and withdrawal record is kept as proof, as required by law. ' +
+      'This cannot be undone.'
+    )) return;
+    const res = await fetch(`${API}/api/patients/${patientId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(typeof data.detail === 'string' ? data.detail : 'The erasure could not be completed.');
+    } else if (data.erasure && !data.erasure.hub_confirmed) {
+      alert(
+        `Erased on this workstation (${data.erasure.sessions} session(s), ${data.erasure.files_deleted} file(s)). ` +
+        'The central server could not be reached; its copies will be deleted automatically when it is.'
+      );
+    }
     fetchPatients();
   };
 
@@ -388,7 +446,8 @@ export const Patients = () => {
         </div>
 
         <p className="m-0 text-[11.5px] text-ink-3">
-          Erasure permanently scrubs identifying fields and cannot be undone; existing recordings are unaffected.
+          Erasure permanently deletes the participant's profile, recordings, logs and results here and on the central
+          server, and cannot be undone. The consent record is kept as proof.
         </p>
       </div>
 
@@ -583,6 +642,40 @@ export const Patients = () => {
           onSubmit={consentFlow.mode === 'create' ? submitNewPatient : submitReconsent(consentFlow.patient.patient_id)}
           onClose={closeConsentFlow}
         />
+      )}
+
+      {/* Withdrawal: the participant chooses what should happen (GDPR-10) */}
+      {withdrawFor && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="withdraw-title">
+          <div className="modal-card flex max-w-lg flex-col overflow-hidden p-0">
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--hair)' }}>
+              <h2 id="withdraw-title" className="m-0 text-[16px] font-semibold">Withdraw your consent</h2>
+              <button onClick={() => setWithdrawFor(null)} aria-label="Close withdrawal dialog" className="btn-ghost"><X className="h-[18px] w-[18px]" /></button>
+            </div>
+            <div className="space-y-3 overflow-y-auto px-5 py-5">
+              <p className="m-0 text-[13px]">You can withdraw at any time, and you don't have to give a reason. Please choose what should happen:</p>
+              {WITHDRAWAL_OPTIONS.map(option => (
+                <label key={option.scope} className="flex cursor-pointer items-start gap-3 rounded-md p-3" style={{ background: 'var(--well-grid)' }}>
+                  <input type="radio" name="withdrawal-scope" className="mt-1 h-4 w-4 flex-none" style={{ accentColor: 'var(--s1)' }}
+                    checked={withdrawScope === option.scope} onChange={() => setWithdrawScope(option.scope)} />
+                  <div>
+                    <span className="text-[13px] font-semibold">{option.title}</span>
+                    <p className="m-0 mt-1 text-[12px] leading-relaxed text-ink-3">{option.body}</p>
+                  </div>
+                </label>
+              ))}
+              {withdrawError && (
+                <div className="notice tone-2 items-start text-[13px]">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-none text-tone" /><p className="m-0">{withdrawError}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid var(--hair)' }}>
+              <button onClick={() => setWithdrawFor(null)} className="btn-clay">Go back</button>
+              <button onClick={confirmWithdrawal} className="btn-accent">Confirm</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Edit Modal */}

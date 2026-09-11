@@ -36,11 +36,18 @@ def sync_status(
     pending_sessions = local_cache.list_pending_uploads()
     pending_logs = local_cache.list_pending_session_logs()
     pending_patients = local_cache.list_pending_patient_syncs()
+    # Erasures the hub has not confirmed yet (GDPR-10). Shown separately: a
+    # researcher should be able to see that a participant's erasure is still
+    # owed to the hub, not have it folded into an upload count.
+    pending_erasures = local_cache.list_pending_erasures()
     return {
-        "pending_count": len(pending_sessions) + len(pending_logs) + len(pending_patients),
+        "pending_count": sum(
+            map(len, (pending_sessions, pending_logs, pending_patients, pending_erasures))
+        ),
         "pending_sessions": len(pending_sessions),
         "pending_logs": len(pending_logs),
         "pending_patients": len(pending_patients),
+        "pending_erasures": len(pending_erasures),
         # `is_running` rather than reaching into `._thread`: whether a loop is
         # alive is the loop's own business, and this route asserting otherwise
         # is how a private attribute rename becomes a 500 in the admin UI.

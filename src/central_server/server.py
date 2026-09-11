@@ -582,6 +582,38 @@ async def upload_patient(request: Request, payload: PatientUploadRequest):
     )
 
 
+class PatientErasureRequest(BaseModel):
+    """A workstation passing on a participant's erasure request (GDPR-10)."""
+
+    activation_id: str = Field(min_length=1)
+    license_id: str = Field(min_length=1)
+    patient_id: str = Field(min_length=1)
+    session_ids: list[str] = Field(default_factory=list)
+
+
+@app.post("/data/erase-patient")
+async def erase_patient(request: Request, payload: PatientErasureRequest):
+    """Delete everything the hub holds for one patient.
+
+    Scoped to the tenant derived from the authorised activation, exactly like
+    every other write -- see :func:`_authorize_write`. Answers 409 when some
+    file could not be deleted, so the workstation keeps the request queued and
+    tries again rather than believing the erasure is done.
+    """
+    ip = _client_ip(request)
+    auth = _authorize_write(payload.activation_id, ip, payload.license_id)
+    result = data_mgr.erase_patient(
+        license_id=auth["license_id"],
+        activation_id=payload.activation_id,
+        patient_id=payload.patient_id,
+        session_ids=payload.session_ids,
+        ip_address=ip,
+    )
+    if not result["complete"]:
+        raise HTTPException(status_code=409, detail=result)
+    return result
+
+
 @app.get("/admin/patients")
 def admin_list_patients(license_id: str | None = None, admin=Depends(require_admin)):
     return data_mgr.list_patients(license_id)

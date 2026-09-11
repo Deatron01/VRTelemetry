@@ -131,11 +131,79 @@ class PatientSyncClient:
                 self.local_license_cache.record_patient_sync_failure(patient["patient_id"], str(e))
             return {"ok": False, "reason": "network_error", "detail": str(e)}
 
+    def request_erasure(
+        self, patient_id: str, session_ids: list[str], queue_on_failure: bool = True
+    ) -> dict[str, Any]:
+        """Ask the hub to delete everything it holds for this patient (GDPR-10).
+
+        Queued rather than dropped when the hub cannot be reached: an erasure
+        the participant asked for does not lapse because the hub was offline.
+        Any queued *sync* for the same patient is discarded first, so a stale
+        profile can never reach the hub after its erasure.
+
+        Args:
+            patient_id: The pseudonymous id.
+            session_ids: Every session id the workstation held for the patient,
+                so sessions uploaded without a patient link are found too.
+
+        Returns:
+            ``{"ok": True, ...}`` when the hub confirmed, otherwise the reason.
+        """
+        self.local_license_cache.clear_pending_patient_sync(patient_id)
+        state = self._active_state()
+
+        def _defer(reason: str, detail: str = "") -> dict[str, Any]:
+            if queue_on_failure:
+                self.local_license_cache.queue_pending_erasure(patient_id, json.dumps(session_ids))
+                if detail:
+                    self.local_license_cache.record_erasure_failure(patient_id, detail)
+            return {"ok": False, "reason": reason, "queued": queue_on_failure}
+
+        if not state:
+            return _defer("no_active_license")
+        if not is_configured(self.central_server_url):
+            return _defer(HUB_NOT_CONFIGURED)
+
+        try:
+            response = self.http.post(
+                f"{self.central_server_url}/data/erase-patient",
+                json={
+                    "activation_id": state["activation_id"],
+                    "license_id": state.get("license_id") or "",
+                    "patient_id": patient_id,
+                    "session_ids": session_ids,
+                },
+                timeout=30,
+            )
+        except self.http.RequestException as e:
+            logger.warning(f"Hub erasure for patient {patient_id} deferred: {e}")
+            return _defer("network_error", str(e))
+
+        if response.status_code == 200:
+            self.local_license_cache.clear_pending_erasure(patient_id)
+            return response.json()
+        logger.error(f"Hub erasure rejected ({response.status_code}) for patient {patient_id}")
+        return _defer(f"http_{response.status_code}", response.text)
+
     def retry_pending(self) -> dict[str, Any]:
+        """Sweep queued patient syncs, then queued hub erasures."""
+        erasures = [
+            item
+            for item in self.local_license_cache.list_pending_erasures()
+            if is_ready_for_retry(item)
+        ]
+        erased = 0
+        for item in erasures:
+            session_ids = json.loads(item["session_ids_json"])
+            if self.request_erasure(item["patient_id"], session_ids).get("ok"):
+                erased += 1
+        if erasures:
+            logger.info(f"Pending hub erasure retry: {erased}/{len(erasures)} confirmed.")
+
         pending = self.local_license_cache.list_pending_patient_syncs()
         due = [item for item in pending if is_ready_for_retry(item)]
         if not due:
-            return {"attempted": 0, "succeeded": 0}
+            return {"attempted": len(erasures), "succeeded": erased}
         succeeded = 0
         for item in due:
             patient = json.loads(item["payload_json"])
@@ -144,7 +212,7 @@ class PatientSyncClient:
         logger.info(
             f"Pending patient sync retry: {succeeded}/{len(due)} succeeded ({len(pending)} total pending)."
         )
-        return {"attempted": len(due), "succeeded": succeeded}
+        return {"attempted": len(due) + len(erasures), "succeeded": succeeded + erased}
 
     def _queue(self, patient: dict[str, Any]) -> None:
         self.local_license_cache.queue_pending_patient_sync(

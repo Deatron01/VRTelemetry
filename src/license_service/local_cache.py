@@ -104,6 +104,19 @@ class LocalLicenseCache:
                     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Erasures the hub has not yet confirmed (GDPR-10). A participant's
+            # right to erasure does not lapse because the hub was switched off:
+            # the request waits here and is retried like any other upload.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_hub_erasures (
+                    patient_id TEXT PRIMARY KEY,
+                    session_ids_json TEXT NOT NULL,
+                    attempts INTEGER DEFAULT 0,
+                    last_attempt_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS synced_session_logs (
                     session_id TEXT PRIMARY KEY,
@@ -248,6 +261,45 @@ class LocalLicenseCache:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM pending_patient_syncs ORDER BY created_at ASC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- Pending hub erasures (GDPR-10) ---
+
+    def queue_pending_erasure(self, patient_id: str, session_ids_json: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO pending_hub_erasures (patient_id, session_ids_json)
+                VALUES (?, ?)
+                ON CONFLICT(patient_id) DO UPDATE SET session_ids_json=excluded.session_ids_json
+            """,
+                (patient_id, session_ids_json),
+            )
+            conn.commit()
+
+    def record_erasure_failure(self, patient_id: str, error: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE pending_hub_erasures
+                SET attempts = attempts + 1, last_attempt_at = CURRENT_TIMESTAMP, last_error = ?
+                WHERE patient_id = ?
+            """,
+                (error, patient_id),
+            )
+            conn.commit()
+
+    def clear_pending_erasure(self, patient_id: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM pending_hub_erasures WHERE patient_id = ?", (patient_id,))
+            conn.commit()
+
+    def list_pending_erasures(self) -> list[dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM pending_hub_erasures ORDER BY created_at ASC"
             ).fetchall()
             return [dict(r) for r in rows]
 

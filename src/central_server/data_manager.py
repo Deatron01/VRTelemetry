@@ -245,6 +245,94 @@ class CentralDataManager:
         logger.info(f"Ingested session log for {session_id} ({len(file_bytes)} bytes)")
         return {"ok": True, "log_id": log_id}
 
+    def erase_patient(
+        self,
+        *,
+        license_id: str,
+        activation_id: str,
+        patient_id: str,
+        session_ids: list[str],
+        ip_address: str = "",
+    ) -> dict[str, Any]:
+        """Delete everything this hub holds for one patient of one tenant (GDPR-10).
+
+        Sessions are found by patient id *and* by the session ids the
+        workstation sends, because a session backfilled without its metadata
+        row was uploaded with no patient link at all. Both lookups are scoped
+        to ``license_id``, which the route derives from the authorised
+        activation -- one tenant can never erase another's data.
+
+        Files are deleted before rows. A file that cannot be deleted (on
+        Windows, most often because something holds it open) keeps its row, so
+        the erasure is reported as incomplete and the workstation's retry finds
+        it again, instead of the row disappearing and the file being orphaned
+        where nothing will ever look for it.
+
+        Returns:
+            Counts of what was removed, and ``complete``.
+        """
+        placeholders = ", ".join("?" for _ in session_ids) or "NULL"
+        with self._conn() as conn:
+            uploads = conn.execute(
+                f"""SELECT upload_id, session_id, storage_path FROM uploaded_sessions
+                    WHERE license_id = ? AND (patient_id = ? OR session_id IN ({placeholders}))""",
+                (license_id, patient_id, *session_ids),
+            ).fetchall()
+            all_session_ids = sorted({r["session_id"] for r in uploads} | set(session_ids))
+            log_placeholders = ", ".join("?" for _ in all_session_ids) or "NULL"
+            logs = conn.execute(
+                f"""SELECT log_id, storage_path FROM session_logs
+                    WHERE license_id = ? AND session_id IN ({log_placeholders})""",
+                (license_id, *all_session_ids),
+            ).fetchall()
+
+            failed: list[str] = []
+            deleted = {"uploaded_sessions": 0, "session_logs": 0}
+            for table, key, rows in (
+                ("uploaded_sessions", "upload_id", uploads),
+                ("session_logs", "log_id", logs),
+            ):
+                for row in rows:
+                    path = self.storage_root / row["storage_path"]
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        failed.append(row["storage_path"])
+                        logger.error(f"Erasure could not delete {row['storage_path']}: {exc}")
+                        continue
+                    conn.execute(f"DELETE FROM {table} WHERE {key} = ?", (row[key],))
+                    deleted[table] += 1
+
+            patient_rows = conn.execute(
+                "DELETE FROM synced_patients WHERE license_id = ? AND patient_id = ?",
+                (license_id, patient_id),
+            ).rowcount
+            # Identifiers and counts only: the audit trail must not become a
+            # second copy of what was just erased.
+            self._log_event(
+                conn,
+                None,
+                activation_id,
+                "erased",
+                f"patient={patient_id} sessions={len(uploads)} logs={len(logs)} "
+                f"failed={len(failed)}",
+                ip_address,
+            )
+            conn.commit()
+
+        logger.warning(
+            f"Erased patient {patient_id} under license {license_id}: {len(uploads)} session(s), "
+            f"{len(logs)} log(s), {len(failed)} file(s) could not be deleted."
+        )
+        return {
+            "ok": not failed,
+            "complete": not failed,
+            "sessions_deleted": deleted["uploaded_sessions"],
+            "logs_deleted": deleted["session_logs"],
+            "patient_record_deleted": bool(patient_rows),
+            "failed_files": failed,
+        }
+
     def get_log_path(self, session_id: str, license_id: str) -> Path | None:
         with self._conn() as conn:
             row = conn.execute(

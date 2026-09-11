@@ -244,6 +244,37 @@ class SessionRepository:
             logger.error(f"Failed to fetch sessions for patient {patient_id}: {exc}")
             return []
 
+    def session_ids_for_patient(self, patient_id: str) -> list[str]:
+        """Every session id linked to one patient, for erasure (GDPR-10).
+
+        Unlike :meth:`list_for_patient`, this does not turn a database error
+        into an empty list. For a listing that is a reasonable degradation; for
+        an erasure it would report "0 sessions erased" while every recording
+        stayed on disk, which is worse than failing.
+        """
+        with transaction(self.db_path) as conn:
+            return [
+                row["session_id"]
+                for row in conn.execute(
+                    "SELECT session_id FROM session_metadata WHERE patient_id = ?", (patient_id,)
+                )
+            ]
+
+    def delete_sessions(self, session_ids: list[str]) -> int:
+        """Remove these sessions' metadata rows. Returns how many were removed.
+
+        Raises on a database error, for the reason given above.
+        """
+        if not session_ids:
+            return 0
+        placeholders = ", ".join("?" for _ in session_ids)
+        with transaction(self.db_path) as conn:
+            cursor = conn.execute(
+                f"DELETE FROM session_metadata WHERE session_id IN ({placeholders})",  # noqa: S608 - placeholders only
+                session_ids,
+            )
+            return cursor.rowcount
+
     def get(self, session_id: str) -> dict[str, Any]:
         """The full row, or an empty dict when there is no such session."""
         try:
