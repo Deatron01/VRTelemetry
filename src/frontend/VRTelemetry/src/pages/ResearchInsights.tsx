@@ -19,6 +19,7 @@ import {
   Brain, Compass, Activity, Flame, Info, Ruler,
 } from 'lucide-react';
 import { useChartTokens } from '../services/chartTheme';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 type Tab = 'cognitive' | 'vestibular' | 'motor' | 'exertion';
 
@@ -37,19 +38,26 @@ const InterpretationCard: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-const StatCard: React.FC<{ label: string; value: string; sub?: string; tone?: string }> = ({ label, value, sub, tone }) => (
+const StatCard: React.FC<{ label: string; value: string; sub?: string; tone?: string; infoId?: string }> =
+  ({ label, value, sub, tone, infoId }) => (
   <div className={`clay p-3.5 ${tone ?? ''}`}>
-    <div className="stat-label mb-2 min-h-[26px]">{label}</div>
+    <div className="stat-label mb-2 flex min-h-[26px] items-start gap-1">
+      <span>{label}</span>
+      {infoId && <InfoTooltip id={infoId} />}
+    </div>
     <div className={`stat-value ${tone ? 'text-tone' : ''}`}>{value}</div>
     {sub && <p className="m-0 mt-2 text-[11px] text-ink-3">{sub}</p>}
   </div>
 );
 
 /** Chart panel: clay frame, recessed well, consistent header treatment. */
-const ChartPanel: React.FC<{ title: string; note: string; height: number; accent?: string; children: React.ReactNode }> =
-  ({ title, note, height, accent, children }) => (
+const ChartPanel: React.FC<{ title: string; note: string; height: number; accent?: string; infoId?: string; children: React.ReactNode }> =
+  ({ title, note, height, accent, infoId, children }) => (
   <div className="clay p-4" style={accent ? { borderLeft: `3px solid ${accent}` } : undefined}>
-    <h3 className="m-0 text-[14px] font-semibold">{title}</h3>
+    <h3 className="m-0 flex items-center gap-1 text-[14px] font-semibold">
+      {title}
+      {infoId && <InfoTooltip id={infoId} />}
+    </h3>
     <p className="m-0 mb-3 mt-1 text-[12px] text-ink-3">{note}</p>
     <div className="well p-2" style={{ height }}>{children}</div>
   </div>
@@ -97,14 +105,15 @@ export const ResearchInsights = () => {
         {tab === 'cognitive' && (
           <>
             <div className="grid grid-cols-1 gap-3.5 md:grid-cols-3">
-              <StatCard tone="tone-5" label="Mean TEPR (vs scene baseline)" value={`${cognitiveLoad.meanTepr.toFixed(1)}%`} sub="Task-Evoked Pupillary Response" />
-              <StatCard tone="tone-5" label="Peak TEPR" value={`+${cognitiveLoad.peakTepr.toFixed(1)}%`} sub={`at ${cognitiveLoad.peakTime.toFixed(1)}s`} />
-              <StatCard label="Baseline Pupil Diameter" value={cognitiveLoad.globalBaselinePupil ? cognitiveLoad.globalBaselinePupil.toFixed(2) : 'N/A'} sub="First 10s (or 20% of session)" />
+              <StatCard tone="tone-5" label="Mean TEPR (vs scene baseline)" infoId="insights.tepr-mean" value={`${cognitiveLoad.meanTepr.toFixed(1)}%`} sub="Task-Evoked Pupillary Response" />
+              <StatCard tone="tone-5" label="Peak TEPR" infoId="insights.tepr-peak" value={`+${cognitiveLoad.peakTepr.toFixed(1)}%`} sub={`at ${cognitiveLoad.peakTime.toFixed(1)}s`} />
+              <StatCard label="Baseline Pupil Diameter" infoId="insights.baseline-pupil" value={cognitiveLoad.globalBaselinePupil ? cognitiveLoad.globalBaselinePupil.toFixed(2) : 'N/A'} sub="First 10s (or 20% of session)" />
             </div>
             <ChartPanel
               title="Cognitive Load Index Over Time"
               note="Per-scene-baselined pupil dilation — a proxy for task-evoked cognitive effort (see interpretation for the PLR-compensation caveat)."
               height={260}
+              infoId="insights.cli-chart"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={cognitiveLoad.timeSeries} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
@@ -129,13 +138,13 @@ export const ResearchInsights = () => {
         {tab === 'vestibular' && (
           <>
             <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
-              <StatCard label="Total Sway Path Length" value={`${postural.totalPathLengthM.toFixed(2)} m`} />
-              <StatCard label="Mean Sway Velocity" value={`${postural.meanSwayVelocity.toFixed(3)} m/s`} />
-              <StatCard label="95% Sway Ellipse Area" value={`${postural.swayEllipseAreaM2.toFixed(4)} m²`} sub="Prieto et al., 1996" />
-              <StatCard label="Low-Freq (<0.5Hz) Energy" value={`${(postural.lowFrequencyEnergyRatio * 100).toFixed(0)}%`} sub="Rising = cybersickness marker" />
+              <StatCard label="Total Sway Path Length" infoId="insights.sway-path" value={`${postural.totalPathLengthM.toFixed(2)} m`} />
+              <StatCard label="Mean Sway Velocity" infoId="insights.sway-velocity" value={`${postural.meanSwayVelocity.toFixed(3)} m/s`} />
+              <StatCard label="95% Sway Ellipse Area" infoId="insights.sway-ellipse" value={`${postural.swayEllipseAreaM2.toFixed(4)} m²`} sub="Prieto et al., 1996" />
+              <StatCard label="Low-Freq (<0.5Hz) Energy" infoId="insights.low-freq-energy" value={`${(postural.lowFrequencyEnergyRatio * 100).toFixed(0)}%`} sub="Rising = cybersickness marker" />
             </div>
             <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-              <ChartPanel title="Head Sway Velocity" note="Planar (X/Z) head displacement rate over time." height={210}>
+              <ChartPanel title="Head Sway Velocity" note="Planar (X/Z) head displacement rate over time." height={210} infoId="insights.sway-chart">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={postural.swayTrend} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={t.grid} />
@@ -151,6 +160,7 @@ export const ResearchInsights = () => {
                 note={`Windowed sway intensity, normalized 0-100 ${postural.riskTrendSlope > 0.01 ? '(rising)' : '(stable/falling)'}.`}
                 height={210}
                 accent="var(--s4)"
+                infoId="insights.risk-chart"
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={postural.riskTrend} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
@@ -170,24 +180,26 @@ export const ResearchInsights = () => {
         {tab === 'motor' && (
           <>
             <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
-              <StatCard label="Left Normalized Jerk" value={motor.left.normalizedJerk.toFixed(1)} sub="Lower = smoother" />
-              <StatCard label="Right Normalized Jerk" value={motor.right.normalizedJerk.toFixed(1)} sub="Lower = smoother" />
-              <StatCard label="Speed Symmetry" value={`${(motor.speedSymmetryIndex * 100).toFixed(1)}% asymmetry`} />
-              <StatCard label="Reach Symmetry" value={`${(motor.reachSymmetryIndex * 100).toFixed(1)}% asymmetry`} />
+              <StatCard label="Left Normalized Jerk" infoId="insights.jerk" value={motor.left.normalizedJerk.toFixed(1)} sub="Lower = smoother" />
+              <StatCard label="Right Normalized Jerk" infoId="insights.jerk" value={motor.right.normalizedJerk.toFixed(1)} sub="Lower = smoother" />
+              <StatCard label="Speed Symmetry" infoId="insights.symmetry" value={`${(motor.speedSymmetryIndex * 100).toFixed(1)}% asymmetry`} />
+              <StatCard label="Reach Symmetry" infoId="insights.symmetry" value={`${(motor.reachSymmetryIndex * 100).toFixed(1)}% asymmetry`} />
             </div>
             <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
               <StatCard
                 label="Left Peak Reach"
+                infoId="insights.peak-reach"
                 value={`${motor.left.maxReachM.toFixed(2)} m`}
                 sub={motor.left.reachPctOfArmLength !== null ? `${motor.left.reachPctOfArmLength.toFixed(0)}% of calibrated arm length` : 'Arm length not calibrated for this session'}
               />
               <StatCard
                 label="Right Peak Reach"
+                infoId="insights.peak-reach"
                 value={`${motor.right.maxReachM.toFixed(2)} m`}
                 sub={motor.right.reachPctOfArmLength !== null ? `${motor.right.reachPctOfArmLength.toFixed(0)}% of calibrated arm length` : 'Arm length not calibrated for this session'}
               />
             </div>
-            <ChartPanel title="Bimanual Controller Speed" note="Left vs. right controller translational speed over time." height={210}>
+            <ChartPanel title="Bimanual Controller Speed" note="Left vs. right controller translational speed over time." height={210} infoId="insights.bimanual-chart">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={t.grid} />
@@ -216,12 +228,12 @@ export const ResearchInsights = () => {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
-              <StatCard label="Resting HR Estimate" value={exertion.restingHrEstimate ? `${exertion.restingHrEstimate.toFixed(0)} BPM` : 'N/A'} />
-              <StatCard label="Peak HR" value={exertion.peakHr ? `${exertion.peakHr.toFixed(0)} BPM` : 'N/A'} />
-              <StatCard label="Cardiovascular Drift" value={`${exertion.hrDriftBpm >= 0 ? '+' : ''}${exertion.hrDriftBpm.toFixed(1)} BPM`} sub={`${exertion.hrDriftRatePerMin >= 0 ? '+' : ''}${exertion.hrDriftRatePerMin.toFixed(2)} BPM/min`} />
-              <StatCard label="Composite Exertion Index" value={`${exertion.exertionIndex.toFixed(0)}/100`} />
+              <StatCard label="Resting HR Estimate" infoId="insights.resting-hr" value={exertion.restingHrEstimate ? `${exertion.restingHrEstimate.toFixed(0)} BPM` : 'N/A'} />
+              <StatCard label="Peak HR" infoId="insights.peak-hr" value={exertion.peakHr ? `${exertion.peakHr.toFixed(0)} BPM` : 'N/A'} />
+              <StatCard label="Cardiovascular Drift" infoId="insights.hr-drift" value={`${exertion.hrDriftBpm >= 0 ? '+' : ''}${exertion.hrDriftBpm.toFixed(1)} BPM`} sub={`${exertion.hrDriftRatePerMin >= 0 ? '+' : ''}${exertion.hrDriftRatePerMin.toFixed(2)} BPM/min`} />
+              <StatCard label="Composite Exertion Index" infoId="insights.exertion-index" value={`${exertion.exertionIndex.toFixed(0)}/100`} />
             </div>
-            <ChartPanel title="Heart Rate vs. Movement Intensity" note="Cross-modal view of cardiovascular response and physical activity." height={210}>
+            <ChartPanel title="Heart Rate vs. Movement Intensity" note="Cross-modal view of cardiovascular response and physical activity." height={210} infoId="insights.exertion-chart">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={exertion.timeSeries} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={t.grid} />

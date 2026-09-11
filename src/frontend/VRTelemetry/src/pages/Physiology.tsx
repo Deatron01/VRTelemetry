@@ -3,6 +3,7 @@ import { HeartPulse, Activity } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import { useChartTokens } from '../services/chartTheme';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 export const Physiology = () => {
   const { frames, metadata } = useTelemetryStore();
@@ -59,6 +60,7 @@ export const Physiology = () => {
           icon={HeartPulse}
           provenance="MEASURED"
           title="Cardiovascular Response"
+          infoId="physiology.hr"
           left={{ label: 'Avg', value: hrSamples.length ? hrAvg.toFixed(1) : '—', unit: 'BPM' }}
           right={{ label: 'Peak', value: hrPeak > 0 ? hrPeak.toFixed(1) : '—', unit: 'BPM' }}
         />
@@ -67,6 +69,7 @@ export const Physiology = () => {
           icon={Activity}
           provenance="DERIVED"
           title="Motion Intensity (Head Velocity)"
+          infoId="physiology.head-velocity"
           left={{ label: 'Avg', value: speedAvg.toFixed(2), unit: 'm/s' }}
           right={{ label: 'Peak', value: speedPeak.toFixed(2), unit: 'm/s' }}
         />
@@ -75,7 +78,9 @@ export const Physiology = () => {
       <div className="clay flex min-h-0 flex-1 flex-col p-4">
         <div className="mb-3.5 flex items-start justify-between gap-4">
           <div>
-            <h2 className="m-0 text-[14px] font-semibold">Movement vs. Cardiovascular Activity</h2>
+            <h2 className="m-0 flex items-center gap-1 text-[14px] font-semibold">
+              Movement vs. Cardiovascular Activity <InfoTooltip id="physiology.chart" />
+            </h2>
             <p className="m-0 mt-1 text-[12px] text-ink-3">
               Dual-axis view: heart rate on the left axis, head velocity on the right.
             </p>
@@ -113,14 +118,16 @@ const SplitCard: React.FC<{
   icon: React.ElementType;
   provenance: string;
   title: string;
+  infoId?: string;
   left: { label: string; value: string; unit: string };
   right: { label: string; value: string; unit: string };
-}> = ({ tone, icon: Icon, provenance, title, left, right }) => (
+}> = ({ tone, icon: Icon, provenance, title, infoId, left, right }) => (
   <div className={`clay p-3.5 ${tone}`}>
     <div className="text-tone mb-3 flex items-center gap-[7px]">
       <Icon className="h-3.5 w-3.5" />
       <span className="text-[11px] font-semibold tracking-[0.05em]">{provenance}</span>
       <span className="text-[12px] font-medium text-ink-2">{title}</span>
+      {infoId && <InfoTooltip id={infoId} />}
     </div>
     <div className="well flex items-stretch p-3">
       {[left, right].map((cell, i) => (

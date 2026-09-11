@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { PlayCircle, ShieldAlert, ShieldCheck, Cpu, Network, StopCircle, Server, Users } from 'lucide-react';
 import { PostSessionQuestionnaire } from '../components/PostSessionQuestionnaire';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 interface Patient {
   patient_id: string;
@@ -220,7 +221,9 @@ export const NewSession = () => {
           </div>
 
           <div>
-            <span className="field-label flex items-center gap-1.5"><Cpu className="h-3 w-3" /> Runtime Backend</span>
+            <span className="field-label flex items-center gap-1.5">
+              <Cpu className="h-3 w-3" /> Runtime Backend <InfoTooltip id="session.backend" />
+            </span>
             <div className="seg flex-wrap" role="group" aria-label="Runtime backend">
               {BACKENDS.map(b => (
                 <button

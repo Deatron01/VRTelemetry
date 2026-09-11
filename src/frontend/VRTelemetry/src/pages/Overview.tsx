@@ -9,6 +9,7 @@ import {
   validityPct, toPolyline, toBars,
 } from '../services/Series';
 import type { TelemetryFrame } from '../types/telemetry';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 interface OverviewProps {
   onNavigate?: (route: string) => void;
@@ -155,7 +156,9 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
           <div className="clay tone-1 p-3.5">
             <div className="mb-2.5 flex items-start justify-between gap-3">
               <div>
-                <div className="stat-label mb-1">Sampling stability</div>
+                <div className="stat-label mb-1 flex items-center gap-1">
+                  Sampling stability <InfoTooltip id="overview.sampling-stability" />
+                </div>
                 <div className="stat-value">
                   {(metadata.avg_sampling_hz ?? 0).toFixed(1)}<span className="stat-unit">Hz</span>
                 </div>
@@ -183,7 +186,9 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
           <div className="clay tone-6 p-3.5">
             <div className="mb-2.5 flex items-start justify-between gap-3">
               <div>
-                <div className="stat-label mb-1">Positional integrity</div>
+                <div className="stat-label mb-1 flex items-center gap-1">
+                  Positional integrity <InfoTooltip id="overview.positional-integrity" />
+                </div>
                 <div className="stat-value">
                   {(metadata.hmd_validity_pct ?? 0).toFixed(1)}<span className="stat-unit">%</span>
                 </div>
@@ -211,7 +216,9 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
           <div className="clay tone-4 p-3.5" style={{ borderLeft: '3px solid var(--s4)' }}>
             <div className="mb-2.5 flex items-start justify-between gap-3">
               <div>
-                <div className="stat-label mb-1">Signal attrition</div>
+                <div className="stat-label mb-1 flex items-center gap-1">
+                  Signal attrition <InfoTooltip id="overview.signal-attrition" />
+                </div>
                 <div className="stat-value text-tone">
                   {totalDrops.toLocaleString()}<span className="stat-unit">drops</span>
                 </div>
@@ -245,18 +252,19 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
         <div className="section-head">
           <h2 className="section-title">Psychophysical &amp; kinematic analytics</h2>
           <div className="section-rule" />
-          <div className="seg" role="presentation">
+          <div className="seg items-center" role="presentation">
             <span className="chip tone-1">DERIVED</span>
             <span className="chip tone-5">REPORTED</span>
             <span className="chip tone-6">MEASURED</span>
           </div>
+          <InfoTooltip id="overview.provenance-legend" side="left" />
         </div>
 
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
 
           <AnalyticCard
             provenance="DERIVED" icon={Crosshair} note="< 0.15 m/s"
-            label="Oculomotor Fixation Index"
+            label="Oculomotor Fixation Index" infoId="overview.fixation-index"
             value={metrics.focus_ratio?.toFixed(1) ?? '—'} unit="%"
           >
             <Meter pct={metrics.focus_ratio ?? 0} />
@@ -264,7 +272,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="DERIVED" icon={Waves} note="quat Δ"
-            label="Peak Saccadic Velocity"
+            label="Peak Saccadic Velocity" infoId="overview.peak-saccade"
             value={metrics.peak_saccade !== undefined ? metrics.peak_saccade.toFixed(2) : '—'}
           >
             <Spark points={toPolyline(saccade, 200, 22, { pad: 3 })} label="Saccadic velocity across the session" />
@@ -272,7 +280,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="DERIVED" icon={Activity} note="cervical"
-            label="Cervical Kinematic Mean"
+            label="Cervical Kinematic Mean" infoId="overview.head-speed"
             value={metrics.avg_head_speed?.toFixed(2) ?? '—'} unit="m/s"
           >
             <Spark points={toPolyline(headSpeed, 200, 22, { pad: 3 })} label="Head translational velocity across the session" />
@@ -280,7 +288,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="DERIVED" icon={Activity} note="bimanual"
-            label="Bimanual Activity Index"
+            label="Bimanual Activity Index" infoId="overview.hand-activity"
             value={metrics.avg_hand_speed !== undefined ? metrics.avg_hand_speed.toFixed(2) : '—'} unit="m/s"
           >
             {leftSpeed === null && rightSpeed === null ? (
@@ -301,7 +309,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="REPORTED" icon={Brain} note="NASA-RTLX"
-            label="Cognitive Workload (NASA-RTLX)"
+            label="Cognitive Workload (NASA-RTLX)" infoId="overview.nasa-rtlx"
             value={metadata.nasa_tlx_rtlx !== undefined ? metadata.nasa_tlx_rtlx.toFixed(0) : null}
             caption={metadata.nasa_tlx_band}
           >
@@ -312,7 +320,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="REPORTED" icon={AlertTriangle} note="SSQ"
-            label="Simulator Sickness (SSQ Total)"
+            label="Simulator Sickness (SSQ Total)" infoId="overview.ssq-total"
             value={metadata.ssq_total_severity !== undefined ? metadata.ssq_total_severity.toFixed(1) : null}
             caption={metadata.ssq_severity_band}
           >
@@ -323,7 +331,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="MEASURED" icon={HeartPulse} note="ext. sensor"
-            label="Cardiovascular Baseline"
+            label="Cardiovascular Baseline" infoId="overview.hr-baseline"
             value={metrics.hr_mean > 0 ? metrics.hr_mean.toFixed(1) : null} unit="BPM"
           >
             {metrics.hr_mean > 0
@@ -333,7 +341,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           <AnalyticCard
             provenance="MEASURED" icon={Microscope} note="binocular"
-            label="Ocular Sensor Integrity"
+            label="Ocular Sensor Integrity" infoId="overview.ocular-integrity"
             value={(metadata.eye_validity_pct ?? 0).toFixed(1)} unit="%"
           >
             <Meter pct={metadata.eye_validity_pct ?? 0} />
@@ -351,11 +359,12 @@ const AnalyticCard: React.FC<{
   icon: React.ElementType;
   note: string;
   label: string;
+  infoId?: string;
   value: string | null;
   unit?: string;
   caption?: string;
   children: React.ReactNode;
-}> = ({ provenance, icon: Icon, note, label, value, unit, caption, children }) => (
+}> = ({ provenance, icon: Icon, note, label, infoId, value, unit, caption, children }) => (
   <div className={`clay p-3.5 ${TONE[provenance]} ${value === null ? 'opacity-[.92]' : 'lift'}`}>
     <div className="mb-2.5 flex items-center justify-between gap-2">
       <div className="text-tone flex items-center gap-[7px]">
@@ -364,7 +373,10 @@ const AnalyticCard: React.FC<{
       </div>
       <span className="mono text-[10px] text-ink-3">{note}</span>
     </div>
-    <div className="mb-1.5 min-h-[32px] text-[12px] font-medium text-ink-2">{label}</div>
+    <div className="mb-1.5 flex min-h-[32px] items-start gap-1 text-[12px] font-medium text-ink-2">
+      <span>{label}</span>
+      {infoId && <InfoTooltip id={infoId} />}
+    </div>
     {value === null ? (
       <div className="stat-empty mb-2.5">Not reported</div>
     ) : (

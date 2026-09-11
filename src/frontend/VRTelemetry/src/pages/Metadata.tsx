@@ -1,6 +1,7 @@
 import React from 'react';
 import { Cpu, Database, Activity } from 'lucide-react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 export const Metadata = () => {
   const { metadata, frames } = useTelemetryStore();
@@ -37,8 +38,8 @@ export const Metadata = () => {
               <Row label="Filename" value={metadata.filename} mono truncate />
               <Row label="Total frames" value={metadata.total_frames.toLocaleString()} mono />
               <Row label="Session duration" value={`${metadata.duration_sec.toFixed(2)} seconds`} mono />
-              <Row label="Start timestamp" value={`${frames[0].timestamp_ns} ns`} mono />
-              <Row label="End timestamp" value={`${frames[frames.length - 1].timestamp_ns} ns`} mono />
+              <Row label="Start timestamp" value={`${frames[0].timestamp_ns} ns`} mono infoId="metadata.timestamp" />
+              <Row label="End timestamp" value={`${frames[frames.length - 1].timestamp_ns} ns`} mono infoId="metadata.timestamp" />
             </div>
           </div>
 
@@ -46,6 +47,7 @@ export const Metadata = () => {
             <div className="section-head">
               <span style={{ color: 'var(--s6)' }}><Cpu className="h-4 w-4" /></span>
               <h2 className="section-title">Hardware Capabilities Detected</h2>
+              <InfoTooltip id="metadata.sensor-detection" />
               <div className="section-rule" />
             </div>
             <div className="well flex flex-col gap-2.5 p-3">
@@ -96,9 +98,13 @@ export const Metadata = () => {
   );
 };
 
-const Row: React.FC<{ label: string; value: string; mono?: boolean; truncate?: boolean }> = ({ label, value, mono, truncate }) => (
+const Row: React.FC<{ label: string; value: string; mono?: boolean; truncate?: boolean; infoId?: string }> =
+  ({ label, value, mono, truncate, infoId }) => (
   <div className="flex items-center justify-between gap-3 text-[12px]">
-    <span className="flex-none text-ink-3">{label}</span>
+    <span className="flex flex-none items-center gap-1 text-ink-3">
+      {label}
+      {infoId && <InfoTooltip id={infoId} />}
+    </span>
     <span className={`${mono ? 'mono' : ''} ${truncate ? 'min-w-0 truncate' : ''} text-[11.5px]`} title={value}>{value}</span>
   </div>
 );

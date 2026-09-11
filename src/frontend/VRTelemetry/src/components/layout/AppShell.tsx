@@ -7,6 +7,17 @@ import {
 import { useTelemetryStore } from '../../store/useTelemetryStore';
 import { TelemetryParser } from '../../services/TelemetryParser';
 import { useThemeStore } from '../../store/useThemeStore';
+import { InfoTooltip } from '../InfoTooltip';
+
+/** Nav items whose purpose isn't obvious from the label alone get a help icon. */
+const NAV_INFO_IDS: Record<string, string> = {
+  record: 'nav.record',
+  explorer: 'nav.explorer',
+  spatial: 'nav.spatial',
+  insights: 'nav.insights',
+  quality: 'nav.quality',
+  raw: 'nav.raw',
+};
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -159,14 +170,18 @@ export const AppShell: React.FC<AppShellProps> = ({ children, currentRoute, onRo
             <React.Fragment key={group.label}>
               <div className="rail-section">{group.label}</div>
               {group.items.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => onRouteChange(item.id)}
-                  aria-current={currentRoute === item.id ? 'page' : undefined}
-                  className="rail-btn"
-                >
-                  <item.icon className="h-[15px] w-[15px] flex-none" /> {item.label}
-                </button>
+                <div key={item.id} className="rail-btn-row">
+                  <button
+                    onClick={() => onRouteChange(item.id)}
+                    aria-current={currentRoute === item.id ? 'page' : undefined}
+                    className="rail-btn"
+                  >
+                    <item.icon className="h-[15px] w-[15px] flex-none" /> {item.label}
+                  </button>
+                  {NAV_INFO_IDS[item.id] && (
+                    <InfoTooltip id={NAV_INFO_IDS[item.id]} side="right" className="rail-info" />
+                  )}
+                </div>
               ))}
             </React.Fragment>
           ))}

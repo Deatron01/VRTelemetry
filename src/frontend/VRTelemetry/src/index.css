@@ -646,6 +646,86 @@ button, select, input, textarea { font: inherit; color: inherit; }
     letter-spacing: -0.02em;
     line-height: 1;
   }
+
+  /* --- Info tooltip / contextual help system ---------------------------- */
+  /* See src/components/InfoTooltip.tsx + src/content/infoDefinitions.ts.
+     The trigger is a small always-focusable icon button; the panel is
+     portaled to <body> and positioned in JS (fixed, edge-aware), so these
+     rules only cover its look, not its placement. */
+
+  .info-trigger-wrap { display: inline-flex; align-items: center; vertical-align: middle; }
+
+  .info-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ink-3);
+    cursor: pointer;
+    transition: color .14s ease, background .14s ease;
+  }
+  .info-trigger:hover { color: var(--s1); background: var(--well-grid); }
+  .info-trigger[aria-expanded="true"] { color: var(--s1); background: var(--s1-soft); }
+
+  /* For a trigger sitting on a panel that's always dark regardless of app
+     theme (e.g. the SpatialViewer 3D-canvas overlay) — var(--ink-3) alone
+     doesn't guarantee contrast there in light mode. `className` on
+     InfoTooltip lands on the wrapping .info-trigger-wrap span, so this
+     targets the button as a descendant. */
+  .info-trigger-dark .info-trigger { color: rgba(255, 255, 255, .55); }
+  .info-trigger-dark .info-trigger:hover { color: #fff; background: rgba(255, 255, 255, .12); }
+  .info-trigger-dark .info-trigger[aria-expanded="true"] { color: #fff; background: rgba(255, 255, 255, .16); }
+
+  .info-panel {
+    position: fixed;
+    z-index: 1000;
+    width: max-content;
+    max-width: 280px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: linear-gradient(145deg, var(--clay-a), var(--clay-b));
+    box-shadow: var(--clay-shadow), var(--clay-lip), 0 18px 40px -18px rgba(0, 0, 0, .35);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--ink-2);
+    pointer-events: auto;
+  }
+  .info-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .info-panel-title { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+  .info-panel-desc { margin: 0; }
+  .info-panel-unit { color: var(--ink-3); font-size: 11px; }
+  .info-panel-meta { margin: 6px 0 0; font-size: 11px; color: var(--ink-3); }
+  .info-panel-limit {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    margin: 8px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--well-line);
+    font-size: 11px;
+    color: var(--s4);
+  }
+  .info-panel-limit-icon { flex: none; margin-top: 2px; }
+
+  .chip-tiny { padding: 2px 6px; font-size: 8.5px; border-radius: 5px; flex: none; }
+
+  /* Nav rail row that pairs a rail-btn with a trailing info trigger without
+     nesting a button inside a button. */
+  .rail-btn-row { display: flex; align-items: center; gap: 1px; }
+  .rail-btn-row .rail-btn { width: auto; flex: 1 1 auto; min-width: 0; }
+  .rail-info { flex: none; }
 }
 
 /* ------------------------------------------------------------- utilities --- */

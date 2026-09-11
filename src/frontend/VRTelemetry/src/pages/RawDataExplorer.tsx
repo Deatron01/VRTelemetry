@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import {
   createColumnHelper,
@@ -8,6 +8,16 @@ import {
   getPaginationRowModel,
 } from '@tanstack/react-table';
 import type { TelemetryFrame } from '../types/telemetry';
+import { InfoTooltip } from '../components/InfoTooltip';
+
+/** A column header label paired with its help icon — kept out of the header
+    strings themselves so TanStack Table's plain-text header type is unaffected. */
+const ColHeader: React.FC<{ label: string; infoId: string }> = ({ label, infoId }) => (
+  <span className="inline-flex items-center gap-1">
+    {label}
+    <InfoTooltip id={infoId} size={11} />
+  </span>
+);
 
 export const RawDataExplorer = () => {
   const frames = useTelemetryStore(state => state.frames);
@@ -16,27 +26,27 @@ export const RawDataExplorer = () => {
 
   const columns = useMemo(() => [
     columnHelper.accessor('frame_index', {
-      header: 'Frame Index',
+      header: () => <ColHeader label="Frame Index" infoId="raw.frame-index" />,
       cell: info => info.getValue(),
     }),
     columnHelper.accessor('timestamp_ns', {
-      header: 'Timestamp (ns)',
+      header: () => <ColHeader label="Timestamp (ns)" infoId="raw.timestamp" />,
       cell: info => <span className="mono text-[11px]">{info.getValue()}</span>,
     }),
     columnHelper.accessor('hmd_pos_x', {
-      header: 'HMD Pos X',
+      header: () => <ColHeader label="HMD Pos X" infoId="raw.hmd-pos" />,
       cell: info => info.getValue().toFixed(4),
     }),
     columnHelper.accessor('hmd_pos_y', {
-      header: 'HMD Pos Y',
+      header: () => <ColHeader label="HMD Pos Y" infoId="raw.hmd-pos" />,
       cell: info => info.getValue().toFixed(4),
     }),
     columnHelper.accessor('hmd_pos_z', {
-      header: 'HMD Pos Z',
+      header: () => <ColHeader label="HMD Pos Z" infoId="raw.hmd-pos" />,
       cell: info => info.getValue().toFixed(4),
     }),
     columnHelper.accessor('hmd_tracking_valid', {
-      header: 'HMD Valid',
+      header: () => <ColHeader label="HMD Valid" infoId="raw.hmd-valid" />,
       cell: info => (
         <span className="mono text-[11px]" style={{ color: info.getValue() > 0 ? 'var(--s6)' : 'var(--s2)' }}>
           {info.getValue() > 0 ? 'TRUE' : 'FALSE'}
@@ -44,7 +54,7 @@ export const RawDataExplorer = () => {
       ),
     }),
     columnHelper.accessor('heart_rate_bpm', {
-      header: 'HR (BPM)',
+      header: () => <ColHeader label="HR (BPM)" infoId="raw.hr" />,
       cell: info => info.getValue().toFixed(1),
     }),
   ], [columnHelper]);

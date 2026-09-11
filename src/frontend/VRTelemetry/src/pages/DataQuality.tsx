@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Activity, AlertTriangle, CheckCircle2, Gauge } from 'lucide-react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import { bucketRateHz, bucketDrops, bucketValidity, validityPct, toPolyline, toBars } from '../services/Series';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 export const DataQuality = () => {
   const { frames, metadata } = useTelemetryStore();
@@ -88,7 +89,9 @@ export const DataQuality = () => {
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[0.85fr_1fr_1fr]">
 
         <div className={`clay flex flex-col items-center justify-center p-4 text-center ${scoreTone}`}>
-          <div className="stat-label mb-3">Overall quality score</div>
+          <div className="stat-label mb-3 flex items-center gap-1">
+            Overall quality score <InfoTooltip id="quality.overall-score" />
+          </div>
           <div className="flex items-center gap-3">
             <div className="icon-tile"><Gauge className="h-[15px] w-[15px]" /></div>
             <div className="flex items-baseline gap-1.5">
@@ -105,6 +108,7 @@ export const DataQuality = () => {
           <div className="text-tone mb-3 flex items-center gap-[7px]">
             <Activity className="h-3.5 w-3.5" />
             <span className="text-[12px] font-semibold">Sampling stability</span>
+            <InfoTooltip id="quality.sampling" />
           </div>
           <div className="well mb-3 flex flex-col gap-2.5 p-3">
             <Row label="Target frequency" value={`${metadata.avg_sampling_hz.toFixed(1)} Hz`} />
@@ -127,12 +131,15 @@ export const DataQuality = () => {
           <div className="text-tone mb-3 flex items-center gap-[7px]">
             <AlertTriangle className="h-3.5 w-3.5" />
             <span className="text-[12px] font-semibold">Signal dropouts</span>
+            <InfoTooltip id="quality.dropouts" />
           </div>
           <div className="well mb-3 flex flex-col gap-2.5 p-3">
             <Row label="HMD tracking losses" value={`${qualityStats.hmdDropouts} events`} />
             <Row label="Eye tracking losses" value={`${qualityStats.eyeDropouts} events`} />
             <div className="flex items-center justify-between gap-3 text-[12px]">
-              <span className="text-ink-3">Data completeness</span>
+              <span className="flex items-center gap-1 text-ink-3">
+                Data completeness <InfoTooltip id="quality.completeness" />
+              </span>
               <span className={`mono flex items-center gap-1.5 text-tone ${completenessTone}`}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> {qualityStats.dataCompletenessPct.toFixed(1)}%
               </span>
@@ -155,6 +162,7 @@ export const DataQuality = () => {
       <div className="clay p-4">
         <div className="section-head">
           <h2 className="section-title">Per-channel validity</h2>
+          <InfoTooltip id="quality.channel-validity" />
           <div className="section-rule" />
           <span className="section-note">{channels.length} channels present</span>
         </div>

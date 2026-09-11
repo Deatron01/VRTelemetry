@@ -3,6 +3,7 @@ import { Eye, Waves, Zap } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import { useChartTokens } from '../services/chartTheme';
+import { InfoTooltip } from '../components/InfoTooltip';
 
 export const EyeTracking = () => {
   const frames = useTelemetryStore(state => state.frames);
@@ -69,7 +70,9 @@ export const EyeTracking = () => {
             <Eye className="h-3.5 w-3.5" />
             <span className="text-[11px] font-semibold tracking-[0.05em]">MEASURED</span>
           </div>
-          <div className="mb-1.5 text-[12px] font-medium text-ink-2">Binocular Tracking Validity</div>
+          <div className="mb-1.5 flex items-center gap-1 text-[12px] font-medium text-ink-2">
+            Binocular Tracking Validity <InfoTooltip id="eye.validity" />
+          </div>
           <div className="stat-value stat-value-lg text-tone mb-2.5">
             {validityPct.toFixed(1)}<span className="stat-unit">%</span>
           </div>
@@ -88,7 +91,9 @@ export const EyeTracking = () => {
             </div>
             <span className="mono text-[10px] text-ink-3">quat Δ</span>
           </div>
-          <div className="mb-1.5 text-[12px] font-medium text-ink-2">Gaze Activity Mean</div>
+          <div className="mb-1.5 flex items-center gap-1 text-[12px] font-medium text-ink-2">
+            Gaze Activity Mean <InfoTooltip id="eye.gaze-mean" />
+          </div>
           <div className="stat-value stat-value-lg text-tone mb-2">{gazeMean.toFixed(2)}</div>
           <p className="m-0 text-[11px] text-ink-3">Relative angular velocity</p>
         </div>
@@ -101,7 +106,9 @@ export const EyeTracking = () => {
             </div>
             <span className="mono text-[10px] text-ink-3">peak</span>
           </div>
-          <div className="mb-1.5 text-[12px] font-medium text-ink-2">Peak Saccade Intensity</div>
+          <div className="mb-1.5 flex items-center gap-1 text-[12px] font-medium text-ink-2">
+            Peak Saccade Intensity <InfoTooltip id="eye.peak-saccade" />
+          </div>
           <div className="stat-value stat-value-lg text-tone mb-2">{peak.gazeActivity.toFixed(2)}</div>
           <p className="m-0 text-[11px] text-ink-3">
             Highest recorded gaze shift · <span className="mono">t {peak.seconds.toFixed(1)}s</span>
@@ -112,7 +119,9 @@ export const EyeTracking = () => {
       <div className="clay flex min-h-0 flex-1 flex-col p-4">
         <div className="mb-3.5 flex items-start justify-between gap-4">
           <div>
-            <h2 className="m-0 text-[14px] font-semibold">Saccadic Activity &amp; Gaze Stability</h2>
+            <h2 className="m-0 flex items-center gap-1 text-[14px] font-semibold">
+              Saccadic Activity &amp; Gaze Stability <InfoTooltip id="eye.chart" />
+            </h2>
             <p className="m-0 mt-1 text-[12px] text-ink-3">
               Spikes indicate rapid eye movement (saccades). Flat lines indicate fixation.
             </p>

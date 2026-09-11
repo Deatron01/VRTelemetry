@@ -7,6 +7,7 @@
 
 import React, { useState } from 'react';
 import { X, ClipboardList, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 interface PostSessionQuestionnaireProps {
   sessionId: string;
@@ -120,7 +121,9 @@ export const PostSessionQuestionnaire: React.FC<PostSessionQuestionnaireProps> =
               )}
 
               <fieldset>
-                <legend className="section-title mb-1.5">Simulator Sickness Questionnaire</legend>
+                <legend className="section-title mb-1.5 flex items-center gap-1">
+                  Simulator Sickness Questionnaire <InfoTooltip id="questionnaire.ssq" />
+                </legend>
                 <p className="mb-3 text-[12px] text-ink-3">Rate how much each symptom applies right now.</p>
                 <div className="well space-y-2 p-3.5">
                   {SSQ_ITEMS.map(item => (
@@ -150,7 +153,9 @@ export const PostSessionQuestionnaire: React.FC<PostSessionQuestionnaireProps> =
               </fieldset>
 
               <fieldset className="pt-4" style={{ borderTop: '1px solid var(--hair)' }}>
-                <legend className="section-title mb-1.5">NASA Task Load Index</legend>
+                <legend className="section-title mb-1.5 flex items-center gap-1">
+                  NASA Task Load Index <InfoTooltip id="questionnaire.tlx" />
+                </legend>
                 <p className="mb-3 text-[12px] text-ink-3">Drag each slider between the two anchors.</p>
                 <div className="well space-y-4 p-3.5">
                   {TLX_ITEMS.map(item => (

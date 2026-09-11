@@ -4,6 +4,7 @@ import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { useTelemetryStore } from '../../store/useTelemetryStore';
 import { Layers, Eye, Crosshair, Activity } from 'lucide-react';
+import { InfoTooltip } from '../InfoTooltip';
 
 const VRRig = () => {
   const hmdRef = useRef<THREE.Group>(null);
@@ -425,13 +426,16 @@ export const SpatialViewer = () => {
             <Layers className="w-3.5 h-3.5 text-blue-400" /> Spatial Overlays
           </div>
           
-          <button 
-            onClick={() => setShowHeatmap(!showHeatmap)}
-            className={`flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors ${showHeatmap ? 'bg-red-500/20 text-red-300 border-red-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
-          >
-            <Eye className="w-3.5 h-3.5" /> Volumetric Heatmap
-          </button>
-          
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowHeatmap(!showHeatmap)}
+              className={`flex flex-1 items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors ${showHeatmap ? 'bg-red-500/20 text-red-300 border-red-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
+            >
+              <Eye className="w-3.5 h-3.5" /> Volumetric Heatmap
+            </button>
+            <InfoTooltip id="spatial.heatmap" side="left" className="info-trigger-dark" />
+          </div>
+
           {showHeatmap && (
             <div className="px-1 mt-2 mb-2">
               <div className="text-[9px] font-medium text-white/70 mb-1">
@@ -448,19 +452,25 @@ export const SpatialViewer = () => {
             </div>
           )}
 
-          <button 
-            onClick={() => setShowScanpath(!showScanpath)}
-            className={`flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors mt-1 ${showScanpath ? 'bg-pink-500/20 text-pink-300 border-pink-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
-          >
-            <Activity className="w-3.5 h-3.5" /> Oculomotor Scanpath
-          </button>
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              onClick={() => setShowScanpath(!showScanpath)}
+              className={`flex flex-1 items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors ${showScanpath ? 'bg-pink-500/20 text-pink-300 border-pink-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
+            >
+              <Activity className="w-3.5 h-3.5" /> Oculomotor Scanpath
+            </button>
+            <InfoTooltip id="spatial.scanpath" side="left" className="info-trigger-dark" />
+          </div>
 
-          <button 
-            onClick={() => setShowLivePoR(!showLivePoR)}
-            className={`flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors mt-1 ${showLivePoR ? 'bg-amber-500/20 text-amber-300 border-amber-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
-          >
-            <Crosshair className="w-3.5 h-3.5" /> Live Point of Regard
-          </button>
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              onClick={() => setShowLivePoR(!showLivePoR)}
+              className={`flex flex-1 items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors ${showLivePoR ? 'bg-amber-500/20 text-amber-300 border-amber-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
+            >
+              <Crosshair className="w-3.5 h-3.5" /> Live Point of Regard
+            </button>
+            <InfoTooltip id="spatial.por" side="left" className="info-trigger-dark" />
+          </div>
         </div>
       </div>
 
