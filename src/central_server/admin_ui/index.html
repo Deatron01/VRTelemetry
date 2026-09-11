@@ -635,17 +635,15 @@
           <option value="">All licenses</option>
         </select>`;
       return `
-        <p class="text-sm text-slate-400 mb-4">Every subject synced centrally from any researcher machine — GDPR consent/erasure status plus the self-reported health &amp; demographic profile (age, height/weight, dominant hand, VR/gaming experience, vision, motion-sickness susceptibility) used to enrich telemetry analysis. Click "Full Record" on any row for everything, including free-text health notes.</p>
+        <p class="text-sm text-slate-400 mb-4">Every subject synced centrally from any researcher machine, identified only by a pseudonymous ID — GDPR consent/erasure status plus the covariates used to enrich telemetry analysis (age, height/weight, dominant hand, VR/gaming experience, vision correction, motion-sickness susceptibility). Names, external references, dates of birth and free-text notes are never sent to the hub; they stay with the laboratory that recorded the subject.</p>
         ${renderDataTable('patients', patientsColumns(), filterHtml)}`;
     }
 
     function patientsColumns() {
       return [
-        { key: 'display_name', label: 'Patient', render: r => `
-            <div class="font-medium text-slate-200">${escapeHtml(r.is_anonymized ? '[Erased Patient]' : (r.display_name || 'Unknown'))}</div>
-            <div class="font-mono text-[10px] text-blue-300 mt-0.5">${escapeHtml(r.patient_id)}</div>` },
-        { key: 'external_ref', label: 'External Ref', render: r => escapeHtml(r.external_ref) || '<span class="text-slate-500">—</span>' },
-        { key: 'date_of_birth', label: 'DOB', render: r => escapeHtml(r.date_of_birth) || '<span class="text-slate-500">—</span>' },
+        { key: 'patient_id', label: 'Subject (pseudonymous ID)', render: r => `
+            <div class="font-mono text-[11px] text-blue-300">${escapeHtml(r.patient_id)}</div>
+            ${r.is_anonymized ? '<div class="text-[10px] text-slate-500 mt-0.5">erased</div>' : ''}` },
         { key: 'age_years', label: 'Age', render: r => r.age_years ?? '<span class="text-slate-500">—</span>' },
         { key: 'biological_sex', label: 'Sex', render: r => escapeHtml(r.biological_sex) || '<span class="text-slate-500">—</span>' },
         { key: 'height_cm', label: 'Height / Weight', render: r => {
@@ -661,17 +659,13 @@
           } },
         { key: 'vision_correction', label: 'Vision', render: r => {
             const corr = escapeHtml(r.vision_correction) || 'unknown';
-            const imp = r.vision_impairment ? ` · ${escapeHtml(r.vision_impairment)}` : '';
-            return `<span class="text-slate-300">${corr}${imp}</span>`;
+            return `<span class="text-slate-300">${corr}</span>`;
           } },
         { key: 'motion_sickness_susceptibility', label: 'Motion Sickness', render: r => {
             if (!r.motion_sickness_susceptibility) return '<span class="text-slate-500">—</span>';
             const colorMap = { none: 'green', mild: 'blue', moderate: 'amber', severe: 'red' };
             return badge(r.motion_sickness_susceptibility, colorMap[r.motion_sickness_susceptibility] || 'slate');
           } },
-        { key: 'relevant_health_conditions', label: 'Health Notes', render: r => r.relevant_health_conditions
-            ? `<span class="text-xs text-amber-300" title="${escapeHtml(r.relevant_health_conditions)}">${escapeHtml(r.relevant_health_conditions.slice(0, 40))}${r.relevant_health_conditions.length > 40 ? '…' : ''}</span>`
-            : '<span class="text-slate-500">—</span>' },
         { key: 'license_id', label: 'License', render: r => licenseBadgeFor(r.license_id) },
         { key: 'gdpr_consent_given', label: 'Consent', sortValue: r => r.gdpr_consent_given ? 1 : 0, render: r => {
             if (r.gdpr_consent_withdrawn_at) return badge('Withdrawn', 'red');

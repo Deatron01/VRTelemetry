@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
+from src.domain.hub_projection import (
+    project_patient_for_hub,
+    project_session_metadata_for_hub,
+)
+from src.utils.clock import utc_today
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +56,12 @@ class CentralDataManager:
         Core intake path. Called by the FastAPI route after auth has already
         confirmed the activation is valid — this method assumes trust was
         established upstream and focuses on storage + integrity + idempotency.
+
+        Metadata is projected on receipt (GDPR-11) even though current clients
+        project before sending: the hub must not depend on every workstation
+        running a version that does.
         """
+        metadata = project_session_metadata_for_hub(metadata)
         checksum = hashlib.sha256(file_bytes).hexdigest()
         upload_id = str(uuid.uuid4())
 
@@ -178,6 +188,7 @@ class CentralDataManager:
         second call with identical parquet bytes short-circuits as "already
         received" and never looks at the metadata argument again.
         """
+        metadata = project_session_metadata_for_hub(metadata)
         with self._conn() as conn:
             cursor = conn.execute(
                 "UPDATE uploaded_sessions SET metadata_json = ? WHERE license_id = ? AND session_id = ?",
@@ -260,6 +271,15 @@ class CentralDataManager:
     def upsert_patient(
         self, *, license_id: str, activation_id: str, patient: dict[str, Any]
     ) -> dict[str, Any]:
+        """Store the hub's copy of a patient -- the projection, never the full record.
+
+        ``display_name``, ``external_ref``, ``date_of_birth``, ``notes`` and the
+        free-text health fields keep their columns for schema compatibility
+        but are always written as NULL (GDPR-11). ``raw_json`` holds the
+        projection too, so the admin dashboard's "Full Record" shows exactly
+        what the hub is allowed to hold.
+        """
+        patient = project_patient_for_hub(patient, utc_today())
         health_columns = ", ".join(self._HEALTH_PROFILE_FIELDS)
         health_placeholders = ", ".join("?" for _ in self._HEALTH_PROFILE_FIELDS)
         health_updates = ", ".join(f"{col}=excluded.{col}" for col in self._HEALTH_PROFILE_FIELDS)

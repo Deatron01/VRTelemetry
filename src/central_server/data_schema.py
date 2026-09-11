@@ -1,10 +1,13 @@
 # src/central_server/data_schema.py
 
+import json
 import logging
 import sqlite3
 from pathlib import Path
 
 from src.config import get_settings
+from src.domain.hub_projection import project_patient_for_hub, project_session_metadata_for_hub
+from src.utils.clock import utc_today
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +170,92 @@ def initialize_data_schema(db_path: str | Path | None = None) -> None:
         )
         conn.commit()
 
+        scrubbed = scrub_identifying_data(conn)
+        if scrubbed:
+            logger.warning(
+                f"GDPR-11: removed participant identifiers from {scrubbed} hub record(s) "
+                f"written before the hub projection existed."
+            )
+
         conn.close()
         logger.info(f"Central data schema initialized at {db_path}")
     except sqlite3.Error as e:
         logger.error(f"Failed to initialize central data schema: {e}")
         raise
+
+
+def scrub_identifying_data(conn: sqlite3.Connection) -> int:
+    """Remove participant identifiers from rows written before GDPR-11.
+
+    Until the hub projection existed, workstations sent the whole patient
+    record and stamped the participant's display name on every session as its
+    ``subject_id``. New writes are projected on receipt; this brings rows that
+    are already on disk into line. It is idempotent: a second run finds nothing
+    to change and returns 0, so it runs on every start rather than being
+    tracked as a one-off migration.
+
+    Order matters. Session ``subject_id`` values are compared against
+    ``synced_patients.display_name`` *before* that column is cleared, because
+    afterwards there is nothing left to recognise a name by.
+
+    Args:
+        conn: An open connection to ``central_data.db``.
+
+    Returns:
+        The number of rows changed.
+    """
+    changed = 0
+    changed += conn.execute(
+        """UPDATE uploaded_sessions SET subject_id = patient_id
+           WHERE patient_id IS NOT NULL AND subject_id IN (
+               SELECT p.display_name FROM synced_patients p
+               WHERE p.patient_id = uploaded_sessions.patient_id
+                 AND p.license_id = uploaded_sessions.license_id
+                 AND p.display_name IS NOT NULL AND p.display_name != ''
+           )"""
+    ).rowcount
+
+    today = utc_today()
+    rows = conn.execute(
+        """SELECT rowid, raw_json, date_of_birth FROM synced_patients
+           WHERE display_name IS NOT NULL OR external_ref IS NOT NULL
+              OR date_of_birth IS NOT NULL OR notes IS NOT NULL
+              OR vision_impairment IS NOT NULL OR relevant_health_conditions IS NOT NULL"""
+    ).fetchall()
+    for rowid, raw_json, date_of_birth in rows:
+        try:
+            full = json.loads(raw_json) if raw_json else {}
+        except ValueError:
+            full = {}
+        if date_of_birth and "date_of_birth" not in full:
+            full["date_of_birth"] = date_of_birth
+        projected = project_patient_for_hub(full, today)
+        conn.execute(
+            """UPDATE synced_patients SET
+                   display_name = NULL, external_ref = NULL, date_of_birth = NULL,
+                   notes = NULL, vision_impairment = NULL,
+                   relevant_health_conditions = NULL,
+                   age_years = COALESCE(?, age_years),
+                   raw_json = ?
+               WHERE rowid = ?""",
+            (projected.get("age_years"), json.dumps(projected), rowid),
+        )
+        changed += 1
+
+    for upload_id, metadata_json in conn.execute(
+        "SELECT upload_id, metadata_json FROM uploaded_sessions WHERE metadata_json IS NOT NULL"
+    ).fetchall():
+        try:
+            metadata = json.loads(metadata_json)
+        except ValueError:
+            continue
+        projected_json = json.dumps(project_session_metadata_for_hub(metadata))
+        if projected_json != json.dumps(metadata):
+            conn.execute(
+                "UPDATE uploaded_sessions SET metadata_json = ? WHERE upload_id = ?",
+                (projected_json, upload_id),
+            )
+            changed += 1
+
+    conn.commit()
+    return changed

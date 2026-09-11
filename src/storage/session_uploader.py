@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.application.ports import HttpClient
+from src.domain.hub_projection import project_session_metadata_for_hub
 from src.storage.hub_address import (
     HUB_NOT_CONFIGURED,
     HUB_NOT_CONFIGURED_MESSAGE,
@@ -23,6 +24,11 @@ class SessionUploader:
     On any failure, the session is queued in LocalLicenseCache.pending_uploads
     so it isn't lost — retry_pending() sweeps that queue on next engine start
     or on-demand from the UI.
+
+    Metadata passes through
+    :func:`src.domain.hub_projection.project_session_metadata_for_hub` before
+    it is sent or queued (GDPR-11): participant identifiers and the
+    workstation's host and user names stay local.
     """
 
     def __init__(
@@ -70,6 +76,7 @@ class SessionUploader:
         metadata: dict[str, Any],
         queue_on_failure: bool = True,
     ) -> dict[str, Any]:
+        metadata = project_session_metadata_for_hub(metadata)
         state = self.local_license_cache.get_state()
         if not state or state.get("status") != "active":
             logger.warning("Skipping upload — no active license cached locally.")
@@ -160,7 +167,11 @@ class SessionUploader:
         source of truth for this data, so a failed re-sync here just means
         the central copy is stale until the next full sync touches it (e.g.
         a future backfill pass or an admin re-pull); it never loses data.
+
+        The caller passes the full local ``session_metadata`` row, which holds
+        host name, OS user and free-text fields; the projection removes them.
         """
+        metadata = project_session_metadata_for_hub(metadata)
         state = self.local_license_cache.get_state()
         if not state or state.get("status") != "active":
             return {"ok": False, "reason": "no_active_license"}

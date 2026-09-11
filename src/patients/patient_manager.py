@@ -3,12 +3,12 @@
 import logging
 import sqlite3
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from src.config import get_settings
 from src.core.exceptions import GDPRConsentError
+from src.domain.hub_projection import age_from_date_of_birth
 from src.utils.clock import utc_now_iso, utc_today
 
 logger = logging.getLogger(__name__)
@@ -286,23 +286,12 @@ class PatientManager:
         age_years field for protocols that intentionally collect only age
         (not full DOB) for anonymity, or simply haven't recorded a DOB.
         """
-        dob = patient.get("date_of_birth")
-        if dob:
-            for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
-                try:
-                    # `.date()` on both sides: an age is calendar arithmetic
-                    # between two dates. Comparing a birth date against a UTC
-                    # *instant* is off by a day around a birthday depending on
-                    # where the machine is standing.
-                    born = datetime.strptime(dob[:10], fmt).date()  # noqa: DTZ007
-                    today = utc_today()
-                    age = (
-                        today.year - born.year - ((today.month, today.day) < (born.month, born.day))
-                    )
-                    if 0 <= age <= 130:
-                        return age
-                except ValueError:
-                    continue
+        # One implementation, shared with the hub projection (GDPR-11), which
+        # derives the same covariate so the date of birth itself never leaves
+        # the workstation.
+        derived = age_from_date_of_birth(patient.get("date_of_birth"), utc_today())
+        if derived is not None:
+            return derived
         age_years = patient.get("age_years")
         return int(age_years) if age_years is not None else None
 

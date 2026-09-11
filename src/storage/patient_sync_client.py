@@ -6,11 +6,13 @@ from collections.abc import Callable
 from typing import Any
 
 from src.application.ports import HttpClient
+from src.domain.hub_projection import project_patient_for_hub
 from src.storage.hub_address import (
     HUB_NOT_CONFIGURED,
     HUB_NOT_CONFIGURED_MESSAGE,
     is_configured,
 )
+from src.utils.clock import utc_today
 from src.utils.retry_backoff import is_ready_for_retry
 
 logger = logging.getLogger(__name__)
@@ -24,9 +26,13 @@ class PatientSyncClient:
     locally and retried automatically (on next app boot and via the same
     /api/sync/retry sweep the session uploader uses).
 
-    Central keeps its own permanent copy of every patient it has ever
-    received, per license, mirroring how AsyncParquetWriter/SessionUploader
-    already treat recorded sessions as centrally authoritative.
+    Central keeps its own copy of every patient it has received, per
+    license -- but only the projection in
+    :func:`src.domain.hub_projection.project_patient_for_hub` (GDPR-11). Names,
+    external references, dates of birth and free-text notes stay on this
+    workstation with the laboratory that is responsible for them. The
+    projection is applied before the record is sent *and* before it is queued,
+    so the local retry queue never holds more than the hub may receive.
     """
 
     def __init__(
@@ -79,6 +85,8 @@ class PatientSyncClient:
             else:
                 logger.error("Cannot sync patient: Missing patient_id")
                 return {"ok": False, "reason": "malformed_patient_data"}
+
+        patient = project_patient_for_hub(patient, utc_today())
 
         if not state:
             logger.warning("Skipping patient sync — no active license cached locally.")

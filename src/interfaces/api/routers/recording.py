@@ -139,8 +139,11 @@ def start_recording(
         network_port=config.port,
     )
 
+    # The pseudonymous patient id, never the display name (GDPR-11). The
+    # fallback used to be `patient["display_name"]`, which stamped the
+    # participant's name on the session row and on every upload to the hub.
     engine.subject_metadata["M-IV_Static_Metadata"]["subject_id"] = (
-        config.subject_id or patient["display_name"]
+        config.subject_id or patient["patient_id"]
     )
     engine.subject_metadata["M-IV_Static_Metadata"]["patient_id"] = patient["patient_id"]
     apply_health_profile(engine.subject_metadata, patient, patients.estimate_age_years(patient))
