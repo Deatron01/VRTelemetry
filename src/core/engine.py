@@ -461,6 +461,16 @@ class TelemetryEngine:
 
     def _run_quest_udp_mode(self) -> None:
         """Headless network loop catching native Quest Pro biometric payloads."""
+        if not get_settings().acquisition.enable_quest_udp:
+            # GDPR-12. The receiver listens on every interface and accepts
+            # unauthenticated, unencrypted datagrams from anyone on the LAN.
+            # No sender for it exists in this repository and recordings go
+            # through OpenXR, so it is off unless deliberately switched on.
+            raise BackendUnavailableError(
+                "The quest_udp receiver is disabled (acquisition.enable_quest_udp = false): it "
+                "accepts unencrypted, unauthenticated telemetry from the network. Record through "
+                "OpenXR instead."
+            )
         port = self.network_port
         self.synchronizer.set_max_hz(120.0)
         logger.info(f"Bypassing PCVR Runtimes. Booting Native UDP Receiver on port {port}...")

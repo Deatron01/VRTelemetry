@@ -294,6 +294,12 @@ class AcquisitionSettings(BaseSettings):
     udp_host: str = "0.0.0.0"  # noqa: S104 - the headset is a remote device
     udp_port: int = Field(default=5005, ge=1, le=65535)
 
+    #: The Quest standalone UDP receiver, off by default (GDPR-12). It accepts
+    #: unencrypted, unauthenticated datagrams from anyone on the network, no
+    #: sender for it exists in this repository, and recordings are made
+    #: through OpenXR. Switch it on only after adding transport security.
+    enable_quest_udp: bool = False
+
 
 class ConsentSettings(BaseSettings):
     """What the participant consent screen says about *this* study (GDPR-09).

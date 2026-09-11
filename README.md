@@ -170,7 +170,9 @@ is on record, belongs to the configured study and wording, and has not been
 withdrawn. The old `--gdpr-consent` flag is refused with an explanation: a flag
 records only that someone typed it, not that the participant agreed (GDPR-09).
 `--backend` takes `auto`, `steamvr`, `openxr`, `openxr_headless`, `oculus` or
-`quest_udp`; `--port` sets the listening port under `quest_udp`.
+`quest_udp`; `--port` sets the listening port under `quest_udp`. `quest_udp` is
+refused unless `acquisition.enable_quest_udp = true`: its receiver accepts
+unencrypted, unauthenticated datagrams from anyone on the network (GDPR-12).
 
 ### Packaging the desktop app
 

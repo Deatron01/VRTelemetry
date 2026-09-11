@@ -59,6 +59,7 @@
 # sampling_headroom = 1.2          # applied to the HMD's reported refresh rate
 # udp_host = "0.0.0.0"             # Quest standalone stream; the headset is remote
 # udp_port = 5005
+# enable_quest_udp = false         # GDPR-12: unencrypted, unauthenticated; off unless secured
 
 [sync]
 # interval_sec = 20.0

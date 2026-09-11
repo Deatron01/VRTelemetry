@@ -31,6 +31,7 @@ from src.interfaces.api.dependencies import (
     ConsentsDep,
     PatientsDep,
     RecordingDep,
+    SettingsDep,
     UsageTrackerDep,
 )
 from src.interfaces.api.schemas.recording import (
@@ -70,6 +71,7 @@ def start_recording(
     recording: RecordingDep,
     usage_tracker: UsageTrackerDep,
     central_url: CentralUrlDep,
+    settings: SettingsDep,
 ):
 
     setup_logging()
@@ -99,6 +101,15 @@ def start_recording(
     logger.info(
         f"API Request: Start Pipeline -> Backend: [{config.backend.upper()}], Patient: {patient['patient_id']}"
     )
+
+    if config.backend == "quest_udp" and not settings.acquisition.enable_quest_udp:
+        # GDPR-12: refused here, before an engine exists, so the researcher is
+        # told why instead of seeing a recording that starts and fails.
+        raise HTTPException(
+            status_code=400,
+            detail="The quest_udp backend is disabled: its receiver accepts unencrypted, "
+            "unauthenticated telemetry from the network. Record through OpenXR.",
+        )
 
     if config.backend != "quest_udp":
         # Checked here rather than on the acquisition thread, and before the

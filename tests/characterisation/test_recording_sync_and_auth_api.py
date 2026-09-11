@@ -105,6 +105,19 @@ def test_recording_start_is_refused_for_an_erased_patient(
     assert response.status_code == 404
 
 
+def test_the_unencrypted_quest_udp_receiver_is_off_by_default(
+    client: TestClient, patient: dict[str, Any]
+) -> None:
+    """GDPR-12: refused before an engine exists, with the reason."""
+    response = client.post(
+        "/api/recording/start",
+        json={**START_BODY, "patient_id": patient["patient_id"], "backend": "quest_udp"},
+    )
+
+    assert response.status_code == 400
+    assert "quest_udp" in response.json()["detail"]
+
+
 def test_recording_stop_without_an_active_session_is_400(client: TestClient) -> None:
     response = client.post("/api/recording/stop")
 

@@ -112,6 +112,13 @@ def execute_pipeline() -> None:
 
     logger.info("=== VRTelemetry Pro Background Session ===")
 
+    if args.backend == "quest_udp" and not get_settings().acquisition.enable_quest_udp:
+        logger.error(
+            "Launch aborted: the quest_udp backend is disabled (acquisition.enable_quest_udp). "
+            "Its receiver accepts unencrypted, unauthenticated telemetry from the network (GDPR-12)."
+        )
+        sys.exit(1)
+
     if not args.consent_id:
         if args.gdpr_consent:
             logger.error(

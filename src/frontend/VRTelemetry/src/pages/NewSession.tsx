@@ -25,7 +25,9 @@ const BACKENDS = [
   { value: 'openxr', label: 'OpenXR' },
   { value: 'oculus', label: 'Oculus' },
   { value: 'steamvr', label: 'SteamVR' },
-  { value: 'quest_udp', label: 'Quest UDP' },
+  // 'quest_udp' is not offered (GDPR-12): its receiver accepts unencrypted,
+  // unauthenticated telemetry from the network and is disabled on the server
+  // unless acquisition.enable_quest_udp is set.
 ];
 
 export const NewSession = () => {
