@@ -1,6 +1,6 @@
 """Characterisation of the session, telemetry and questionnaire routes (VRT-9).
 
-Covers 7 of the 29 routes on the workstation API:
+Covers 10 of the workstation API's routes:
 
     GET  /api/sessions
     GET  /api/sessions/{id}
@@ -9,6 +9,9 @@ Covers 7 of the 29 routes on the workstation API:
     POST /api/sessions/{id}/questionnaire
     POST /api/upload-telemetry
     GET  /api/patients/{id}/sessions
+    GET  /api/sessions/{id}/av-recording
+    GET  /api/sessions/{id}/av-recording/video
+    GET  /api/sessions/{id}/av-recording/transcript
 
 These record today's behaviour so VRT-10 (router split) and VRT-11 (repository
 layer) can prove they changed nothing. Where the behaviour is wrong, the test
@@ -18,6 +21,7 @@ pins the wrongness and names the ticket.
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 from typing import Any
 
@@ -382,3 +386,159 @@ def test_patient_sessions_returns_patient_and_their_sessions(
 
 def test_patient_sessions_for_unknown_patient_is_404(client: TestClient) -> None:
     assert client.get("/api/patients/nope/sessions").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/sessions/{id}/av-recording, .../video, .../transcript
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def av_recording_for_session(
+    workstation: Any, session_row: str, patient: dict[str, Any]
+) -> dict[str, Path]:
+    """A completed A/V recording row (P-C7) with real video and transcript
+    files on disk, matching what SessionRecorder writes at the end of a
+    successful capture + transcription."""
+    output_dir = workstation.settings.paths.sessions_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    video_path = output_dir / f"{session_row}.mp4"
+    video_path.write_bytes(b"fake mp4 bytes")
+    transcript_path = output_dir / f"{session_row}.transcript.json"
+    transcript_path.write_text(
+        json.dumps(
+            {
+                "engine": "faster-whisper:base",
+                "language": "en",
+                "generated_at_utc": "2026-09-12T00:00:00+00:00",
+                "full_text": "hello world",
+                "segments": [{"start_sec": 0.0, "end_sec": 1.0, "text": "hello world"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    workstation.av_recordings.create(
+        {
+            "session_id": session_row,
+            "patient_id": patient["patient_id"],
+            "consent_id": patient["consent_id"],
+            "capture_backend": "pc_compositor_mirror",
+            "started_at_utc": "2026-09-12T00:00:00+00:00",
+            "created_at_utc": "2026-09-12T00:00:00+00:00",
+        }
+    )
+    workstation.av_recordings.update(
+        session_row,
+        {
+            "video_path": str(video_path),
+            "transcript_path": str(transcript_path),
+            "transcript_engine": "faster-whisper:base",
+            "transcript_verified": 1,
+            "ended_at_utc": "2026-09-12T00:05:00+00:00",
+        },
+    )
+    return {"video_path": video_path, "transcript_path": transcript_path}
+
+
+def test_get_av_recording_reports_availability(
+    client: TestClient, session_row: str, av_recording_for_session: dict[str, Path]
+) -> None:
+    response = client.get(f"/api/sessions/{session_row}/av-recording")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_video"] is True
+    assert body["has_transcript"] is True
+    assert body["transcript_verified"] is True
+    assert body["video_deleted_at_utc"] is None
+    assert body["capture_backend"] == "pc_compositor_mirror"
+
+
+def test_get_av_recording_for_a_session_with_none_is_404(
+    client: TestClient, session_row: str
+) -> None:
+    response = client.get(f"/api/sessions/{session_row}/av-recording")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No A/V recording for this session"
+
+
+def test_get_av_recording_for_unknown_session_is_404(client: TestClient) -> None:
+    response = client.get("/api/sessions/does-not-exist/av-recording")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Session not found"
+
+
+def test_get_av_recording_video_streams_the_file(
+    client: TestClient, session_row: str, av_recording_for_session: dict[str, Path]
+) -> None:
+    response = client.get(f"/api/sessions/{session_row}/av-recording/video")
+
+    assert response.status_code == 200
+    assert response.content == b"fake mp4 bytes"
+    assert response.headers["content-type"] == "video/mp4"
+
+
+def test_get_av_recording_video_without_a_recording_is_404(
+    client: TestClient, session_row: str
+) -> None:
+    response = client.get(f"/api/sessions/{session_row}/av-recording/video")
+
+    assert response.status_code == 404
+
+
+def test_get_av_recording_video_after_retention_erasure_is_410(
+    client: TestClient,
+    workstation: Any,
+    session_row: str,
+    av_recording_for_session: dict[str, Path],
+) -> None:
+    """410, not 404 -- the video was here and was deliberately erased under
+    the configured retention period, which a researcher following an older
+    link should be able to tell apart from a broken/missing file."""
+    workstation.av_recordings.update(
+        session_row, {"raw_recording_deleted_at_utc": "2026-10-01T00:00:00+00:00"}
+    )
+
+    response = client.get(f"/api/sessions/{session_row}/av-recording/video")
+
+    assert response.status_code == 410
+    assert "retention period" in response.json()["detail"]
+
+
+def test_get_av_recording_transcript_returns_the_parsed_json(
+    client: TestClient, session_row: str, av_recording_for_session: dict[str, Path]
+) -> None:
+    response = client.get(f"/api/sessions/{session_row}/av-recording/transcript")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["full_text"] == "hello world"
+    assert body["engine"] == "faster-whisper:base"
+
+
+def test_get_av_recording_transcript_without_a_recording_is_404(
+    client: TestClient, session_row: str
+) -> None:
+    response = client.get(f"/api/sessions/{session_row}/av-recording/transcript")
+
+    assert response.status_code == 404
+
+
+def test_get_av_recording_transcript_survives_video_retention_erasure(
+    client: TestClient,
+    workstation: Any,
+    session_row: str,
+    av_recording_for_session: dict[str, Path],
+) -> None:
+    """The transcript stays reachable after the raw video is erased -- it is
+    the durable research artifact the retention design keeps."""
+    workstation.av_recordings.update(
+        session_row, {"raw_recording_deleted_at_utc": "2026-10-01T00:00:00+00:00"}
+    )
+
+    response = client.get(f"/api/sessions/{session_row}/av-recording/transcript")
+
+    assert response.status_code == 200
+    assert response.json()["full_text"] == "hello world"

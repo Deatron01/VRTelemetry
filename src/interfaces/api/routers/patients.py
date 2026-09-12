@@ -212,6 +212,11 @@ def withdraw_patient_consent(
     An empty body means ``FUTURE_ONLY``, which is what this route always did.
     ``ALL_DELETE`` records the withdrawal and then erases the participant
     everywhere (GDPR-10); the response is the erased record plus the report.
+    ``SPEECH_RECORDING_ONLY`` (addendum Section 3.4) withdraws and erases only
+    the A/V recording, transcript and any derived score -- telemetry under
+    P-C3 is unaffected, so this must never set ``gdpr_consent_given = 0``
+    (which ``patients.withdraw_consent`` does, and which would wrongly stop
+    *all* future recording for a participant who only withdrew P-C7).
     """
     scope = payload.scope if payload else WithdrawalScope.FUTURE_ONLY
     if not patients.get_patient(patient_id):
@@ -234,6 +239,21 @@ def withdraw_patient_consent(
             "erasure": report,
         }
 
+    if scope is WithdrawalScope.SPEECH_RECORDING_ONLY:
+        if erasure.is_recording_patient(patient_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This participant is being recorded right now. Stop the recording first.",
+            )
+        affected = consents.withdraw(patient_id, scope)
+        report = _erase_av_recordings_or_409(erasure, patient_id)
+        updated = patients.get_patient(patient_id)
+        return {
+            **(updated or {"patient_id": patient_id}),
+            "withdrawal": {"scope": scope.value, "consents": affected},
+            "erasure": report,
+        }
+
     affected = consents.withdraw(patient_id, scope)
     if scope is WithdrawalScope.PROVIDER_RESEARCH_ONLY:
         updated = patients.get_patient(patient_id)
@@ -249,6 +269,16 @@ def _erase_or_409(erasure: Any, patient_id: str, *, hard_delete: bool) -> dict[s
     """Run an erasure, translating its refusals into HTTP statuses."""
     try:
         return erasure.erase(patient_id, hard_delete=hard_delete).as_dict()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail="Patient not found") from e
+    except ErasureBlockedError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+def _erase_av_recordings_or_409(erasure: Any, patient_id: str) -> dict[str, Any]:
+    """The A/V-only counterpart of :func:`_erase_or_409` (addendum Section 3.4)."""
+    try:
+        return erasure.erase_av_recordings(patient_id).as_dict()
     except LookupError as e:
         raise HTTPException(status_code=404, detail="Patient not found") from e
     except ErasureBlockedError as e:

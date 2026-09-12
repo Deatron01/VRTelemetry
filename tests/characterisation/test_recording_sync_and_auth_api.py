@@ -1,11 +1,12 @@
 """Characterisation of the recording, live-state, sync, auth, licence and config
 routes (VRT-9).
 
-Covers the remaining 17 routes:
+Covers the remaining 19 routes:
 
     POST /api/recording/start          POST /api/recording/stop
     POST /api/session/scene            POST /api/session/mark
     POST /api/session/haptic           POST /api/session/target
+    POST /api/av-recording/pause       POST /api/av-recording/resume
     GET  /api/sync/status              POST /api/sync/retry
     POST /api/sync/backfill
     POST /api/auth/register            POST /api/auth/login
@@ -159,6 +160,15 @@ def test_haptic_validates_the_side_before_the_engine_guard(client: TestClient) -
 def test_live_state_routes_validate_their_bodies(client: TestClient) -> None:
     assert client.post("/api/session/scene", json={}).status_code == 422
     assert client.post("/api/session/target", json={"x": 0.0}).status_code == 422
+
+
+def test_av_recording_pause_and_resume_require_an_active_recording(client: TestClient) -> None:
+    """Same guard as the four routes above; a separate test because these two
+    were added later, for A/V recording (P-C7), not in the VRT-10 split."""
+    for path in ("/api/av-recording/pause", "/api/av-recording/resume"):
+        response = client.post(path)
+        assert response.status_code == 400, path
+        assert response.json()["detail"] == "No active recording session."
 
 
 # --------------------------------------------------------------------------- #

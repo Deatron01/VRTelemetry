@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Database, Search, User, AlertCircle, X, Cpu, Edit2, Save, PlayCircle, ClipboardList, Loader2 } from 'lucide-react';
+import { Database, Search, User, AlertCircle, X, Cpu, Edit2, Save, PlayCircle, ClipboardList, Loader2, Video, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTelemetryStore } from '../store/useTelemetryStore';
 import { TelemetryParser } from '../services/TelemetryParser';
 import { PostSessionQuestionnaire } from '../components/PostSessionQuestionnaire';
@@ -20,6 +20,19 @@ interface SessionRecord {
   session_rating: number;
 }
 
+interface AvRecordingInfo {
+  session_id: string;
+  capture_backend: string | null;
+  started_at_utc: string | null;
+  ended_at_utc: string | null;
+  has_video: boolean;
+  video_deleted_at_utc: string | null;
+  has_transcript: boolean;
+  transcript_verified: boolean;
+  transcript_engine: string | null;
+  failure_reason: string | null;
+}
+
 export const SessionExplorer: React.FC<SessionExplorerProps> = ({ onNavigate }) => {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,7 +43,12 @@ export const SessionExplorer: React.FC<SessionExplorerProps> = ({ onNavigate }) 
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [questionnaireSessionId, setQuestionnaireSessionId] = useState<string | null>(null);
-  
+
+  const [avRecording, setAvRecording] = useState<AvRecordingInfo | null>(null);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcriptText, setTranscriptText] = useState<string | null>(null);
+  const [isTranscriptLoading, setIsTranscriptLoading] = useState(false);
+
   const [query, setQuery] = useState('');
 
   // Edit State
@@ -75,6 +93,9 @@ export const SessionExplorer: React.FC<SessionExplorerProps> = ({ onNavigate }) 
 
   const handleViewDetails = async (sessionId: string) => {
     setIsDetailsLoading(true);
+    setAvRecording(null);
+    setShowTranscript(false);
+    setTranscriptText(null);
     try {
       const response = await fetch(`http://localhost:8000/api/sessions/${sessionId}`);
       if (!response.ok) throw new Error('Failed to fetch session details');
@@ -92,6 +113,37 @@ export const SessionExplorer: React.FC<SessionExplorerProps> = ({ onNavigate }) 
       alert("Could not load session details. Check console.");
     } finally {
       setIsDetailsLoading(false);
+    }
+
+    // Best-effort: most sessions have no A/V recording (off by default), so a
+    // 404 here is the normal case, not an error worth surfacing to the user.
+    try {
+      const avResponse = await fetch(`http://localhost:8000/api/sessions/${sessionId}/av-recording`);
+      setAvRecording(avResponse.ok ? await avResponse.json() : null);
+    } catch (err) {
+      console.error(err);
+      setAvRecording(null);
+    }
+  };
+
+  const handleToggleTranscript = async (sessionId: string) => {
+    if (showTranscript) {
+      setShowTranscript(false);
+      return;
+    }
+    setShowTranscript(true);
+    if (transcriptText !== null) return; // already fetched for this session
+    setIsTranscriptLoading(true);
+    try {
+      const response = await fetch(`http://localhost:8000/api/sessions/${sessionId}/av-recording/transcript`);
+      if (!response.ok) throw new Error('Failed to fetch transcript');
+      const data = await response.json();
+      setTranscriptText(data.full_text || '(empty transcript)');
+    } catch (err) {
+      console.error(err);
+      setTranscriptText('Could not load transcript. Check console.');
+    } finally {
+      setIsTranscriptLoading(false);
     }
   };
 
@@ -328,6 +380,57 @@ export const SessionExplorer: React.FC<SessionExplorerProps> = ({ onNavigate }) 
                   <div><span className="summary-key mb-1.5 block">Eye Tracking</span><span className="font-medium" style={{ color: 'var(--s6)' }}>Enabled</span></div>
                 </div>
               </div>
+
+              {/* A/V Recording (P-C7) -- only rendered when the session actually has one */}
+              {avRecording && (
+                <div>
+                  <h3 className="section-title mb-3 flex items-center gap-2 pb-1.5" style={{ borderBottom: '1px solid var(--hair)' }}>
+                    <Video className="h-4 w-4" /> Recording &amp; Transcript
+                  </h3>
+                  <div className="well flex flex-col gap-3 p-3.5">
+                    {avRecording.has_video ? (
+                      <video
+                        controls
+                        preload="metadata"
+                        src={`http://localhost:8000/api/sessions/${selectedSession.session_id}/av-recording/video`}
+                        style={{ maxWidth: '100%', borderRadius: 8, background: '#000' }}
+                      />
+                    ) : avRecording.video_deleted_at_utc ? (
+                      <p className="m-0 text-[13px] text-ink-3">
+                        Raw video deleted under the configured retention period (GDPR Art. 5(1)(e))
+                        on {avRecording.video_deleted_at_utc}. The transcript below, if any, was kept.
+                      </p>
+                    ) : (
+                      <p className="m-0 text-[13px] text-ink-3">No video was captured for this session.</p>
+                    )}
+
+                    {avRecording.has_transcript && (
+                      <div>
+                        <button
+                          onClick={() => handleToggleTranscript(selectedSession.session_id)}
+                          className="btn-clay"
+                          style={{ color: 'var(--s5)', fontWeight: 600 }}
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          {showTranscript ? 'Hide Transcript' : 'Show Transcript'}
+                          {showTranscript ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </button>
+                        {showTranscript && (
+                          <p className="well mt-2 whitespace-pre-wrap p-3 text-[13px] leading-relaxed text-ink-2" style={{ borderRadius: 8 }}>
+                            {isTranscriptLoading ? 'Loading transcript…' : transcriptText}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {avRecording.failure_reason && (
+                      <p className="m-0 text-[12px]" style={{ color: 'var(--s2)' }}>
+                        Note: {avRecording.failure_reason}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>

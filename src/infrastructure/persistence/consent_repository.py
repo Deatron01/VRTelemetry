@@ -207,3 +207,19 @@ class ConsentRepository:
                 (consent_id,),
             ).fetchone()
         return row is not None
+
+    def is_av_recording_withdrawn(self, consent_id: str) -> bool:
+        """Whether P-C7 (A/V recording + transcription) was withdrawn separately.
+
+        Same shape as :meth:`is_research_withdrawn`: a
+        ``WithdrawalScope.SPEECH_RECORDING_ONLY`` request ends only the A/V
+        recording authorisation this consent carries, not the consent as a
+        whole -- telemetry recording under P-C3 continues.
+        """
+        with transaction(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM consent_events WHERE consent_id = ? "
+                "AND event_type = 'av_recording_withdrawn' LIMIT 1",
+                (consent_id,),
+            ).fetchone()
+        return row is not None

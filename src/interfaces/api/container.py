@@ -40,6 +40,7 @@ from src.application.erasure import ErasureService
 from src.application.ports import HttpClient
 from src.config import Settings, get_settings
 from src.infrastructure.persistence import SessionRepository
+from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
 from src.infrastructure.persistence.consent_repository import ConsentRepository
 from src.infrastructure.transport import default_http_client
 from src.license_service.local_cache import LocalLicenseCache
@@ -54,6 +55,7 @@ from src.storage.usage_tracker import UsageTracker
 from src.utils.logger import logger
 
 if TYPE_CHECKING:
+    from src.av_recording.session_recorder import SessionRecorder
     from src.core.engine import TelemetryEngine
 
 
@@ -80,6 +82,13 @@ class RecordingSessionManager:
         self._lock = threading.Lock()
         self._engine: TelemetryEngine | None = None
         self._thread: threading.Thread | None = None
+        #: The A/V ``SessionRecorder`` running alongside the current engine, if
+        #: any (A/V recording is off by default, and even on, only runs when
+        #: the participant's consent includes P-C7 -- see
+        #: ``src.interfaces.api.routers.recording``). Held under the same lock
+        #: and cleared together with the engine so the two can never disagree
+        #: about whether a recording is in flight.
+        self._av_recorder: SessionRecorder | None = None
 
     @property
     def engine(self) -> TelemetryEngine | None:
@@ -92,6 +101,32 @@ class RecordingSessionManager:
         """Whether a recording is in flight right now."""
         with self._lock:
             return bool(self._engine and getattr(self._engine, "is_running", False))
+
+    @property
+    def av_recorder(self) -> SessionRecorder | None:
+        """The A/V recorder for the current session, or None. A snapshot."""
+        with self._lock:
+            return self._av_recorder
+
+    def attach_av_recorder(self, recorder: SessionRecorder) -> None:
+        """Associate an already-started A/V recorder with the current session.
+
+        Called by the recording route right after ``TelemetryEngine`` is
+        published, never before -- A/V capture is additive to a telemetry
+        session, not a precondition for one.
+        """
+        with self._lock:
+            self._av_recorder = recorder
+
+    def pop_av_recorder(self) -> SessionRecorder | None:
+        """Take and clear the current A/V recorder, for :meth:`stop`'s caller to finish.
+
+        Popped rather than read-and-cleared separately so a second concurrent
+        stop request cannot both act on the same recorder.
+        """
+        with self._lock:
+            recorder, self._av_recorder = self._av_recorder, None
+            return recorder
 
     def start(self, engine: TelemetryEngine, target: Any) -> threading.Thread:
         """Adopt ``engine`` and run ``target`` against it on a daemon thread.
@@ -163,6 +198,10 @@ class Container:
     consents: ConsentService
     #: Right to erasure across workstation files, metadata and the hub (GDPR-10).
     erasure: ErasureService
+    #: A/V recording metadata (P-C7): one row per session that had one
+    #: attempted. Never touched by anything in the hub-upload path -- see
+    #: ``src.infrastructure.persistence.av_recording_repository``.
+    av_recordings: AVRecordingRepository
     local_cache: LocalLicenseCache
     session_uploader: SessionUploader
     patient_uploader: PatientSyncClient
@@ -296,6 +335,7 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
 
     sessions = SessionRepository(settings.paths.metadata_db)
     patients = PatientManager(settings.paths.patients_db)
+    av_recordings = AVRecordingRepository(settings.paths.metadata_db)
     consents = ConsentService(
         ConsentRepository(settings.paths.patients_db),
         # Built on each call rather than once: cheap, and it keeps the
@@ -315,6 +355,7 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
         sessions=sessions,
         patients=patients,
         consents=consents,
+        av_recordings=av_recordings,
         erasure=ErasureService(
             patients=patients,
             sessions=sessions,
@@ -324,6 +365,7 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
             sessions_dir=settings.paths.sessions_dir,
             session_logs_dir=settings.paths.session_logs_dir,
             is_recording_patient=_is_recording_patient,
+            av_recordings=av_recordings,
         ),
         local_cache=local_cache,
         session_uploader=session_uploader,

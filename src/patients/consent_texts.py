@@ -45,6 +45,13 @@ RESEARCHER = "researcher"
 RECORDING_CONSENT_ID = "P-C3"
 #: The optional consent for the provider's de-identified research dataset.
 PROVIDER_RESEARCH_CONSENT_ID = "P-C5"
+#: Explicit consent to A/V recording (headset-view video + speech audio) and
+#: transcription (the A/V recording, transcription & stress-inference
+#: addendum, Sep 2026). Required, not optional, when offered at all --
+#: ``ConsentSettings.enable_av_recording`` is what decides whether it appears.
+#: See that setting's docstring for why the addendum's stress-score clause is
+#: not part of this wording.
+AV_RECORDING_CONSENT_ID = "P-C7"
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,12 @@ def _recorded_list(cfg: ConsentSettings) -> list[str]:
         "Answers you give about your age, body, eyesight and health, "
         "and how you felt during the session"
     )
+    if cfg.enable_av_recording:
+        recorded.append(
+            "A recording of what you see in the headset and of your voice "
+            "while you speak during the task"
+        )
+        recorded.append("An automatic written transcript of what you said")
     return recorded
 
 
@@ -179,6 +192,24 @@ def build_catalogue(cfg: ConsentSettings) -> ConsentCatalogue:
             f"health conditions and how I felt after the session) for the same study.",
         ),
     ]
+    if cfg.enable_av_recording:
+        # Required, not optional (addendum Section 3.2): inserted into the
+        # required group, ahead of the optional P-C5 block below, exactly as
+        # the addendum specifies ("insert after P-C4, in the required group").
+        items.append(
+            ConsentItem(
+                AV_RECORDING_CONSENT_ID,
+                PARTICIPANT_REQUIRED,
+                True,
+                "Explicit consent: speech recording and transcription (Art. 9(2)(a) GDPR)",
+                f"I explicitly consent to {lab} recording a video of what I see in the "
+                f"headset and an audio recording of my voice while I complete the task "
+                f"described to me, and converting my speech to a written transcript, for "
+                f'the study "{study}". I understand that this recording and transcript '
+                f"may include anything I say during the task, and that my voice can make "
+                f"me personally identifiable.",
+            )
+        )
     if cfg.offer_provider_research:
         items.append(
             ConsentItem(

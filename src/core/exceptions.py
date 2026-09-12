@@ -93,6 +93,18 @@ class SynchronizationError(AcquisitionError):
     """
 
 
+class AVCaptureUnavailableError(AcquisitionError):
+    """An :class:`~src.core.interfaces.IAVCaptureBackend` cannot capture right now.
+
+    Same relationship to A/V capture that :class:`BackendUnavailableError` has
+    to VR backends: a workstation with no compositor mirror window found, no
+    microphone bound, or a capture subprocess (ffmpeg) that failed to launch is
+    an environment, not a defect. The caller's job is to say so on the session
+    rather than fail the whole recording -- telemetry can proceed without A/V
+    capture; it must never be the other way around.
+    """
+
+
 class StorageError(VRTelemetryError):
     """A fault in the local persistence path -- Parquet, SQLite or the filesystem."""
 

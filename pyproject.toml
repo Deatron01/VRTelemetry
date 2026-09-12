@@ -73,6 +73,24 @@ workstation = [
 # exactly why it is not in `workstation`.
 oculus = ["pyovr>=1.4"]
 
+# A/V recording + local transcription (P-C7, addendum Section 2 "self-hosted").
+# Both are genuinely optional -- everything in src/av_recording/ imports them
+# lazily and turns an ImportError into AVCaptureUnavailableError /
+# TranscriptionUnavailableError, never a crash at module import -- so a
+# workstation that never enables `consent.enable_av_recording` has no reason to
+# install a speech model. Deliberately no cloud ASR SDK here: the addendum's
+# unresolved sub-processor/vendor-terms review is exactly what a self-hosted
+# `faster-whisper` model avoids.
+av_recording = [
+    "faster-whisper>=1.0",
+    # ffmpeg's own binary, not a Python binding: gdigrab/dshow capture is a
+    # subprocess call (see pc_compositor_capture.py). A system ffmpeg on PATH
+    # or `av_recording.ffmpeg_path` in config.toml work too; this is the
+    # `pip install`-only fallback so a researcher isn't also asked to manage a
+    # separate system install.
+    "imageio-ffmpeg>=0.5",
+]
+
 # The central hub server needs nothing beyond the shared core: it imports only
 # src.central_server, src.license_service and src.utils. Declared explicitly so
 # that a server deployment is a documented install rather than an accident of

@@ -57,6 +57,18 @@ class _Sessions(Protocol):
     def delete_sessions(self, session_ids: list[str]) -> int: ...
 
 
+class _AVRecordings(Protocol):
+    """The A/V-recording metadata rows this service needs to clear (P-C7).
+
+    Separate from ``_Sessions`` because ``av_recordings`` rows are the A/V
+    pipeline's own table (``src.infrastructure.persistence.av_recording_repository``),
+    not ``session_metadata`` -- deleting a participant's video/transcript must
+    not touch their telemetry row, and the reverse.
+    """
+
+    def delete_for_sessions(self, session_ids: list[str]) -> int: ...
+
+
 class _Queues(Protocol):
     def clear_pending_upload(self, session_id: str) -> None: ...
 
@@ -102,6 +114,7 @@ class ErasureService:
         sessions_dir: Path,
         session_logs_dir: Path,
         is_recording_patient: Callable[[str], bool],
+        av_recordings: _AVRecordings | None = None,
     ) -> None:
         self.patients = patients
         self.sessions = sessions
@@ -111,15 +124,34 @@ class ErasureService:
         self.sessions_dir = Path(sessions_dir)
         self.session_logs_dir = Path(session_logs_dir)
         self.is_recording_patient = is_recording_patient
+        #: None on an install that predates the A/V recording feature, or in a
+        #: test that does not exercise it -- ``erase()``'s file glob covers the
+        #: A/V artifacts regardless, so a full erasure loses nothing either
+        #: way. Only the targeted SPEECH_RECORDING_ONLY path
+        #: (:meth:`erase_av_recordings`) needs the row cleared, and it is a
+        #: no-op without this.
+        self.av_recordings = av_recordings
 
     def _files_for(self, session_id: str) -> list[Path]:
         """Every workstation file belonging to one session.
 
         ``vr_telemetry_<id>*.parquet`` covers the raw recording and the
         ``_ai_ready`` derivative the preprocessor writes beside it.
+        ``*.mp4`` and ``*.transcript.json`` are the A/V recording's video and
+        transcript (P-C7, addendum Section 2.4/2.5) -- never uploaded to the
+        hub (see ``src.av_recording.session_recorder``), so deleting them here
+        is the only place they are erased at all.
         """
         files = list(self.sessions_dir.glob(f"vr_telemetry_{session_id}*.parquet"))
+        files += list(self.sessions_dir.glob(f"vr_telemetry_{session_id}*.mp4"))
+        files += list(self.sessions_dir.glob(f"vr_telemetry_{session_id}*.transcript.json"))
         files += list(self.session_logs_dir.glob(f"session_{session_id}*.log"))
+        return files
+
+    def _av_files_for(self, session_id: str) -> list[Path]:
+        """Only the A/V artifacts for one session -- for the targeted withdrawal scope."""
+        files = list(self.sessions_dir.glob(f"vr_telemetry_{session_id}*.mp4"))
+        files += list(self.sessions_dir.glob(f"vr_telemetry_{session_id}*.transcript.json"))
         return files
 
     def erase(self, patient_id: str, *, hard_delete: bool = False) -> ErasureReport:
@@ -172,6 +204,68 @@ class ErasureService:
             detail=(
                 f"sessions={summary['sessions']} files={summary['files_deleted']} "
                 f"hub={'confirmed' if summary['hub_confirmed'] else 'queued'}"
+            ),
+        )
+        return report
+
+    def erase_av_recordings(self, patient_id: str) -> ErasureReport:
+        """Delete only a participant's A/V recordings, transcripts and derived scores.
+
+        The workstation counterpart of
+        ``WithdrawalScope.SPEECH_RECORDING_ONLY`` (addendum Section 3.4): the
+        video, transcript and any stored derived score are removed for every
+        session; the Parquet telemetry, session metadata and consent record
+        are untouched, because the participant withdrew only P-C7, not their
+        whole consent.
+
+        Never uploaded to the hub in the first place (see
+        ``src.av_recording.session_recorder``), so there is no hub request
+        here -- unlike :meth:`erase`, this never reaches the network.
+
+        Raises:
+            LookupError: the patient does not exist.
+            ErasureBlockedError: the participant is being recorded right now,
+                or a file could not be deleted (nothing else is changed in
+                that case; retry once the lock clears).
+        """
+        if self.patients.get_patient(patient_id) is None:
+            raise LookupError(patient_id)
+        if self.is_recording_patient(patient_id):
+            raise ErasureBlockedError(
+                "This participant is being recorded right now. Stop the recording first."
+            )
+
+        report = ErasureReport(patient_id=patient_id)
+        report.session_ids = self.sessions.session_ids_for_patient(patient_id)
+
+        locked: list[str] = []
+        for session_id in report.session_ids:
+            for path in self._av_files_for(session_id):
+                try:
+                    path.unlink()
+                    report.files_deleted.append(path.name)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    locked.append(path.name)
+        if locked:
+            raise ErasureBlockedError(
+                f"Could not delete {len(locked)} file(s), most likely because another program "
+                f"has them open: {', '.join(sorted(locked))}. Close it and withdraw again; "
+                f"nothing else has been changed."
+            )
+
+        if self.av_recordings is not None:
+            report.metadata_rows_deleted = self.av_recordings.delete_for_sessions(
+                report.session_ids
+            )
+
+        summary = report.as_dict()
+        self.consents.record_erasure(
+            patient_id,
+            detail=(
+                f"scope=SPEECH_RECORDING_ONLY sessions={summary['sessions']} "
+                f"files={summary['files_deleted']}"
             ),
         )
         return report

@@ -9,12 +9,14 @@ tests/characterisation/ is the proof.
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
-from src.interfaces.api.dependencies import PatientsDep, SessionsDep, SettingsDep
+from src.interfaces.api.dependencies import AVRecordingsDep, PatientsDep, SessionsDep, SettingsDep
 from src.interfaces.api.schemas.sessions import SessionUpdate
 
 router = APIRouter(tags=["sessions"])
@@ -101,6 +103,84 @@ def get_session_telemetry(session_id: str, sessions: SessionsDep, settings: Sett
         "frames": df_sampled.to_dict(orient="records"),
         "session_record": row,
     }
+
+
+@router.get("/api/sessions/{session_id}/av-recording")
+def get_session_av_recording(
+    session_id: str, sessions: SessionsDep, av_recordings: AVRecordingsDep
+):
+    """A session's A/V recording (P-C7) metadata: whether it has a video and
+    a transcript, and -- Art. 5(1)(e) storage limitation -- whether the raw
+    video has already been erased by the retention sweep while a verified
+    transcript was kept. Deliberately not the raw ``av_recordings`` row:
+    ``video_path``/``transcript_path`` are local filesystem paths, useful to
+    the two download routes below but not to a frontend that only needs to
+    know what is available to show.
+    """
+    if not sessions.get(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    row = av_recordings.get(session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="No A/V recording for this session")
+
+    video_erased = row["raw_recording_deleted_at_utc"] is not None
+    return {
+        "session_id": row["session_id"],
+        "capture_backend": row["capture_backend"],
+        "started_at_utc": row["started_at_utc"],
+        "ended_at_utc": row["ended_at_utc"],
+        "has_video": bool(row["video_path"]) and not video_erased,
+        "video_deleted_at_utc": row["raw_recording_deleted_at_utc"],
+        "has_transcript": bool(row["transcript_path"]),
+        "transcript_verified": bool(row["transcript_verified"]),
+        "transcript_engine": row["transcript_engine"],
+        "failure_reason": row["failure_reason"],
+    }
+
+
+@router.get("/api/sessions/{session_id}/av-recording/video")
+def get_session_av_recording_video(session_id: str, av_recordings: AVRecordingsDep):
+    """Streams the session's captured video file for playback/download.
+
+    410 (not 404) when the video specifically has been removed by the
+    retention sweep -- Art. 5(1)(e) storage limitation acting as designed,
+    not a missing/broken file, and a researcher following a link from an
+    older report should see the difference.
+    """
+    row = av_recordings.get(session_id)
+    if not row or not row["video_path"]:
+        raise HTTPException(status_code=404, detail="No video recorded for this session")
+    if row["raw_recording_deleted_at_utc"] is not None:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "This session's raw video has been deleted under the configured "
+                "retention period (GDPR Art. 5(1)(e)); its transcript may still be "
+                "available."
+            ),
+        )
+
+    video_path = Path(row["video_path"])
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file is missing on disk")
+    return FileResponse(video_path, filename=video_path.name, media_type="video/mp4")
+
+
+@router.get("/api/sessions/{session_id}/av-recording/transcript")
+def get_session_av_recording_transcript(session_id: str, av_recordings: AVRecordingsDep):
+    """Returns the session's transcript (``Transcript.as_dict()``, written by
+    ``WhisperTranscriber``/``SessionRecorder``) as JSON -- kept even after
+    the raw video is erased under retention, since it is the durable research
+    artifact the video capture exists to produce.
+    """
+    row = av_recordings.get(session_id)
+    if not row or not row["transcript_path"]:
+        raise HTTPException(status_code=404, detail="No transcript available for this session")
+
+    transcript_path = Path(row["transcript_path"])
+    if not transcript_path.exists():
+        raise HTTPException(status_code=404, detail="Transcript file is missing on disk")
+    return json.loads(transcript_path.read_text(encoding="utf-8"))
 
 
 @router.get("/api/sessions")

@@ -120,6 +120,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Imported here rather than at module scope: both modules import the
     # routers package, and this module is what the routers package is mounted
     # from. The cycle is real, and this is the seam that breaks it.
+    from src.av_recording.retention import sweep_av_retention
     from src.interfaces.api.routers.licence import repair_missing_license_id
     from src.interfaces.api.routers.sync import run_session_backfill
 
@@ -127,17 +128,31 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         ("license_id repair", lambda: repair_missing_license_id(container)),
         ("session backfill sweep", lambda: run_session_backfill(container)),
         ("initial sync sweep", container.sync_scheduler.sweep_once),
+        # A/V recording is off by default and this sweep touches only its own
+        # table and its own video files (never session_metadata, never the
+        # hub -- see av_recording_repository.py), so it is safe to run
+        # unconditionally rather than gated on `consent.enable_av_recording`:
+        # a workstation that has never recorded any A/V has nothing for it
+        # to find due.
+        (
+            "A/V recording retention sweep",
+            lambda: sweep_av_retention(
+                container.av_recordings,
+                retention_days=container.settings.av_recording.raw_recording_retention_days,
+            ),
+        ),
     ):
         try:
             step()
         except Exception as exc:  # noqa: BLE001 - boot step: the app must come up without a hub
             # The tolerant half of the rule this ticket encodes (see
-            # src/core/exceptions.py). These three steps talk to the hub and to
-            # the local databases; a researcher on a laptop away from the lab has
-            # neither reachable, and the local UI must still start. Each is
-            # independently guarded so one failing does not cost the other two.
+            # src/core/exceptions.py). These steps talk to the hub, to the
+            # local databases, and to the local A/V recording store; a
+            # researcher on a laptop away from the lab has the first two
+            # unreachable, and the local UI must still start. Each is
+            # independently guarded so one failing does not cost the others.
             #
-            # What makes this safe rather than lazy: none of the three is a write
+            # What makes this safe rather than lazy: none of the steps is a write
             # path. They are sweeps that retry from durable queues on the next
             # tick, so a failure here delays work rather than losing it.
             logger.warning(f"{label} on boot failed: {exc}", exc_info=True)

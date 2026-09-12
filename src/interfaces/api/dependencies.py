@@ -47,6 +47,7 @@ from src.application.consent import ConsentService
 from src.application.erasure import ErasureService
 from src.config import Settings
 from src.infrastructure.persistence import SessionRepository
+from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
 from src.interfaces.api.container import Container, RecordingSessionManager
 from src.license_service.local_cache import LocalLicenseCache
 from src.patients.patient_manager import PatientManager
@@ -58,6 +59,7 @@ from src.storage.sync_scheduler import BackgroundSyncScheduler
 from src.storage.usage_tracker import UsageTracker
 
 __all__ = [
+    "AVRecordingsDep",
     "CentralUrlDep",
     "ConsentsDep",
     "ContainerDep",
@@ -140,6 +142,11 @@ def get_erasure(container: ContainerDep) -> ErasureService:
     return container.erasure
 
 
+def get_av_recordings(container: ContainerDep) -> AVRecordingRepository:
+    """A/V recording metadata (P-C7). See ``av_recording_repository``."""
+    return container.av_recordings
+
+
 def get_local_cache(container: ContainerDep) -> LocalLicenseCache:
     """Licence state, the auth session and the local key/value config."""
     return container.local_cache
@@ -207,6 +214,7 @@ SessionsDep = Annotated[SessionRepository, Depends(get_sessions)]
 PatientsDep = Annotated[PatientManager, Depends(get_patients)]
 ConsentsDep = Annotated[ConsentService, Depends(get_consents)]
 ErasureDep = Annotated[ErasureService, Depends(get_erasure)]
+AVRecordingsDep = Annotated[AVRecordingRepository, Depends(get_av_recordings)]
 LocalCacheDep = Annotated[LocalLicenseCache, Depends(get_local_cache)]
 SessionUploaderDep = Annotated[SessionUploader, Depends(get_session_uploader)]
 PatientUploaderDep = Annotated[PatientSyncClient, Depends(get_patient_uploader)]

@@ -265,12 +265,23 @@ def test_a_non_200_from_the_port_is_reported_with_its_status(tmp_path: Path) -> 
 def hub_settings(monkeypatch, tmp_path: Path):
     """Point get_settings() at the environment this test sets, and back afterwards.
 
-    The data root moves to ``tmp_path`` as well, so a ``config.toml`` in the
-    developer's own data root -- where a real hub's TLS settings live -- cannot
-    change what these tests observe.
+    The data root moves to ``tmp_path``, but ``get_settings()`` reads
+    ``config.toml`` from ``Path.cwd()`` (see that function's docstring in
+    ``src/config/settings.py`` -- it cannot know the configured data root
+    until *after* it has read the file that might set it), not from
+    ``paths.data_root``. On a developer machine that has ever written a real
+    ``config.toml`` at the repository root -- which is also normally the data
+    root, and normally also the process's cwd -- that file's ``[hub]`` section
+    leaks into these tests no matter what ``VRT_PATHS__DATA_ROOT`` says,
+    because nothing here has told the process its cwd is different. So this
+    also ``chdir``s into ``tmp_path``, the same fix ``test_tenant_isolation.py``
+    uses for the same class of problem: it is what actually keeps the
+    developer's own hub configuration from being read at all, without
+    touching -- or requiring anyone to delete -- that real file.
     """
     from src.config import get_settings
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("VRT_PATHS__DATA_ROOT", str(tmp_path))
     for key in (
         "VRT_HUB__TLS_CERTFILE",

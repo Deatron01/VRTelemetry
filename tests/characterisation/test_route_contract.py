@@ -33,12 +33,22 @@ EXPECTED_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("PUT", "/api/sessions/{session_id}"),
         ("GET", "/api/sessions/{session_id}/telemetry"),
         ("POST", "/api/sessions/{session_id}/questionnaire"),
+        # Added with A/V recording (P-C7): surfacing the saved video and
+        # transcript through the API rather than leaving them as orphaned
+        # files on disk. See test_sessions_api.py.
+        ("GET", "/api/sessions/{session_id}/av-recording"),
+        ("GET", "/api/sessions/{session_id}/av-recording/video"),
+        ("GET", "/api/sessions/{session_id}/av-recording/transcript"),
         ("POST", "/api/recording/start"),
         ("POST", "/api/recording/stop"),
         ("POST", "/api/session/scene"),
         ("POST", "/api/session/mark"),
         ("POST", "/api/session/haptic"),
         ("POST", "/api/session/target"),
+        # Added with A/V recording (P-C7): the participant's "pause/resume
+        # recording" control, when a session's consent includes it.
+        ("POST", "/api/av-recording/pause"),
+        ("POST", "/api/av-recording/resume"),
         ("GET", "/api/patients"),
         ("POST", "/api/patients"),
         ("PUT", "/api/patients/{patient_id}"),

@@ -331,6 +331,12 @@ class ConsentSettings(BaseSettings):
     notice_version: str = "1.0"
     notice_url: str = ""
 
+    #: BCP-47-ish language code the consent wording below is written in (e.g.
+    #: "en", "hu"). Reported on the catalogue so the desktop app knows which
+    #: locale it is rendering; this project has one hardcoded wording, so
+    #: today it is really just a label rather than a translation switch.
+    wording_language: str = "en"
+
     #: Whether participants are offered the optional consent for the provider's
     #: de-identified research dataset (Terms of Service 6.4(f)).
     offer_provider_research: bool = True
@@ -343,10 +349,78 @@ class ConsentSettings(BaseSettings):
     records_heart_rate: bool = True
     records_voice_level: bool = True
 
-    #: Language of the wording above. Not called ``language``: a nested
-    #: settings section also reads unprefixed environment variables, and
-    #: ``LANGUAGE`` is set on most Linux machines.
-    wording_language: str = "en"
+    #: Whether the participant consent screen offers P-C7 -- explicit consent
+    #: to video-of-the-headset-view + speech recording + transcription (the
+    #: A/V recording, transcription & stress-inference addendum, Sep 2026).
+    #: Off by default: unlike P-C3/P-C4, a lab that has not turned this on has
+    #: no recording feature to consent to in the first place, so the item must
+    #: not appear and imply otherwise.
+    #:
+    #: The addendum's consent wording also covers a "score estimating your
+    #: stress level, calculated from your voice and speech" (Section 3.1/3.2,
+    #: P-C7). That clause is deliberately NOT in the wording built below: the
+    #: stress-score computation itself is not implemented, pending a specific
+    #: EU AI Act Art. 5(1)(f) opinion (addendum Section 6.2 -- a "workplace
+    #: emotion recognition system" reading of this exact feature is plausible
+    #: and the prohibition, not a mere compliance step, if it applies). Consent
+    #: must describe what the software actually does; when the score ships,
+    #: this text needs a new required item, not a silent edit of P-C7's
+    #: existing wording (which would invalidate consent already given under it).
+    enable_av_recording: bool = False
+
+
+class AVRecordingSettings(BaseSettings):
+    """The A/V capture, transcription and retention pipeline (Sep 2026).
+
+    Separate from :class:`ConsentSettings.enable_av_recording`, which is
+    whether the *consent screen* offers P-C7. This section is whether the
+    *recording route* attempts A/V capture at all when a session starts and a
+    valid P-C7 consent exists for the participant. Both must be true for a
+    session to get A/V capture; either alone is a safe, inert state.
+    """
+
+    #: Window title (substring match) of the VR runtime's compositor mirror
+    #: window, captured via ``gdigrab`` on the PC backends. Runtime- and
+    #: version-specific, so there is no correct default -- an empty string
+    #: means "not configured", and capture falls back to the whole desktop
+    #: with a logged warning rather than silently capturing whatever else is
+    #: on screen and calling it the headset view.
+    mirror_window_title: str = ""
+
+    #: ffmpeg's dshow audio device name for the participant's microphone
+    #: (``ffmpeg -list_devices true -f dshow -i dummy`` lists them). Empty
+    #: means the system default recording device.
+    audio_device: str = ""
+
+    #: Video capture rate. The output is for a researcher reviewing what the
+    #: participant did, not a biometric signal -- nothing here needs to match
+    #: the HMD's refresh rate, and a lower rate keeps the ffmpeg process cheap
+    #: enough to run alongside the acquisition loop.
+    video_fps: int = Field(default=15, ge=1, le=60)
+
+    #: Path to the ffmpeg executable, or empty to resolve one (see
+    #: ``src.av_recording.ffmpeg_locator``). Set this when ffmpeg is not on
+    #: PATH and ``imageio-ffmpeg``'s bundled binary should not be used --
+    #: e.g. to pin a specific build.
+    ffmpeg_path: str = ""
+
+    #: Retention for the muxed video (scene + participant speech) once its
+    #: transcript exists and is verified (addendum Section 2.4). 0 -- the
+    #: default -- deletes it immediately, which is the storage-limitation
+    #: reading the addendum's own drafting note prefers. Set higher only when
+    #: the study design genuinely needs the video available for longer (e.g.
+    #: manual interaction review before the transcript is trusted), and say so
+    #: in the DPIA rather than letting it happen by this default.
+    raw_recording_retention_days: int = Field(default=0, ge=0)
+
+    #: faster-whisper model size (``tiny``, ``base``, ``small``, ``medium``,
+    #: ``large-v3``, ...). Self-hosted transcription was the explicit choice
+    #: for this feature (no cloud ASR vendor's training-use terms to review,
+    #: no Art. 9 audio leaving the workstation) -- see the addendum, Section 2.3.
+    whisper_model_size: str = "base"
+
+    #: BCP-47-ish language code passed to Whisper, or None to auto-detect.
+    transcription_language: str | None = None
 
 
 class SyncSettings(BaseSettings):
@@ -377,6 +451,7 @@ class Settings(BaseSettings):
     acquisition: AcquisitionSettings = Field(default_factory=AcquisitionSettings)
     sync: SyncSettings = Field(default_factory=SyncSettings)
     consent: ConsentSettings = Field(default_factory=ConsentSettings)
+    av_recording: AVRecordingSettings = Field(default_factory=AVRecordingSettings)
 
     @model_validator(mode="after")
     def _no_port_collision(self) -> Settings:

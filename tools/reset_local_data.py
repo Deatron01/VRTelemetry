@@ -85,6 +85,13 @@ def build_plan(args: argparse.Namespace) -> Plan:
 
     if args.sessions:
         plan.paths += list(_glob(paths.sessions_dir, "*.parquet"))
+        # A/V recordings and their transcripts (P-C7). Same directory as the
+        # Parquet files, and the metadata row for each lives in the
+        # `av_recordings` table inside metadata_db -- deleted below along with
+        # the rest of that database, not emptied as a separate table, since the
+        # whole file goes.
+        plan.paths += list(_glob(paths.sessions_dir, "*.mp4"))
+        plan.paths += list(_glob(paths.sessions_dir, "*.transcript.json"))
         plan.paths += list(_glob(paths.session_logs_dir, "*.log"))
         plan.paths += list(_glob(paths.logs_dir, "*.log"))
         plan.paths += list(_existing(paths.metadata_db, paths.usage_db))

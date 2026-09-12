@@ -37,6 +37,7 @@ from typing import Any
 from src.application.ports import ConsentStore
 from src.core.exceptions import GDPRConsentError
 from src.patients.consent_texts import (
+    AV_RECORDING_CONSENT_ID,
     PROVIDER_RESEARCH_CONSENT_ID,
     RECORDING_CONSENT_ID,
     RESEARCHER,
@@ -62,6 +63,11 @@ class WithdrawalScope(str, Enum):
     FUTURE_ONLY = "FUTURE_ONLY"
     #: Withdraw only the optional provider-research consent (P-C5).
     PROVIDER_RESEARCH_ONLY = "PROVIDER_RESEARCH_ONLY"
+    #: Withdraw only the A/V recording, transcription consent (P-C7). Deletes
+    #: the recording, transcript and derived scores for the participant's
+    #: sessions (see ErasureService.erase_av_recordings); telemetry recording
+    #: under P-C3 is unaffected. Addendum Section 3.4.
+    SPEECH_RECORDING_ONLY = "SPEECH_RECORDING_ONLY"
 
 
 @dataclass(frozen=True)
@@ -259,6 +265,23 @@ class ConsentService:
             and not self.repository.is_research_withdrawn(consent_id)
         )
 
+    def av_recording_permitted(self, consent_id: str) -> bool:
+        """Whether this consent currently authorises A/V recording (P-C7).
+
+        Checked by the recording route before starting a
+        :class:`~src.av_recording.session_recorder.SessionRecorder` alongside
+        the telemetry engine -- never by asking whether the *feature* is
+        enabled, which says nothing about what this particular participant
+        agreed to.
+        """
+        record = self.repository.get(consent_id)
+        return bool(
+            record
+            and record["choices"].get(AV_RECORDING_CONSENT_ID)
+            and not self.repository.is_ended(consent_id)
+            and not self.repository.is_av_recording_withdrawn(consent_id)
+        )
+
     # --- withdrawing ----------------------------------------------------------
 
     def withdraw(self, patient_id: str, scope: WithdrawalScope) -> list[str]:
@@ -279,6 +302,14 @@ class ConsentService:
                 and not self.repository.is_research_withdrawn(r["consent_id"])
             ]
             event_type = "research_withdrawn"
+        elif scope is WithdrawalScope.SPEECH_RECORDING_ONLY:
+            affected = [
+                r["consent_id"]
+                for r in records
+                if r["choices"].get(AV_RECORDING_CONSENT_ID)
+                and not self.repository.is_av_recording_withdrawn(r["consent_id"])
+            ]
+            event_type = "av_recording_withdrawn"
         else:
             affected = [
                 r["consent_id"] for r in records if not self.repository.is_ended(r["consent_id"])
@@ -326,6 +357,7 @@ class ConsentService:
             public["provider_research_permitted"] = self.provider_research_permitted(
                 record["consent_id"]
             )
+            public["av_recording_permitted"] = self.av_recording_permitted(record["consent_id"])
             consents.append(public)
         return {
             "patient_id": patient_id,

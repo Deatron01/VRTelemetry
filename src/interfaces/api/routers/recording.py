@@ -15,18 +15,29 @@ are the same routes, with the same status codes and the same bodies.
 
 from __future__ import annotations
 
+import threading
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from src.application.consent import ConsentValidationError
+from src.application.consent import ConsentService, ConsentValidationError
+from src.av_recording.registry import create_av_capture_backend, resolve_for_telemetry_backend
+from src.av_recording.session_recorder import SessionRecorder
 from src.backends.discovery import RuntimeCapabilityDiscovery
 from src.backends.registry import resolve as resolve_backend
+from src.config import Settings
 from src.core.engine import TelemetryEngine
-from src.core.exceptions import BackendUnavailableError, GDPRConsentError
+from src.core.exceptions import (
+    AVCaptureUnavailableError,
+    BackendUnavailableError,
+    GDPRConsentError,
+)
 from src.domain.session_profile import apply_calibration, apply_health_profile
+from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
 from src.interfaces.api.container import RecordingSessionManager
 from src.interfaces.api.dependencies import (
+    AVRecordingsDep,
     CentralUrlDep,
     ConsentsDep,
     PatientsDep,
@@ -45,6 +56,57 @@ from src.utils.logger import logger, setup_logging
 from src.utils.metadata import sanitize_metadata
 
 router = APIRouter(tags=["recording"])
+
+
+def _maybe_start_av_recording(
+    *,
+    settings: Settings,
+    consents: ConsentService,
+    av_recordings: AVRecordingRepository,
+    recording: RecordingSessionManager,
+    engine: TelemetryEngine,
+    consent_id: str,
+    patient_id: str,
+    backend: str,
+) -> None:
+    """Start A/V capture alongside ``engine``, if the feature and this
+    participant's consent (P-C7) both allow it. Never raises.
+
+    Called after :meth:`RecordingSessionManager.start` has published the
+    engine, so a capture failure here can never prevent (or be mistaken for)
+    a failure to start telemetry -- the two invariant this whole module rests
+    on: a telemetry session started is a telemetry session that keeps
+    recording, whatever happens to the microphone.
+    """
+    if not settings.consent.enable_av_recording:
+        return
+    try:
+        if not consents.av_recording_permitted(consent_id):
+            return
+    except Exception as exc:  # noqa: BLE001 - best-effort: never blocks telemetry
+        logger.warning(f"Could not check A/V recording consent for {consent_id}: {exc}")
+        return
+
+    capture_backend_name = resolve_for_telemetry_backend(backend)
+    if capture_backend_name is None:
+        logger.debug(f"No A/V capture backend paired with telemetry backend {backend!r}.")
+        return
+
+    try:
+        capture = create_av_capture_backend(capture_backend_name)
+    except AVCaptureUnavailableError as exc:
+        logger.warning(f"A/V capture backend {capture_backend_name!r} unavailable: {exc}")
+        return
+
+    session_recorder = SessionRecorder(capture, av_recordings)
+    session_recorder.start(
+        session_id=engine.session_id,
+        patient_id=patient_id,
+        consent_id=consent_id,
+        output_dir=Path(engine.output_dir),
+        capture_backend_name=capture_backend_name,
+    )
+    recording.attach_av_recorder(session_recorder)
 
 
 def run_engine_thread(engine: TelemetryEngine):
@@ -72,6 +134,7 @@ def start_recording(
     usage_tracker: UsageTrackerDep,
     central_url: CentralUrlDep,
     settings: SettingsDep,
+    av_recordings: AVRecordingsDep,
 ):
 
     setup_logging()
@@ -171,6 +234,24 @@ def start_recording(
         # live-state routes and the heartbeat's status provider cannot observe a
         # half-started recording.
         recording.start(engine, run_engine_thread)
+        # Best-effort and additive: A/V capture is attempted only after the
+        # telemetry engine is published and running. A failure inside this
+        # call is caught and logged there, never here -- by the time control
+        # reaches this line, the recording this endpoint promised has already
+        # started, and nothing below can be allowed to take it back.
+        try:
+            _maybe_start_av_recording(
+                settings=settings,
+                consents=consents,
+                av_recordings=av_recordings,
+                recording=recording,
+                engine=engine,
+                consent_id=consent["consent_id"],
+                patient_id=patient["patient_id"],
+                backend=config.backend,
+            )
+        except Exception as exc:  # noqa: BLE001 - telemetry has already started; must not fail this request
+            logger.exception(f"A/V recording setup crashed and was ignored: {exc}")
         usage_tracker.log_event(
             "recording_start", detail=f"backend={config.backend}, patient={patient['patient_id']}"
         )
@@ -200,6 +281,24 @@ def start_recording(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _finish_av_recording(session_recorder: SessionRecorder) -> None:
+    """Stop capture and transcribe, off the request thread. Never raises.
+
+    Runs on its own daemon thread, started by :func:`stop_recording` after the
+    HTTP response has already been decided -- transcription can take much
+    longer than a request should, and it is not this endpoint's job to make
+    the researcher wait for Whisper. Both steps are already best-effort
+    internally (see ``SessionRecorder``'s docstring); this wrapper exists only
+    so a defect in the orchestration itself (not the capture or transcription
+    it calls) cannot crash an unattended daemon thread silently.
+    """
+    try:
+        session_recorder.stop()
+        session_recorder.transcribe()
+    except Exception:  # noqa: BLE001 - daemon thread top level: nothing above it can catch
+        logger.exception("A/V recording stop/transcribe crashed and was ignored")
+
+
 @router.post("/api/recording/stop")
 def stop_recording(recording: RecordingDep, usage_tracker: UsageTrackerDep):
     if not recording.stop():
@@ -212,6 +311,13 @@ def stop_recording(recording: RecordingDep, usage_tracker: UsageTrackerDep):
     # recording_stop it was supposed to contain. The manager collapses the two
     # and the event is now always recorded.
     usage_tracker.log_event("recording_stop")
+    session_recorder = recording.pop_av_recorder()
+    if session_recorder is not None:
+        # Finalising ffmpeg (a graceful stop, up to ~10s) and transcribing
+        # (seconds to minutes, depending on length and the configured Whisper
+        # model) both happen after this response is sent -- the participant's
+        # telemetry session is already over by the time either starts.
+        threading.Thread(target=_finish_av_recording, args=(session_recorder,), daemon=True).start()
     return {"status": "recording_stopped"}
 
 
@@ -261,3 +367,28 @@ def set_target_position(payload: TargetPosition, recording: RecordingDep):
         payload.x, payload.y, payload.z
     )
     return {"ok": True}
+
+
+@router.post("/api/av-recording/pause")
+def pause_av_recording(recording: RecordingDep):
+    """The participant's "pause recording" control (addendum Section 3.3).
+
+    A no-op, not a 400, when no A/V recorder is attached to the current
+    session -- pausing a telemetry-only session (A/V recording off, or this
+    participant's consent doesn't cover it) is a reasonable click for a
+    researcher's UI to allow rather than one it must first ask permission for.
+    """
+    _require_active_engine(recording)
+    session_recorder = recording.av_recorder
+    if session_recorder is not None:
+        session_recorder.pause()
+    return {"ok": True, "av_recording_active": session_recorder is not None}
+
+
+@router.post("/api/av-recording/resume")
+def resume_av_recording(recording: RecordingDep):
+    _require_active_engine(recording)
+    session_recorder = recording.av_recorder
+    if session_recorder is not None:
+        session_recorder.resume()
+    return {"ok": True, "av_recording_active": session_recorder is not None}
