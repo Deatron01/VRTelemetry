@@ -132,7 +132,7 @@ def _resolve_ffmpeg(configured_path: str) -> str:
         return on_path
 
     try:
-        import imageio_ffmpeg  # type: ignore[import-untyped]
+        import imageio_ffmpeg
 
         return str(imageio_ffmpeg.get_ffmpeg_exe())
     except ImportError:

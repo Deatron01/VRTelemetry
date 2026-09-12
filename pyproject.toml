@@ -64,7 +64,13 @@ workstation = [
     # blocked at the meta path. This stays in the workstation extra because a
     # workstation that records on SteamVR needs it -- which is a different claim
     # from "nothing imports without it".
-    "openvr>=1.26",
+    #
+    # 2.12 is a hard floor, not a rounding-up: Prop_SupportsXrEyeGazeInteraction_Bool,
+    # which backend_steamvr.py's eye-tracking capability probe depends on, does
+    # not exist in the property table before it. On 1.26 (this pin's old floor)
+    # referencing that constant is an AttributeError, uncaught by the
+    # OpenVRError/ValueError/OSError tuple the probe guards with.
+    "openvr>=2.12",
 ]
 
 # Oculus/LibOVR bindings. Genuinely optional: backend_ocolus.py already guards
@@ -357,6 +363,13 @@ module = [
     "xr.*", "openvr.*", "ovr.*", "pyarrow.*", "google.*", "dotenv.*",
     # Ship no stubs and have none on typeshed for the versions pinned here.
     "psutil.*", "pandas.*",
+    # av_recording extra: genuinely not installed by `pip install -e ".[dev]"`
+    # (see pyproject's av_recording extra docstring) -- mypy can't find any
+    # stub or source at all for these, so it raises import-not-found rather
+    # than import-untyped, which the inline `# type: ignore[import-untyped]`
+    # at each lazy `import` site does not cover. Listed here instead so both
+    # error codes are silenced without a blanket ignore.
+    "faster_whisper.*", "imageio_ffmpeg.*",
 ]
 ignore_missing_imports = true
 

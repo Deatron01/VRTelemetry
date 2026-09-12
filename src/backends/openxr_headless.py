@@ -3,6 +3,7 @@
 import ctypes
 import logging
 import platform
+import time
 
 import xr
 
@@ -315,18 +316,36 @@ class OpenXRHeadlessBackend(IVRBackend):
 
     def _pump_events(self) -> None:
         while True:
-            event = xr.poll_event(self.instance)
-            if event is None:
+            try:
+                event_buffer = xr.poll_event(self.instance)
+            except xr.exception.EventUnavailable:
+                # Not an error: this is how OpenXR signals "no event queued
+                # right now". pyopenxr's poll_event never returns None (it
+                # always returns an EventDataBuffer or raises), so this is the
+                # only way to end the pump loop each frame -- the old
+                # `if event is None: break` never actually fired, and left
+                # this exception unhandled, crashing the main loop on the
+                # very first poll of every session.
                 break
-            if isinstance(event, xr.EventDataSessionStateChanged):
-                self.session_state = event.state
-                logger.info(f"OpenXR Headless Session State Transitioned to: {self.session_state}")
-                if self.session_state == xr.SessionState.READY:
-                    xr.begin_session(
-                        self.session, xr.SessionBeginInfo(xr.ViewConfigurationType.PRIMARY_STEREO)
-                    )
-                elif self.session_state == xr.SessionState.STOPPING:
-                    xr.end_session(self.session)
+            if event_buffer.type != xr.StructureType.EVENT_DATA_SESSION_STATE_CHANGED:
+                continue
+            # EventDataBuffer is a plain fixed-size ctypes buffer, unrelated
+            # by inheritance to EventDataSessionStateChanged, so
+            # `isinstance(event_buffer, xr.EventDataSessionStateChanged)`
+            # (the old check) can never be True. It must be reinterpreted via
+            # its `type` field instead, with the same ctypes.cast pattern
+            # __init__ already uses elsewhere in this class.
+            event = ctypes.cast(
+                ctypes.byref(event_buffer), ctypes.POINTER(xr.EventDataSessionStateChanged)
+            ).contents
+            self.session_state = xr.SessionState(event.state)
+            logger.info(f"OpenXR Headless Session State Transitioned to: {self.session_state}")
+            if self.session_state == xr.SessionState.READY:
+                xr.begin_session(
+                    self.session, xr.SessionBeginInfo(xr.ViewConfigurationType.PRIMARY_STEREO)
+                )
+            elif self.session_state == xr.SessionState.STOPPING:
+                xr.end_session(self.session)
 
     def poll_frame(self, frame_index: int) -> TelemetryFrame:
         self._frames_polled += 1
@@ -344,10 +363,27 @@ class OpenXRHeadlessBackend(IVRBackend):
         ):
             return frame
 
+        # A pure headless session has no display, so the runtime has no display
+        # time to predict: xr.wait_frame() succeeds and returns
+        # predicted_display_time == 0 (verified against this project's HTC
+        # runtime, which is the only kind of session this backend ever opens).
+        # Passing that zero on as the XrTime argument to locate_views /
+        # locate_space below is what raised
+        # "TimeInvalidError: The provided basetype:XrTime was zero, negative, or
+        # out of range" on every single frame -- 100% frame faults and zero rows
+        # written, on every openxr_headless recording. backend_openxr already
+        # guards exactly this ("in case the runtime refuses to predict one");
+        # this backend, the one that is *always* headless and so always hits it,
+        # did not. perf_counter_ns() is what that sibling falls back to, and the
+        # runtime accepts it: locate_space and locate_views both return
+        # view_state_flags 15 (position and orientation valid *and* tracked).
+        t = time.perf_counter_ns()
+
         try:
             state = xr.wait_frame(self.session)
             xr.begin_frame(self.session)
-            t = state.predicted_display_time
+            if state.predicted_display_time > 0:
+                t = state.predicted_display_time
             frame.timestamp_ns = t
 
             xr.sync_actions(self.session, self.actions_sync_info)
@@ -420,25 +456,62 @@ class OpenXRHeadlessBackend(IVRBackend):
         return frame
 
     def shutdown(self) -> None:
+        """Release every OpenXR handle this backend owns, exactly once.
+
+        Each handle is cleared as it is destroyed, which is what makes a
+        second call a no-op instead of a double-destroy. That matters because
+        there are two callers -- ``initialize()``'s own failure path and the
+        engine's teardown -- and a backend whose init failed halfway gets
+        both. Handing an already-destroyed handle back to the runtime is an
+        access violation, not a Python exception, so no handler can clean up
+        after it; it simply must not happen. ``backend_openxr``,
+        ``backend_ocolus`` and ``backend_steamvr`` all clear as they go for
+        this reason. This one did not, which is the bug.
+        """
+        released = any(
+            (
+                self.eye_driver,
+                self.left_space,
+                self.right_space,
+                self.app_space,
+                self.action_set,
+                self.session,
+                self.instance,
+            )
+        )
+
         if self.eye_driver:
             self.eye_driver.shutdown()
+            self.eye_driver = None
         if self.left_space:
             xr.destroy_space(self.left_space)
+            self.left_space = None
         if self.right_space:
             xr.destroy_space(self.right_space)
+            self.right_space = None
         if self.app_space:
             xr.destroy_space(self.app_space)
+            self.app_space = None
         if self.action_set:
             xr.destroy_action_set(self.action_set)
+            self.action_set = None
         if self.session:
             xr.destroy_session(self.session)
+            self.session = None
         if self.instance:
             xr.destroy_instance(self.instance)
+            self.instance = None
+
+        self.session_state = xr.SessionState.UNKNOWN
 
         # Clean D3D11 resources from memory
+        self.graphics_binding = None
         if self.d3d_device:
             self.d3d_device = None
             self.d3d_context = None
 
-        self.faults.summarise(self._frames_polled)
-        logger.info("OpenXR Context Safely Terminated.")
+        # Only on the call that actually released something: a repeat call is
+        # silent rather than logging a second, duplicate fault summary.
+        if released:
+            self.faults.summarise(self._frames_polled)
+            logger.info("OpenXR Context Safely Terminated.")

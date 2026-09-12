@@ -24,6 +24,15 @@ interface HubCheck {
 const BACKENDS = [
   { value: 'auto', label: 'Auto-Detect' },
   { value: 'openxr', label: 'OpenXR' },
+  // Same OpenXR path, but with a dummy D3D11 graphics binding for runtimes
+  // that refuse a session without one -- SteamVR on Windows is the case this
+  // exists for (see src/backends/openxr_headless.py). Try this if plain
+  // OpenXR fails to bind and the log names a graphics-context error. It's
+  // also currently the only way to get real per-frame eye gaze/pupil data
+  // (left_eye_*/right_eye_*/pupil columns) out of a SteamVR-native headset --
+  // the SteamVR backend below can only report *whether* the headset supports
+  // gaze interaction, not the gaze itself (see claude/vrt-steamvr-eye-support-probe-fix.md).
+  { value: 'openxr_headless', label: 'OpenXR (Headless)' },
   { value: 'oculus', label: 'Oculus' },
   { value: 'steamvr', label: 'SteamVR' },
   // 'quest_udp' is not offered (GDPR-12): its receiver accepts unencrypted,

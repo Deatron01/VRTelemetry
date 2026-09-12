@@ -90,7 +90,7 @@ class WhisperTranscriber:
         if self._model is not None:
             return self._model
         try:
-            from faster_whisper import WhisperModel  # type: ignore[import-untyped]
+            from faster_whisper import WhisperModel
         except ImportError as exc:
             raise TranscriptionUnavailableError(
                 "faster-whisper is not installed. `pip install faster-whisper` to enable "

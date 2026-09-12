@@ -40,7 +40,7 @@ async def upload_telemetry(settings: SettingsDep, file: UploadFile = File(...)):
     # 1. JAVÍTÁS: Nanosecond Timestamp túlcsordulás megelőzése JS-ben
     # Levonjuk az első frame idejét mindenből, így hatalmas, memóriagyilkos számok
     # helyett 0-ról induló másodperceket kap a React.
-    if "timestamp_ns" in df_sampled.columns:
+    if "timestamp_ns" in df_sampled.columns and original_count > 0:
         first_ts = df["timestamp_ns"].iloc[0]
         df_sampled["timestamp_ns"] = df_sampled["timestamp_ns"] - first_ts
 
@@ -91,7 +91,12 @@ def get_session_telemetry(session_id: str, sessions: SessionsDep, settings: Sett
     step = max(1, original_count // settings.sync.max_frames_to_client)
     df_sampled = df.iloc[::step].copy()
 
-    if "timestamp_ns" in df_sampled.columns:
+    if "timestamp_ns" in df_sampled.columns and original_count > 0:
+        # A session that recorded zero frames (crashed before its first
+        # frame, or was stopped immediately) leaves an empty Parquet file --
+        # df_sampled is then also empty, and indexing .iloc[0] into it raised
+        # IndexError instead of just returning "no frames" like the rest of
+        # this response already does gracefully via original_frames == 0.
         first_ts = df["timestamp_ns"].iloc[0]
         df_sampled["timestamp_ns"] = df_sampled["timestamp_ns"] - first_ts
 

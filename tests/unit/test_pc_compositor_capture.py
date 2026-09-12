@@ -34,7 +34,6 @@ the Windows-only branches must be exercised on both.
 
 from __future__ import annotations
 
-import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +48,16 @@ from src.av_recording.pc_compositor_capture import (
     _win_creationflags,
 )
 from src.core.exceptions import AVCaptureUnavailableError
+
+#: subprocess.CREATE_NEW_PROCESS_GROUP and signal.CTRL_BREAK_EVENT exist only
+#: on Windows Python builds. Referencing the module attribute directly (as
+#: this suite used to) crashed with AttributeError on this suite's Linux CI
+#: legs even inside a test that monkeypatches sys.platform to "win32" -- the
+#: monkeypatch changes what the code under test sees, not what attributes
+#: actually exist on this interpreter's stdlib. Hardcoded to their well-known
+#: Windows values so the win32 branch is actually exercised on every runner.
+_WIN_CREATE_NEW_PROCESS_GROUP = 0x00000200
+_WIN_CTRL_BREAK_EVENT = 1
 
 
 def _bare_capture(**overrides: Any) -> PCCompositorMirrorCapture:
@@ -147,7 +156,7 @@ def _patch_popen(monkeypatch: pytest.MonkeyPatch, *processes: _FakeProcess) -> l
 
 def test_creationflags_is_the_process_group_flag_on_windows(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
-    assert _win_creationflags() == subprocess.CREATE_NEW_PROCESS_GROUP
+    assert _win_creationflags() == _WIN_CREATE_NEW_PROCESS_GROUP
 
 
 def test_creationflags_is_zero_off_windows(monkeypatch):
@@ -157,7 +166,7 @@ def test_creationflags_is_zero_off_windows(monkeypatch):
 
 def test_graceful_stop_signal_is_ctrl_break_on_windows(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
-    assert _graceful_stop_signal() == signal.CTRL_BREAK_EVENT
+    assert _graceful_stop_signal() == _WIN_CTRL_BREAK_EVENT
 
 
 def test_graceful_stop_signal_is_none_off_windows(monkeypatch):
@@ -259,7 +268,7 @@ def test_finish_segment_sends_ctrl_break_on_windows_and_stops_cleanly(monkeypatc
 
     capture._finish_segment()
 
-    assert process.signals_sent == [signal.CTRL_BREAK_EVENT]
+    assert process.signals_sent == [_WIN_CTRL_BREAK_EVENT]
     assert not process.terminated
     assert not process.killed
 
@@ -279,7 +288,7 @@ def test_finish_segment_falls_back_to_terminate_then_kill_when_the_signal_is_not
 
     capture._finish_segment()
 
-    assert process.signals_sent == [signal.CTRL_BREAK_EVENT]
+    assert process.signals_sent == [_WIN_CTRL_BREAK_EVENT]
     assert process.terminated
     assert not process.killed  # terminate()'s own wait() succeeded
 
@@ -322,4 +331,4 @@ def test_launch_starts_ffmpeg_in_its_own_process_group_on_windows(monkeypatch):
 
     capture._launch(["ffmpeg.exe", "-y"])
 
-    assert seen_kwargs["creationflags"] == subprocess.CREATE_NEW_PROCESS_GROUP
+    assert seen_kwargs["creationflags"] == _WIN_CREATE_NEW_PROCESS_GROUP

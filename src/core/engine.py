@@ -514,11 +514,46 @@ class TelemetryEngine:
             f"{self.synchronizer.dropped_oversampling} dropped (oversampling cap)."
         )
 
+        # A session that captured nothing is a failed session, and until now it
+        # did not look like one: the Parquet file was sealed, the session was
+        # uploaded and synced, and the UI showed a normal completed recording
+        # whose emptiness the researcher only discovered on opening it. Every
+        # openxr_headless run on 12 Sep did exactly this. The engine already has
+        # a channel for "this session ended with a reason" -- use it, so the
+        # answer arrives when the participant is still in the room.
+        if self.frames_recorded == 0 and self.failure_reason is None:
+            self.failure_reason = (
+                f"No telemetry was captured: the backend was polled {self.frames_polled} times "
+                "and not one frame reached storage. The session file is empty. See the tracking "
+                "fault summary for which source was failing."
+            )
+            logger.error(self.failure_reason)
+
         if self._async_loop and self._async_loop.is_running():
             self._async_loop.call_soon_threadsafe(self._async_loop.stop)
 
         if self._async_thread and self._async_thread.is_alive():
             self._async_thread.join(timeout=5.0)
+
+        # Hand the VR runtime back its handles (instance, session, spaces, eye
+        # driver). Nothing called this before: IVRBackend.shutdown() exists and
+        # all four backends implement it, but its only caller was each
+        # backend's own initialize() failure path -- so a *successful*
+        # recording leaked its OpenXR instance and session for the life of the
+        # backend process, and the next recording's xrCreateInstance then died
+        # inside the runtime with an access violation rather than an exception.
+        # Safe here: start()'s finally runs teardown on the engine thread, so
+        # the poll loop has already exited and the synchronizer above has
+        # drained. Broad catch because everything below still has to seal and
+        # upload the session -- a driver that misbehaves on the way out must
+        # not cost the researcher the recording it just made.
+        if self.backend:
+            try:
+                self.backend.shutdown()
+            except Exception:  # noqa: BLE001 - teardown: the session below still has to be sealed and uploaded
+                logger.exception("Backend shutdown failed; continuing teardown.")
+            finally:
+                self.backend = None
 
         self.hardware.stop()
         self.writer.stop()

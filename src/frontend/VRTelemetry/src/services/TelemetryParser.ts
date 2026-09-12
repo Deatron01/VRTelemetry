@@ -125,6 +125,21 @@ export class TelemetryParser {
   }
 
   private static processData(frames: TelemetryFrame[], filename: string, channels: string[], originalFrameCount: number) {
+    // A session that recorded nothing (the engine crashed before its first
+    // frame, or was stopped instantly) is a valid Parquet file with zero rows.
+    // Everything below — and every analysis page downstream — indexes
+    // frames[0] / frames[length - 1] unguarded, so without this the load died
+    // on "Cannot read properties of undefined (reading 'timestamp_ns')", which
+    // tells the researcher nothing about what actually went wrong. There is no
+    // meaningful empty state to render here: the honest answer is that this
+    // session has nothing to analyse, and the caller shows that message.
+    if (frames.length === 0) {
+      throw new Error(
+        'This session recorded no telemetry frames, so there is nothing to analyse. ' +
+        'The recording most likely failed to start on the headset — check the backend log for that session.'
+      );
+    }
+
     let hmdValid = 0;
     let hmdDropped = 0;
     let eyeValid = 0;

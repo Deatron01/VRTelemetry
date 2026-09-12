@@ -233,9 +233,17 @@ class SteamVROverlayBackend(IVRBackend):
                     frame.battery_right = -1.0
 
             # --- 3. Process General Flags & Timestamps ---
+            # Prop_HasCamera_Bool reports whether the HMD has a passthrough
+            # camera -- unrelated to eye tracking, and not a property every
+            # runtime recognises for every device, which is why this used to
+            # fail every frame with TrackedProp_UnknownProperty and permanently
+            # zero out eye_tracking_valid. Prop_SupportsXrEyeGazeInteraction_Bool
+            # is the actual gaze-support capability flag (added in pyopenvr
+            # 2.12; see the "openvr" pin in pyproject.toml).
             try:
                 gaze_support = self.vr_system.getBoolTrackedDeviceProperty(
-                    openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_HasCamera_Bool
+                    openvr.k_unTrackedDeviceIndex_Hmd,
+                    openvr.Prop_SupportsXrEyeGazeInteraction_Bool,
                 )
                 frame.eye_tracking_valid = 1.0 if gaze_support else 0.0
             except _PROPERTY_FAULTS as prop_err:

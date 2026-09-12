@@ -446,9 +446,9 @@ export const INFO_REGISTRY: Record<string, InfoContent> = {
 
   'session.backend': {
     title: 'Runtime Backend',
-    description: 'The VR tracking API this session’s telemetry engine reads from. Auto-Detect probes the available backends; OpenXR is the cross-vendor standard API; Oculus and SteamVR are vendor-specific APIs for Meta and Valve/HTC runtimes respectively.',
+    description: 'The VR tracking API this session’s telemetry engine reads from. Auto-Detect currently always selects SteamVR (it does not probe backends in turn — see src/backends/registry.py). OpenXR is the cross-vendor standard API, with an OpenXR (Headless) variant for runtimes such as SteamVR on Windows that refuse a graphics-less session; Oculus and SteamVR are vendor-specific APIs for Meta and Valve/HTC runtimes respectively.',
     provenance: 'raw',
-    limitations: 'Which options actually work depends on the VR runtime and headset installed on this machine.',
+    limitations: 'Which options actually work depends on the VR runtime and headset installed on this machine. On a SteamVR-native headset with eye-tracking hardware (e.g. Vive Pro Eye), only OpenXR / OpenXR (Headless) record real per-frame gaze and pupil data — the SteamVR backend can only report whether the headset supports it, not the gaze itself.',
   },
 
   // ---------------------------------------------------------------------
