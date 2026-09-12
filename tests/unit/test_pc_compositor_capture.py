@@ -34,6 +34,7 @@ the Windows-only branches must be exercised on both.
 
 from __future__ import annotations
 
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -58,6 +59,28 @@ from src.core.exceptions import AVCaptureUnavailableError
 #: Windows values so the win32 branch is actually exercised on every runner.
 _WIN_CREATE_NEW_PROCESS_GROUP = 0x00000200
 _WIN_CTRL_BREAK_EVENT = 1
+
+
+def _fake_windows(monkeypatch) -> None:
+    """Present a *complete* Windows environment to the code under test.
+
+    Patching ``sys.platform`` alone is not one. The functions under test then
+    take their win32 branch and dereference
+    ``subprocess.CREATE_NEW_PROCESS_GROUP`` / ``signal.CTRL_BREAK_EVENT``,
+    which simply do not exist on a Linux interpreter -- so on this suite's
+    Linux CI legs the test died with AttributeError inside the function,
+    before reaching any assertion. Patching the two attributes in alongside
+    the platform is what actually lets the Windows-only branch be exercised
+    on both runners, which is what this module's docstring promises.
+
+    ``raising=False`` because on a real Windows runner they are already there
+    and this is then a no-op overwrite with the same values.
+    """
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", _WIN_CREATE_NEW_PROCESS_GROUP, raising=False
+    )
+    monkeypatch.setattr(signal, "CTRL_BREAK_EVENT", _WIN_CTRL_BREAK_EVENT, raising=False)
 
 
 def _bare_capture(**overrides: Any) -> PCCompositorMirrorCapture:
@@ -155,7 +178,7 @@ def _patch_popen(monkeypatch: pytest.MonkeyPatch, *processes: _FakeProcess) -> l
 
 
 def test_creationflags_is_the_process_group_flag_on_windows(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "win32")
+    _fake_windows(monkeypatch)
     assert _win_creationflags() == _WIN_CREATE_NEW_PROCESS_GROUP
 
 
@@ -165,7 +188,7 @@ def test_creationflags_is_zero_off_windows(monkeypatch):
 
 
 def test_graceful_stop_signal_is_ctrl_break_on_windows(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "win32")
+    _fake_windows(monkeypatch)
     assert _graceful_stop_signal() == _WIN_CTRL_BREAK_EVENT
 
 
@@ -261,7 +284,7 @@ def test_every_ffmpeg_invocation_carries_the_crash_safe_mux_flags(monkeypatch, a
 
 
 def test_finish_segment_sends_ctrl_break_on_windows_and_stops_cleanly(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "win32")
+    _fake_windows(monkeypatch)
     capture = _bare_capture()
     process = _FakeProcess(alive=True)
     capture._process = process  # type: ignore[assignment]
@@ -280,7 +303,7 @@ def test_finish_segment_falls_back_to_terminate_then_kill_when_the_signal_is_not
     sent, ffmpeg never exits, so the pre-existing terminate()/kill() ladder
     must still run -- crash-safety (the mux flags) is what makes this an
     acceptable outcome now, not a data-loss bug."""
-    monkeypatch.setattr(sys, "platform", "win32")
+    _fake_windows(monkeypatch)
     capture = _bare_capture()
     process = _FakeProcess(alive=True)
     process.wait_times_out_once = True
@@ -306,7 +329,7 @@ def test_finish_segment_writes_q_to_stdin_off_windows(monkeypatch):
 
 
 def test_finish_segment_is_a_no_op_when_the_process_already_exited(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "win32")
+    _fake_windows(monkeypatch)
     capture = _bare_capture()
     process = _FakeProcess(alive=False)
     capture._process = process  # type: ignore[assignment]
@@ -318,7 +341,7 @@ def test_finish_segment_is_a_no_op_when_the_process_already_exited(monkeypatch):
 
 
 def test_launch_starts_ffmpeg_in_its_own_process_group_on_windows(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "win32")
+    _fake_windows(monkeypatch)
     capture = _bare_capture()
     seen_kwargs: dict[str, Any] = {}
 
