@@ -21,6 +21,16 @@ def compute_binocular_focal_distance(frame) -> float:
 
     lx, ly, lz = frame.left_eye_pos_x, frame.left_eye_pos_y, frame.left_eye_pos_z
     rx, ry, rz = frame.right_eye_pos_x, frame.right_eye_pos_y, frame.right_eye_pos_z
+
+    # A driver with only a combined gaze ray -- XR_EXT_eye_gaze_interaction,
+    # which is the path htc_tracker takes -- writes that one pose into both the
+    # left and right slots. There is then no binocular baseline to triangulate
+    # from: the two rays are the same ray, `denom` is exactly zero, and the
+    # near-parallel fallback below would return 2.0 for every frame of every
+    # such session. A constant that sits in the data looking like a measured
+    # focal distance is worse than an admission, so this says unavailable.
+    if (lx, ly, lz) == (rx, ry, rz):
+        return -1.0
     d1 = _rotate_forward(
         frame.left_eye_rot_x, frame.left_eye_rot_y, frame.left_eye_rot_z, frame.left_eye_rot_w
     )

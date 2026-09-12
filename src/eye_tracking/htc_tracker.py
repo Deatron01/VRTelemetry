@@ -139,15 +139,34 @@ class HTCEyeTrackingDriver(IEyeTrackingDriver):
                 )
 
                 if res == 0 and expressions.is_active:
-                    frame.left_pupil_size = (
-                        1.0
-                        - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_LEFT]
-                    )
-                    frame.right_pupil_size = (
-                        1.0
-                        - expressions.expression_weightings[xr.FacialExpressionHTC.EYE_CLOSED_RIGHT]
-                    )
+                    # These columns are pupil *diameter*: the frontend's
+                    # Task-Evoked Pupillary Response reads them as "mean pupil
+                    # diameter above the resting baseline ... associated with
+                    # cognitive effort". What used to be written here was
+                    # `1.0 - EYE_CLOSED_*`, which is eyelid openness -- a
+                    # different physical quantity entirely, turning a blink
+                    # trace into a confident-looking cognitive-effort metric.
+                    # XR_HTC_facial_tracking exposes eye *expressions* (blink,
+                    # wide, squeeze, pupil position), not diameter, so this
+                    # driver cannot answer the question the column asks. Same
+                    # "unsupported" sentinel ext_eye_gaze.py already uses, and
+                    # distinct from 0.0, which would read as a real measurement.
+                    frame.left_pupil_size = -1.0
+                    frame.right_pupil_size = -1.0
                     frame.eye_tracking_valid = 1.0
+                else:
+                    # Previously silent. A facial tracker that returns non-zero,
+                    # or reports itself inactive, left every eye column at its
+                    # create_empty() zero -- indistinguishable downstream from a
+                    # genuine reading of zero, which is the exact confusion
+                    # TrackingFaultLog exists to prevent.
+                    self.faults.record(
+                        "htc_blendshapes",
+                        RuntimeError(
+                            f"xrGetFacialExpressionsHTC returned {res}, "
+                            f"is_active={getattr(expressions, 'is_active', None)}"
+                        ),
+                    )
             except _HTC_FAULTS as e:
                 self.faults.record("htc_blendshapes", e)
 

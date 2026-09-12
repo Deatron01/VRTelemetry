@@ -94,7 +94,16 @@ REQUIRED: tuple[tuple[str, str], ...] = (
 #: Tracked-file count above which the repository is considered to have drifted.
 #: Not a hard architectural limit -- a tripwire. Raise it deliberately in a
 #: commit that explains why, never to silence a failure.
-MAX_TRACKED_FILES = 400
+#:
+#: 400 -> 410 on 12 Sep 2026. The 401st file is
+#: tests/unit/test_derived_metrics.py, the first coverage
+#: compute_binocular_focal_distance has ever had (it was silently returning its
+#: near-parallel fallback for every frame of every HTC session). The headroom
+#: is so the next legitimate test file does not block a commit and train
+#: everyone to bump this reflexively, which is what the note above is guarding
+#: against. It still catches what it was built for: node_modules or a session
+#: dump arrives in the hundreds, not in ones.
+MAX_TRACKED_FILES = 410
 
 
 # --------------------------------------------------------------------------- #

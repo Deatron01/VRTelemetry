@@ -131,6 +131,35 @@ def test_a_runtime_that_rejects_the_property_is_counted_not_crashed():
     assert backend.faults.counts["eye_support_probe"] == 1
 
 
+def test_the_gaze_capability_is_probed_once_per_session_not_once_per_frame():
+    """A device capability cannot change mid-session, so it is asked once.
+
+    Re-asking per frame is what produced 4671 identical eye_support_probe
+    faults in one 43-second session (12 Sep) on a runtime that does not
+    recognise the property -- 100% of frames, burying the summary that is
+    meant to say which source failed.
+    """
+    vr_system = _FakeVRSystem(eye_probe_result=True)
+    backend = _backend(vr_system)
+
+    for i in range(50):
+        assert backend.poll_frame(i).eye_tracking_valid == 1.0
+
+    assert len(vr_system.bool_property_calls) == 1
+
+
+def test_a_rejected_gaze_probe_is_recorded_once_not_once_per_frame():
+    """The same, for the failing path: one fault for the session, not 50."""
+    backend = _backend(
+        _FakeVRSystem(eye_probe_exception=openvr.OpenVRError("TrackedProp_UnknownProperty"))
+    )
+
+    for i in range(50):
+        assert backend.poll_frame(i).eye_tracking_valid == 0.0
+
+    assert backend.faults.counts["eye_support_probe"] == 1
+
+
 @pytest.mark.parametrize("exc", [ValueError("bad ctypes call"), OSError("native call failed")])
 def test_the_other_property_faults_the_probe_already_guarded_still_work(exc):
     """The property swap must not narrow what the probe tolerates."""

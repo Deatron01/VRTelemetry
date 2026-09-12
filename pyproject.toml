@@ -256,6 +256,11 @@ ignore = [
 # S607: a couple of tests shell out to `git` to build a fixture repository;
 # a full path would be less portable than the partial one, not safer.
 "tests/*" = ["S105", "S106", "S104", "S108", "ARG001", "SLF001", "S607"]
+# The openvr fakes mirror IVRSystem's own camelCase surface (getPlayAreaSize,
+# bPoseIsValid, ...). Renaming them to snake_case would stop them standing in
+# for the thing they replace, so the vendor's spelling wins over the naming
+# rule here -- for these doubles only, not for the tests around them.
+"tests/unit/test_backend_steamvr.py" = ["N802", "N815"]
 
 # VRT-10 moved these handlers out of src/main.py unchanged, so the exemptions
 # followed the code rather than being new debt. VRT-12 then deleted src/main.py's

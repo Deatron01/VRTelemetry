@@ -82,6 +82,10 @@ class SteamVROverlayBackend(IVRBackend):
         self.faults = TrackingFaultLog("SteamVROverlayBackend")
         self._frames_polled = 0
 
+        #: Cached answer to "can this HMD do eye gaze?" -- a device capability,
+        #: so it is asked once per session and reused. ``None`` until asked.
+        self._gaze_support: bool | None = None
+
     def initialize(self) -> bool:
         try:
             if not openvr.isHmdPresent():
@@ -240,15 +244,30 @@ class SteamVROverlayBackend(IVRBackend):
             # zero out eye_tracking_valid. Prop_SupportsXrEyeGazeInteraction_Bool
             # is the actual gaze-support capability flag (added in pyopenvr
             # 2.12; see the "openvr" pin in pyproject.toml).
-            try:
-                gaze_support = self.vr_system.getBoolTrackedDeviceProperty(
-                    openvr.k_unTrackedDeviceIndex_Hmd,
-                    openvr.Prop_SupportsXrEyeGazeInteraction_Bool,
-                )
-                frame.eye_tracking_valid = 1.0 if gaze_support else 0.0
-            except _PROPERTY_FAULTS as prop_err:
-                self.faults.record("eye_support_probe", prop_err)
-                frame.eye_tracking_valid = 0.0
+            #
+            # Asked once per session, not once per frame. Whether a headset
+            # supports gaze is a device capability: it cannot change while the
+            # session is open, so re-asking at the sampling rate buys nothing.
+            # On a runtime that does not recognise the property it cost one
+            # fault per frame -- 4671 of them in a single 43-second session on
+            # 12 Sep, at 100% of frames -- which drowns the fault summary that
+            # is supposed to tell a researcher which source actually failed.
+            if self._gaze_support is None:
+                try:
+                    self._gaze_support = bool(
+                        self.vr_system.getBoolTrackedDeviceProperty(
+                            openvr.k_unTrackedDeviceIndex_Hmd,
+                            openvr.Prop_SupportsXrEyeGazeInteraction_Bool,
+                        )
+                    )
+                except _PROPERTY_FAULTS as prop_err:
+                    # A runtime that refuses the property has not told us the
+                    # headset lacks gaze support, only that it will not answer.
+                    # Recorded once, under the same source name, and the column
+                    # reads 0 for the session rather than flapping.
+                    self.faults.record("eye_support_probe", prop_err)
+                    self._gaze_support = False
+            frame.eye_tracking_valid = 1.0 if self._gaze_support else 0.0
 
             frame.timestamp_ns = time.perf_counter_ns()
 

@@ -48,12 +48,34 @@ repos:
         # mypy needs the project's own dependencies to resolve imports, and the
         # hook runs in an isolated environment, so they are listed explicitly.
         # Keep in step with the `dev` extra in pyproject.toml.
+        #
+        # The list drifted once and blocked every commit on 12 Sep with nine
+        # import-not-found errors -- for numpy, tomli, pydantic_settings,
+        # cryptography and uvicorn, none of them real problems, all of them
+        # simply missing from this sandbox. Anything imported at module scope in
+        # src/ or tools/ and *not* covered by an ignore_missing_imports override
+        # in pyproject.toml has to appear here, or this gate fails on a clean
+        # tree -- and a gate that does that is one people uninstall.
+        #
+        # Running it from the developer's own venv instead was tried and is
+        # worse: `language: system` resolves `python` against whatever shell git
+        # was launched from, so it passes in an activated terminal and fails
+        # from every GUI client.
         additional_dependencies:
           - pydantic>=2.6
           - fastapi>=0.110
           - types-requests
+          - numpy>=1.26.4
+          - pydantic-settings>=2.2
+          - cryptography
+          - uvicorn>=0.27
+          - tomli>=2.0
         pass_filenames: false
-        args: []
+        # CI's verdict is the Linux one, so this has to ask the same question.
+        # Without it, openxr_headless.py's `ctypes.windll` type-ignore reads as
+        # unused on a Windows machine and fails here while passing in CI --
+        # issue #43, and one of the two things blocking commits on 12 Sep.
+        args: ["--platform", "linux"]
 
   - repo: local
     hooks:

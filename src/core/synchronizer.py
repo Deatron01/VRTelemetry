@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from collections import deque
 
 from src.core.datatypes import TelemetryFrame
@@ -33,6 +34,14 @@ class BiometricSynchronizer:
         self._buffer: deque[tuple] = deque(maxlen=buffer_size)
         self._is_running = False
         self._async_task: asyncio.Task | None = None
+
+        #: Set while no consumer is running, and by the consumer itself on the
+        #: way out. :meth:`stop` waits on it, so "stopped" means "everything
+        #: buffered actually reached the writer", not merely "asked to stop".
+        #: Starts set so a synchronizer that was never started does not make
+        #: stop() sit through its timeout.
+        self._drained = threading.Event()
+        self._drained.set()
 
         self.max_hz = max_hz
         self._min_interval_ns = int(1e9 / max_hz) if max_hz else None
@@ -131,11 +140,21 @@ class BiometricSynchronizer:
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._is_running = True
+        self._drained.clear()
         self._async_task = loop.create_task(self._consume_loop())
         cap_note = f" (sampling cap: {self.max_hz:.1f} Hz)" if self.max_hz else ""
         logger.info(f"Biometric synchronization buffer activated{cap_note}.")
 
     async def _consume_loop(self) -> None:
+        try:
+            await self._consume_until_drained()
+        finally:
+            # Reached only once every frame this loop popped has been handed to
+            # the writer, which is what makes it a safe signal for stop() to
+            # wait on -- including the case where the loop exits by raising.
+            self._drained.set()
+
+    async def _consume_until_drained(self) -> None:
         while self._is_running or len(self._buffer) > 0:
             try:
                 batch: list[tuple] = []
@@ -167,13 +186,32 @@ class BiometricSynchronizer:
                     exc_info=True,
                 )
 
-    def stop(self) -> None:
+    def stop(self, drain_timeout_sec: float = 5.0) -> None:
+        pending = len(self._buffer)
         self._is_running = False
+
+        # Wait for the consumer to finish, rather than only asking it to.
+        # Clearing the flag lets the loop drain, but the engine's teardown stops
+        # the event loop that loop runs on a few statements later -- so without
+        # this, whatever was still buffered (plus any batch already popped but
+        # not yet pushed) died with the loop, while frames_recorded had counted
+        # every one of them on acceptance. That inflated count is what teardown
+        # logs and what `total_frames` sends to the hub. It also made
+        # test_the_reported_frame_count_is_what_the_sink_actually_received fail
+        # about one run in three.
+        drained = self._drained.wait(timeout=drain_timeout_sec)
+
         logger.info(
-            f"Synchronizer shutting down. Flushing {len(self._buffer)} remaining frames to disk. "
+            f"Synchronizer shutting down. Flushing {pending} remaining frames to disk. "
             f"Dropped: {self.dropped_backpressure} (backpressure), "
             f"{self.dropped_oversampling} (oversampling cap)."
         )
+        if not drained:
+            logger.critical(
+                f"The synchronizer's consumer did not drain within {drain_timeout_sec:.0f}s: "
+                f"{len(self._buffer)} frame(s) were still buffered and have not reached the "
+                f"writer. This session's frame count overstates what was persisted."
+            )
         if self.consume_faults:
             logger.critical(
                 f"{self.consume_faults} consumer batch(es) failed during this session -- "
