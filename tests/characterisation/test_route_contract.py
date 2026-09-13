@@ -71,6 +71,20 @@ EXPECTED_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/sync/backfill"),
         ("GET", "/api/config/central-server"),
         ("POST", "/api/config/central-server"),
+        # Added with the VR Telemetry Hub plugin architecture (VRT-26..31):
+        # the researcher-facing catalog/install/uninstall/status surface
+        # over src.plugin_manager. See
+        # src/interfaces/api/routers/plugins.py.
+        ("GET", "/api/plugins/catalog"),
+        ("GET", "/api/plugins/status"),
+        ("POST", "/api/plugins/install"),
+        ("POST", "/api/plugins/uninstall"),
+        # Added later, same feature: pause/resume a plugin's process without
+        # re-cloning it or dropping it from the registry -- distinct from
+        # install/uninstall, which provision or discard it outright. See
+        # PluginManager.start_plugin/stop_plugin.
+        ("POST", "/api/plugins/start"),
+        ("POST", "/api/plugins/stop"),
     }
 )
 
@@ -158,4 +172,5 @@ def test_routes_carry_tags_so_the_docs_group_sensibly(app: Any) -> None:
         "licence",
         "sync",
         "config",
+        "plugins",
     }

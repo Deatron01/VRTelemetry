@@ -494,3 +494,98 @@ class CentralDataManager:
                 "SELECT * FROM client_heartbeats ORDER BY last_seen_at DESC"
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # --- Plugin catalog (admin dashboard's Plugin Catalog tab) -------------
+    #
+    # Backs both GET /api/plugins/catalog (the public, workstation-facing
+    # route -- published_only=True) and the /admin/plugins/* routes the
+    # dashboard's Add/Publish/Unpublish/Delete actions call. See
+    # data_schema.py's plugin_catalog table comment for why "add" and
+    # "publish" are two different actions rather than one.
+
+    def list_plugins(self, *, published_only: bool = False) -> list[dict[str, Any]]:
+        query = "SELECT * FROM plugin_catalog"
+        if published_only:
+            query += " WHERE published = 1"
+        query += " ORDER BY name COLLATE NOCASE ASC"
+        with self._conn() as conn:
+            rows = conn.execute(query).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_plugin(self, plugin_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM plugin_catalog WHERE plugin_id = ?", (plugin_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def add_plugin(
+        self,
+        *,
+        plugin_id: str,
+        name: str,
+        description: str,
+        repo_url: str,
+        ref: str = "main",
+        homepage: str | None = None,
+        maintainer: str | None = None,
+    ) -> bool:
+        """Add a new catalog entry, unpublished by default.
+
+        Returns False (no exception) if ``plugin_id`` already exists -- an
+        admin re-submitting the add form, or two admins racing, is an
+        ordinary occurrence the route should report as 409, not a server
+        error. Never publishes on add: staging an entry before it's visible
+        to every workstation is the entire reason this is two actions.
+        """
+        with self._conn() as conn:
+            try:
+                conn.execute(
+                    """INSERT INTO plugin_catalog
+                           (plugin_id, name, description, repo_url, ref, homepage, maintainer, published)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+                    (plugin_id, name, description, repo_url, ref, homepage, maintainer),
+                )
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def update_plugin(self, plugin_id: str, **fields: Any) -> bool:
+        """Update the editable fields of an existing catalog entry.
+
+        ``fields`` may contain any of name/description/repo_url/ref/
+        homepage/maintainer -- unknown keys are ignored rather than raising,
+        so a caller can pass a whole form payload through without
+        pre-filtering it. Returns False if the plugin doesn't exist or no
+        recognised field was supplied.
+        """
+        editable = {"name", "description", "repo_url", "ref", "homepage", "maintainer"}
+        updates = {k: v for k, v in fields.items() if k in editable}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"UPDATE plugin_catalog SET {set_clause}, updated_at = CURRENT_TIMESTAMP "
+                f"WHERE plugin_id = ?",
+                (*updates.values(), plugin_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def set_plugin_published(self, plugin_id: str, published: bool) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE plugin_catalog SET published = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE plugin_id = ?",
+                (1 if published else 0, plugin_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def delete_plugin(self, plugin_id: str) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute("DELETE FROM plugin_catalog WHERE plugin_id = ?", (plugin_id,))
+            conn.commit()
+            return cur.rowcount > 0

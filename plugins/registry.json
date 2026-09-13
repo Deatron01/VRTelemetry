@@ -1,0 +1,55 @@
+{
+  "plugins": [
+    {
+      "plugin_id": "medical-analytics-01",
+      "source": "local",
+      "repo_url": null,
+      "ref": "main",
+      "local_path": "plugins/medical-plugin-01",
+      "requirements_file": "requirements.txt",
+      "entrypoint": [
+        "python",
+        "app.py"
+      ],
+      "env": {},
+      "enabled": true,
+      "restart_on_crash": true,
+      "max_restarts_per_hour": 6
+    },
+    {
+      "plugin_id": "ros-unity-bridge",
+      "source": "local",
+      "repo_url": null,
+      "ref": "main",
+      "local_path": "plugins/ros-unity-bridge",
+      "requirements_file": "requirements.txt",
+      "entrypoint": [
+        "python",
+        "bridge_node.py"
+      ],
+      "env": {
+        "ROS_POSE_TOPIC": "/vrtelemetry/hmd_pose",
+        "ROS_FRAME_ID": "vr_play_area"
+      },
+      "enabled": false,
+      "restart_on_crash": true,
+      "max_restarts_per_hour": 6
+    },
+    {
+      "plugin_id": "example-remote-plugin",
+      "source": "git",
+      "repo_url": "https://github.com/Deatron01/example-vrtelemetry-plugin.git",
+      "ref": "main",
+      "local_path": null,
+      "requirements_file": "requirements.txt",
+      "entrypoint": [
+        "python",
+        "app.py"
+      ],
+      "env": {},
+      "enabled": false,
+      "restart_on_crash": true,
+      "max_restarts_per_hour": 6
+    }
+  ]
+}

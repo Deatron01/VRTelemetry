@@ -49,8 +49,10 @@ from src.config import Settings
 from src.infrastructure.persistence import SessionRepository
 from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
 from src.interfaces.api.container import Container, RecordingSessionManager
+from src.interfaces.api.event_router import EventRouter
 from src.license_service.local_cache import LocalLicenseCache
 from src.patients.patient_manager import PatientManager
+from src.plugin_manager import PluginManager
 from src.storage.database_manager import DatabaseManager
 from src.storage.heartbeat_client import HeartbeatSender
 from src.storage.patient_sync_client import PatientSyncClient
@@ -65,11 +67,13 @@ __all__ = [
     "ContainerDep",
     "DbManagerDep",
     "ErasureDep",
+    "EventRouterDep",
     "HeartbeatDep",
     "HttpDep",
     "LocalCacheDep",
     "PatientUploaderDep",
     "PatientsDep",
+    "PluginManagerDep",
     "RecordingDep",
     "SessionUploaderDep",
     "SessionsDep",
@@ -187,6 +191,16 @@ def get_recording(container: ContainerDep) -> RecordingSessionManager:
     return container.recording
 
 
+def get_event_router(container: ContainerDep) -> EventRouter:
+    """The plugin bus's WebSocket fan-out (VR Telemetry Hub architecture)."""
+    return container.event_router
+
+
+def get_plugin_manager(container: ContainerDep) -> PluginManager:
+    """Provisions and supervises the out-of-process plugins."""
+    return container.plugin_manager
+
+
 def get_http(container: ContainerDep) -> Any:
     """The HTTP client for outbound calls to the hub.
 
@@ -225,3 +239,5 @@ HeartbeatDep = Annotated[HeartbeatSender, Depends(get_heartbeat_sender)]
 RecordingDep = Annotated[RecordingSessionManager, Depends(get_recording)]
 HttpDep = Annotated[Any, Depends(get_http)]
 CentralUrlDep = Annotated[str, Depends(get_central_url)]
+EventRouterDep = Annotated[EventRouter, Depends(get_event_router)]
+PluginManagerDep = Annotated[PluginManager, Depends(get_plugin_manager)]

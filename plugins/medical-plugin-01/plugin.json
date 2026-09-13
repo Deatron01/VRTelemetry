@@ -1,0 +1,11 @@
+{
+  "plugin_id": "medical-analytics-01",
+  "name": "Medical & Psychometric Analytics",
+  "version": "0.1.0",
+  "description": "SSQ/NASA-TLX questionnaire scoring and a per-session biometric summary (mean heart rate, minimum boundary distance), computed out-of-process from live telemetry. Does not enforce GDPR consent and does not compute a stress score -- see README.md.",
+  "entrypoint": ["python", "app.py"],
+  "requirements_file": "requirements.txt",
+  "protocol_version": 1,
+  "author": "VRTelemetry project",
+  "homepage": null
+}

@@ -257,3 +257,138 @@ class TelemetryFrame:
             dist_to_target_left=0.0,
             dist_to_target_right=0.0,
         )
+
+
+#: Column order for a flattened frame, matching `to_tuple()`'s actual output
+#: order and `AsyncParquetWriter._define_schema()` -- NOT dataclass
+#: declaration order. `to_tuple()` deliberately does not emit fields in the
+#: order they're declared above: see its own "6. Validity Flags (Moved down
+#: to match schema definition exactly)" comment, where the four
+#: `*_tracking_valid` fields are pulled out of their sections and grouped
+#: together after the eye-tracking fields. A first version of this constant
+#: was `tuple(f.name for f in fields(TelemetryFrame))` -- declaration
+#: order -- which silently mislabelled every field from `hmd_tracking_valid`
+#: onward once zipped against a `to_tuple()` tuple. Caught before it shipped
+#: to a plugin; the self-check below exists so the next drift is caught the
+#: same way instead of shipping.
+#:
+#: Added for the VR Telemetry Hub plugin architecture
+#: (`src/interfaces/api/event_router.py`,
+#: `src/storage/broadcast_sink.py`): the Event Router receives the same
+#: positional tuples `FrameSink.push()` does and needs field names to turn
+#: one back into a JSON object for WebSocket subscribers, without importing
+#: any producer-side acquisition code to get them.
+FIELD_NAMES: tuple[str, ...] = (
+    "frame_index",
+    "timestamp_ns",
+    "hmd_pos_x",
+    "hmd_pos_y",
+    "hmd_pos_z",
+    "hmd_rot_x",
+    "hmd_rot_y",
+    "hmd_rot_z",
+    "hmd_rot_w",
+    "left_pos_x",
+    "left_pos_y",
+    "left_pos_z",
+    "left_rot_x",
+    "left_rot_y",
+    "left_rot_z",
+    "left_rot_w",
+    "left_trigger",
+    "left_grip",
+    "left_joy_x",
+    "left_joy_y",
+    "right_pos_x",
+    "right_pos_y",
+    "right_pos_z",
+    "right_rot_x",
+    "right_rot_y",
+    "right_rot_z",
+    "right_rot_w",
+    "right_trigger",
+    "right_grip",
+    "right_joy_x",
+    "right_joy_y",
+    "left_eye_pos_x",
+    "left_eye_pos_y",
+    "left_eye_pos_z",
+    "left_eye_rot_x",
+    "left_eye_rot_y",
+    "left_eye_rot_z",
+    "left_eye_rot_w",
+    "right_eye_pos_x",
+    "right_eye_pos_y",
+    "right_eye_pos_z",
+    "right_eye_rot_x",
+    "right_eye_rot_y",
+    "right_eye_rot_z",
+    "right_eye_rot_w",
+    "hmd_tracking_valid",
+    "left_tracking_valid",
+    "right_tracking_valid",
+    "eye_tracking_valid",
+    "left_pupil_size",
+    "right_pupil_size",
+    "heart_rate_bpm",
+    "distance_to_boundary",
+    "app_fps",
+    "event_marker",
+    "battery_hmd",
+    "battery_left",
+    "battery_right",
+    "haptic_left_intensity",
+    "haptic_right_intensity",
+    "gaze_focal_distance",
+    "voice_amplitude_db",
+    "cpu_utilization",
+    "gpu_utilization",
+    "scene_id",
+    "target_obj_pos_x",
+    "target_obj_pos_y",
+    "target_obj_pos_z",
+    "dist_to_target_left",
+    "dist_to_target_right",
+)
+
+
+def _verify_field_names_match_to_tuple() -> None:
+    """Import-time self-check: FIELD_NAMES must name `to_tuple()`'s columns,
+    in order. A silent mismatch here mislabels every field this application
+    ever sends to a plugin without raising anything -- the exact failure
+    class `to_tuple()`'s own docstring warns about for the Parquet schema,
+    just one layer further out. Assigns a distinct sentinel per field (not
+    just a count check) so a swapped pair is caught, not only a length
+    drift -- a plain length check would not have caught the bug this
+    replaced, since both orderings have the same 70 names.
+
+    Raised, not asserted (`assert` is stripped under `python -O`) and raised
+    at import rather than returned, matching this codebase's own rule
+    (`src/core/exceptions.py`): a write path -- and every plugin's telemetry
+    feed is one -- must not swallow a fault it can detect for free.
+    """
+    frame = TelemetryFrame.create_empty(0)
+    for index, name in enumerate(FIELD_NAMES):
+        if index < 2:  # frame_index / timestamp_ns keep their real (int) values
+            continue
+        setattr(frame, name, float(index) + 0.5)
+
+    produced = frame.to_tuple()
+    if len(produced) != len(FIELD_NAMES):
+        raise AssertionError(
+            f"FIELD_NAMES has {len(FIELD_NAMES)} entries but TelemetryFrame.to_tuple() "
+            f"returns {len(produced)} -- they have drifted out of lockstep. Update "
+            f"FIELD_NAMES to match to_tuple()'s actual column order."
+        )
+    for index in range(2, len(FIELD_NAMES)):
+        expected = float(index) + 0.5
+        if produced[index] != expected:
+            raise AssertionError(
+                f"FIELD_NAMES[{index}] = {FIELD_NAMES[index]!r} does not match the field "
+                f"TelemetryFrame.to_tuple() actually puts at column {index}. FIELD_NAMES "
+                f"has drifted out of lockstep with to_tuple() -- fix its order to match "
+                f"that method's actual output before anything reads FIELD_NAMES again."
+            )
+
+
+_verify_field_names_match_to_tuple()

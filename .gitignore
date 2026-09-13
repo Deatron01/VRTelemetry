@@ -32,7 +32,7 @@ LicenseServer/
 # impersonate the hub and receive participant data.
 *.pem
 *.key
-
+plugins/
 # ─────────────────────────────────────────────────────────────────────────────
 # Python
 # ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +58,18 @@ env/
 ENV/
 env.bak/
 venv.bak/
+
+# Plugin subsystem (src/plugin_manager) -- PluginManager's own generated
+# state, never source. plugins_venv_dir is one isolated venv per installed
+# plugin (rebuilt from that plugin's requirements.txt on demand, so
+# committing it just duplicates arbitrary third-party dependency trees into
+# this repo's history for nothing); plugins_checkout_dir is where a
+# source=git plugin gets cloned to, which is that plugin's *own* repository,
+# not this one's content. Both paths come from PluginBusSettings
+# (src/config/settings.py) and default to exactly these, relative to
+# PathSettings.data_root.
+plugins/_venvs/
+plugins/_checkouts/
 
 # Test & type-check caches
 .pytest_cache/

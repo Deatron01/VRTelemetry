@@ -40,6 +40,7 @@ from src.interfaces.api.dependencies import (
     AVRecordingsDep,
     CentralUrlDep,
     ConsentsDep,
+    EventRouterDep,
     PatientsDep,
     RecordingDep,
     SettingsDep,
@@ -135,8 +136,8 @@ def start_recording(
     central_url: CentralUrlDep,
     settings: SettingsDep,
     av_recordings: AVRecordingsDep,
+    event_router: EventRouterDep,
 ):
-
     setup_logging()
 
     if recording.is_running:
@@ -216,6 +217,11 @@ def start_recording(
         central_server_url=config.central_server_url or central_url,
         backend=config.backend,
         network_port=config.port,
+        # VR Telemetry Hub plugin architecture (VRT-26..31): an *observer*
+        # only, wired in via TeeFrameSink inside TelemetryEngine.__init__ --
+        # see that constructor's docstring and src/storage/tee_sink.py for
+        # why this can never affect the Parquet recording path.
+        event_router=event_router,
     )
 
     # The pseudonymous patient id, never the display name (GDPR-11). The

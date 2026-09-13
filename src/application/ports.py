@@ -79,10 +79,21 @@ class FrameSink(Protocol):
     collecting when it is true. A sink that cannot report having failed lets the
     engine count frames it did not persist -- which is the state
     ``TelemetryEngine._teardown`` exists to warn about.
+
+    Declared as a read-only property, not a plain attribute: every caller in
+    this codebase only ever reads ``sink.write_failed`` (the engine checks it,
+    never sets it -- a sink decides its own failure internally). A plain
+    ``write_failed: bool`` annotation would require every implementation to
+    expose a *settable* attribute for structural compatibility, which is
+    exactly what ``src.storage.tee_sink.TeeFrameSink`` deliberately does not
+    do: it proxies reads to ``primary`` and has no setter, on purpose, so
+    nothing can ever flip it independently of the sink that actually decides
+    it.
     """
 
     #: True once the sink has given up. Never resets within a session.
-    write_failed: bool
+    @property
+    def write_failed(self) -> bool: ...
 
     def start(self) -> None: ...
 

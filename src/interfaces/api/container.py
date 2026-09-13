@@ -43,9 +43,11 @@ from src.infrastructure.persistence import SessionRepository
 from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
 from src.infrastructure.persistence.consent_repository import ConsentRepository
 from src.infrastructure.transport import default_http_client
+from src.interfaces.api.event_router import EventRouter
 from src.license_service.local_cache import LocalLicenseCache
 from src.patients.consent_texts import build_catalogue
 from src.patients.patient_manager import PatientManager
+from src.plugin_manager import PluginManager
 from src.storage.database_manager import DatabaseManager
 from src.storage.heartbeat_client import HeartbeatSender
 from src.storage.patient_sync_client import PatientSyncClient
@@ -210,6 +212,11 @@ class Container:
     sync_scheduler: BackgroundSyncScheduler
     heartbeat_sender: HeartbeatSender
     recording: RecordingSessionManager
+    #: The plugin bus (VR Telemetry Hub plugin architecture). See the naming
+    #: note at the top of ``src/interfaces/api/event_router.py`` -- distinct
+    #: from ``HubSettings``/``central_server`` above, which is a different hub.
+    event_router: EventRouter
+    plugin_manager: PluginManager
 
     #: The HTTP client every outbound call goes through. An attribute rather
     #: than a direct import so a test replaces one object instead of patching a
@@ -308,6 +315,23 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
     local_cache = LocalLicenseCache(settings.paths.license_cache_db)
     recording = RecordingSessionManager()
 
+    # VR Telemetry Hub plugin architecture (VRT-26..31). Constructing these
+    # starts no threads and opens no sockets -- EventRouter.bind_loop() and
+    # PluginManager.start_all() are called from the app's lifespan, not here,
+    # so building a container in a test still spawns nothing.
+    event_router = EventRouter(
+        shared_token=settings.plugin_bus.shared_token,
+        max_queue_per_client=settings.plugin_bus.max_queue_per_client,
+    )
+    plugin_manager = PluginManager(
+        registry_path=settings.paths.data_root / settings.plugin_bus.registry_path,
+        plugins_dir=settings.paths.data_root / settings.plugin_bus.plugins_checkout_dir,
+        venvs_dir=settings.paths.data_root / settings.plugin_bus.plugins_venv_dir,
+        logs_dir=settings.paths.data_root / settings.paths.logs_dir_name / "plugins",
+        hub_ws_url=settings.plugin_bus.hub_ws_url,
+        hub_plugin_token=settings.plugin_bus.shared_token,
+    )
+
     def _resolve_central_url() -> str:
         configured = settings.central.url or ""
         return local_cache.get_config("central_server_url", configured) or configured
@@ -384,6 +408,8 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
             pending_count_provider=_pending,
         ),
         recording=recording,
+        event_router=event_router,
+        plugin_manager=plugin_manager,
         http=http,
     )
     logger.debug(f"Container built against data root {settings.paths.data_root}")

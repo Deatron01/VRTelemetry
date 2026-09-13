@@ -10,6 +10,7 @@ import { RawDataExplorer } from './pages/RawDataExplorer';
 import { DataQuality } from './pages/DataQuality';
 import { Metadata } from './pages/Metadata';
 import { Export } from './pages/Export';
+import { Plugins } from './pages/Plugins';
 import { SpatialViewer } from './components/visualizations/SpatialViewer';
 import { SessionExplorer } from './pages/SessionExplorer';
 import { ResearchInsights } from './pages/ResearchInsights';
@@ -115,6 +116,7 @@ function App() {
       case 'raw': return <RawDataExplorer />;
       case 'insights': return <ResearchInsights />;
       case 'export': return <Export />;
+      case 'plugins': return <Plugins />;
       case 'spatial': return (
         <div className="mx-auto flex h-full max-w-[1360px] flex-col gap-4">
           <div>

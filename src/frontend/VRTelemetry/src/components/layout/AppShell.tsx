@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import {
   Upload, Play, Pause, Activity, Eye, Compass, Info, LayoutDashboard, Database,
   ShieldAlert, Download, FileText, FolderSearch, Video, LogOut, Users, Brain,
-  Sun, Moon,
+  Sun, Moon, Puzzle,
 } from 'lucide-react';
 import { useTelemetryStore } from '../../store/useTelemetryStore';
 import { TelemetryParser } from '../../services/TelemetryParser';
@@ -54,6 +54,7 @@ const NAV_GROUPS: { label: string; items: { id: string; icon: React.ElementType;
       { id: 'metadata', icon: FileText, label: 'Session Metadata' },
       { id: 'raw', icon: Database, label: 'Raw Telemetry' },
       { id: 'export', icon: Download, label: 'Export / Reports' },
+      { id: 'plugins', icon: Puzzle, label: 'Plugins' },
     ],
   },
 ];
@@ -262,7 +263,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children, currentRoute, onRo
         </header>
 
         <main className="relative flex-1 overflow-y-auto px-6 pb-7 pt-5">
-          {!hasSession && currentRoute !== 'explorer' && currentRoute !== 'record' && currentRoute !== 'patients' ? (
+          {!hasSession && currentRoute !== 'explorer' && currentRoute !== 'record' && currentRoute !== 'patients' && currentRoute !== 'plugins' ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
               <div className="clay mb-6 flex h-16 w-16 items-center justify-center" style={{ color: 'var(--s1)' }}>
                 <Info className="h-8 w-8" />

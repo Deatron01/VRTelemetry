@@ -103,7 +103,19 @@ REQUIRED: tuple[tuple[str, str], ...] = (
 #: everyone to bump this reflexively, which is what the note above is guarding
 #: against. It still catches what it was built for: node_modules or a session
 #: dump arrives in the hundreds, not in ones.
-MAX_TRACKED_FILES = 410
+#:
+#: 410 -> 440 on 13 Sep 2026. 30 files arrived in one commit: the VR Telemetry
+#: Hub plugin architecture -- `src/plugin_manager/` (the composition root and
+#: its manifest/env/git-ops/process-runner collaborators), the Core Hub's
+#: `event_router.py`/`tee_sink.py`/`broadcast_sink.py` split, two reference
+#: plugins under `plugins/` (each with its own README/plugin.json/requirements.txt),
+#: the Central Server's `plugin_catalog.py`/`.json`, the workstation's
+#: `plugins` router/schemas, and the frontend's `Plugins.tsx` panel. Reviewed
+#: and deliberate, not vendored dependencies or session data arriving in
+#: bulk -- but still exactly the shape this check exists to make someone look
+#: at rather than wave through silently. Headroom is deliberately smaller than
+#: the jump itself, same reasoning as the 410 bump above.
+MAX_TRACKED_FILES = 440
 
 
 # --------------------------------------------------------------------------- #

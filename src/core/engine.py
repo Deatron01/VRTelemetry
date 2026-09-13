@@ -42,6 +42,7 @@ class TelemetryEngine:
         dependencies: RecordingDependencies | None = None,
         backend: str = "auto",
         network_port: int = 5005,
+        event_router: Any | None = None,
     ):
         """Prepare a recording. Nothing is started and no thread is spawned.
 
@@ -74,6 +75,14 @@ class TelemetryEngine:
                 session id), so there is no earlier place for a caller to build
                 them, and requiring it would put four constructors into both
                 call sites.
+            event_router: The VR Telemetry Hub's plugin Event Router
+                (src.interfaces.api.event_router.EventRouter), or None. Typed
+                Any so src/core never imports src/interfaces/api (dependencies
+                point inward). An observer only -- wrapped around self.writer
+                via TeeFrameSink, which is what keeps a plugin subsystem from
+                ever affecting write_failed or otherwise influencing the
+                recording. None (the default) reproduces today's behaviour
+                exactly.
 
         Raises:
             GDPRConsentError: if consent was not asserted.
@@ -139,6 +148,18 @@ class TelemetryEngine:
         # three tests already say `engine.writer`. They are the same objects;
         # `self.dependencies` is what a new caller should read.
         self.writer = self.dependencies.writer
+
+        # VR Telemetry Hub plugin architecture: an *observer* only -- see
+        # src/storage/tee_sink.py's docstring for why this can never affect
+        # write_failed or otherwise influence the recording. Uses
+        # self.session_id, already assigned above this point.
+        if event_router is not None:
+            from src.storage.tee_sink import TeeFrameSink
+
+            self.writer = TeeFrameSink(
+                self.writer, event_router.frame_sink_for_session(self.session_id)
+            )
+
         self.hardware = self.dependencies.hardware
         self.db_manager = self.dependencies.metadata_sink
         self.uploader = self.dependencies.uploader

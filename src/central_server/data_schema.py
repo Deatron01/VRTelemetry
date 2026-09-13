@@ -5,6 +5,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from src.central_server.plugin_catalog import load_catalog as load_json_seed_catalog
 from src.config import get_settings
 from src.domain.hub_projection import project_patient_for_hub, project_session_metadata_for_hub
 from src.utils.clock import utc_today
@@ -62,7 +63,7 @@ def initialize_data_schema(db_path: str | Path | None = None) -> None:
         received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(license_id, session_id)
     );
-    
+
     CREATE TABLE IF NOT EXISTS synced_patients (
         patient_id TEXT NOT NULL,
         license_id TEXT NOT NULL,
@@ -126,6 +127,27 @@ def initialize_data_schema(db_path: str | Path | None = None) -> None:
 
     CREATE INDEX IF NOT EXISTS idx_heartbeats_license ON client_heartbeats(license_id);
     CREATE INDEX IF NOT EXISTS idx_heartbeats_last_seen ON client_heartbeats(last_seen_at);
+
+    -- The operator-curated plugin allowlist GET /api/plugins/catalog serves to
+    -- workstations, promoted from the flat plugin_catalog.json file (see that
+    -- module's docstring) to a real table so the admin dashboard can add,
+    -- publish/unpublish and delete entries instead of an operator hand-editing
+    -- JSON and redeploying. `published` gates visibility on the public route --
+    -- an unpublished row exists for an admin to stage or review but is never
+    -- returned to a workstation, which is what makes "add" and "publish"
+    -- meaningfully different actions rather than one action with two names.
+    CREATE TABLE IF NOT EXISTS plugin_catalog (
+        plugin_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        repo_url TEXT NOT NULL,
+        ref TEXT NOT NULL DEFAULT 'main',
+        homepage TEXT,
+        maintainer TEXT,
+        published INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     """
 
     # Health/demographic columns added to synced_patients after its initial release —
@@ -177,11 +199,56 @@ def initialize_data_schema(db_path: str | Path | None = None) -> None:
                 f"written before the hub projection existed."
             )
 
+        seed_plugin_catalog_from_json(conn)
+
         conn.close()
         logger.info(f"Central data schema initialized at {db_path}")
     except sqlite3.Error as e:
         logger.error(f"Failed to initialize central data schema: {e}")
         raise
+
+
+def seed_plugin_catalog_from_json(conn: sqlite3.Connection) -> int:
+    """One-time migration: import plugin_catalog.json into the plugin_catalog
+    table the first time it's ever empty.
+
+    Only fires on an empty table, not "any entry missing" -- an admin who
+    deliberately deleted every catalog entry through the admin UI must not
+    have them silently reappear on the next server restart. Seeded rows are
+    marked ``published=1`` immediately: they were already being served live
+    from the JSON file before this table existed, so seeding them as
+    unpublished drafts would read as an unannounced catalog outage, not a
+    safer default.
+
+    Returns the number of rows seeded (0 on every run after the first).
+    """
+    (count,) = conn.execute("SELECT COUNT(*) FROM plugin_catalog").fetchone()
+    if count:
+        return 0
+
+    seeded = 0
+    for entry in load_json_seed_catalog():
+        conn.execute(
+            """INSERT OR IGNORE INTO plugin_catalog
+                   (plugin_id, name, description, repo_url, ref, homepage, maintainer, published)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
+            (
+                entry.plugin_id,
+                entry.name,
+                entry.description,
+                entry.repo_url,
+                entry.ref,
+                entry.homepage,
+                entry.maintainer,
+            ),
+        )
+        seeded += 1
+    if seeded:
+        conn.commit()
+        logger.info(
+            f"Seeded {seeded} plugin(s) from plugin_catalog.json into the plugin_catalog table."
+        )
+    return seeded
 
 
 def scrub_identifying_data(conn: sqlite3.Connection) -> int:

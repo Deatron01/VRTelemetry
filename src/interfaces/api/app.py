@@ -15,6 +15,7 @@ roots, and neither knows anything about the other.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -28,6 +29,7 @@ from src.interfaces.api.routers import (
     consent,
     licence,
     patients,
+    plugins,
     questionnaires,
     recording,
     sessions,
@@ -50,6 +52,7 @@ _ROUTERS = (
     licence.router,
     sync.router,
     config.router,
+    plugins.router,
 )
 
 
@@ -96,6 +99,13 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     for router in _ROUTERS:
         app.include_router(router)
+
+    # The Event Router's own APIRouter (/ws/hub/telemetry), mounted
+    # separately from _ROUTERS above: it belongs to the plugin bus rather
+    # than to the workstation's own REST surface, and it is built per-
+    # container (it holds live WebSocket connections) rather than imported
+    # as a module-level singleton like the routers in that tuple.
+    app.include_router(container.event_router.router)
 
     return app
 
@@ -157,6 +167,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             # tick, so a failure here delays work rather than losing it.
             logger.warning(f"{label} on boot failed: {exc}", exc_info=True)
 
+    # Bound before start_all(): a plugin's subprocess can connect to
+    # /ws/hub/telemetry within moments of being spawned, and
+    # publish_*_threadsafe must have a loop to hand work to by then (it logs
+    # and drops rather than raising if this were skipped -- see
+    # EventRouter.bind_loop's docstring -- but that would silently mean "no
+    # plugin ever receives anything" for the life of the app).
+    container.event_router.bind_loop(asyncio.get_running_loop())
+    container.plugin_manager.start_all()
+
     container.sync_scheduler.start()
     container.heartbeat_sender.start()
     try:
@@ -164,3 +183,4 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         container.sync_scheduler.stop()
         container.heartbeat_sender.stop()
+        container.plugin_manager.stop_all()

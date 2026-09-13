@@ -76,6 +76,34 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/plugins/catalog", tags=["plugins"])
+def plugin_catalog() -> list[dict[str, Any]]:
+    """The list of Core Hub plugins this deployment's operator has approved.
+
+    Unauthenticated, like `/health`: unlike every data-intake route above,
+    this carries no participant data and no tenant scoping -- it is the same
+    list for every workstation that asks, the way a package registry's index
+    is the same for every client. A workstation's own
+    `GET /api/plugins/catalog` (`src.interfaces.api.routers.plugins`) fetches
+    this and re-serves it to its own researcher-facing UI.
+
+    Backed by the `plugin_catalog` table (`CentralDataManager.list_plugins`)
+    rather than `plugin_catalog.json` directly -- that file is now only the
+    one-time seed `data_schema.seed_plugin_catalog_from_json` migrates into
+    the table on first boot; edit the catalog through the admin dashboard's
+    Plugin Catalog tab (`/admin/plugins/*`) from here on. `published_only`
+    excludes anything an admin has added but not yet published -- see
+    `data_schema.py`'s `plugin_catalog` table comment for why those are two
+    different actions.
+
+    Returns:
+        Each entry's `plugin_id`, `name`, `description`, `repo_url`, `ref`,
+        `homepage` and `maintainer` -- see
+        `src.central_server.plugin_catalog.CatalogEntry`.
+    """
+    return data_mgr.list_plugins(published_only=True)
+
+
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
@@ -701,6 +729,111 @@ def admin_delete_raw_file(file_id: str, admin=Depends(require_admin)):
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {e!s}") from e
 
     logger.warning(f"Admin {admin['email']} deleted raw file: {file_id}")
+    return {"ok": True}
+
+
+# ============================================================
+# --- PLUGIN CATALOG ROUTES (admin dashboard's Plugin Catalog tab) ---
+# ============================================================
+
+
+@app.get("/admin/plugins")
+def admin_list_plugins(admin=Depends(require_admin)) -> list[dict[str, Any]]:
+    """Every catalog entry, published or not -- unlike the public
+    `GET /api/plugins/catalog`, which only ever returns published ones."""
+    return data_mgr.list_plugins()
+
+
+@app.post("/admin/plugins/create")
+def admin_create_plugin(
+    plugin_id: str = Form(...),
+    name: str = Form(...),
+    description: str = Form(...),
+    repo_url: str = Form(...),
+    ref: str = Form("main"),
+    homepage: str = Form(""),
+    maintainer: str = Form(""),
+    admin=Depends(require_admin),
+) -> dict[str, Any]:
+    """Add a catalog entry. Unpublished until an admin explicitly publishes
+    it -- see `data_schema.py`'s `plugin_catalog` table comment."""
+    ok = data_mgr.add_plugin(
+        plugin_id=plugin_id,
+        name=name,
+        description=description,
+        repo_url=repo_url,
+        ref=ref or "main",
+        homepage=homepage or None,
+        maintainer=maintainer or None,
+    )
+    if not ok:
+        raise HTTPException(status_code=409, detail=f"'{plugin_id}' is already in the catalog.")
+    logger.warning(
+        f"Admin {admin['email']} added plugin '{plugin_id}' to the catalog (unpublished)."
+    )
+    return {"ok": True}
+
+
+@app.post("/admin/plugins/update")
+def admin_update_plugin(
+    plugin_id: str = Form(...),
+    name: str = Form(...),
+    description: str = Form(...),
+    repo_url: str = Form(...),
+    ref: str = Form("main"),
+    homepage: str = Form(""),
+    maintainer: str = Form(""),
+    admin=Depends(require_admin),
+) -> dict[str, Any]:
+    ok = data_mgr.update_plugin(
+        plugin_id,
+        name=name,
+        description=description,
+        repo_url=repo_url,
+        ref=ref or "main",
+        homepage=homepage or None,
+        maintainer=maintainer or None,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"'{plugin_id}' is not in the catalog.")
+    logger.warning(f"Admin {admin['email']} edited plugin '{plugin_id}'.")
+    return {"ok": True}
+
+
+@app.post("/admin/plugins/publish")
+def admin_publish_plugin(
+    plugin_id: str = Form(...), admin=Depends(require_admin)
+) -> dict[str, Any]:
+    """Make a catalog entry visible on `GET /api/plugins/catalog` -- the
+    moment a workstation can actually see and install it."""
+    ok = data_mgr.set_plugin_published(plugin_id, True)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"'{plugin_id}' is not in the catalog.")
+    logger.warning(f"Admin {admin['email']} published plugin '{plugin_id}' to the catalog.")
+    return {"ok": True}
+
+
+@app.post("/admin/plugins/unpublish")
+def admin_unpublish_plugin(
+    plugin_id: str = Form(...), admin=Depends(require_admin)
+) -> dict[str, Any]:
+    """Hide a catalog entry from `GET /api/plugins/catalog` without deleting
+    it -- e.g. a plugin under review again, or a repo that's temporarily
+    broken. Anyone who already installed it keeps running; this only
+    controls what new installs can see."""
+    ok = data_mgr.set_plugin_published(plugin_id, False)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"'{plugin_id}' is not in the catalog.")
+    logger.warning(f"Admin {admin['email']} unpublished plugin '{plugin_id}' from the catalog.")
+    return {"ok": True}
+
+
+@app.delete("/admin/plugins/{plugin_id}")
+def admin_delete_plugin(plugin_id: str, admin=Depends(require_admin)) -> dict[str, Any]:
+    ok = data_mgr.delete_plugin(plugin_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"'{plugin_id}' is not in the catalog.")
+    logger.warning(f"Admin {admin['email']} deleted plugin '{plugin_id}' from the catalog.")
     return {"ok": True}
 
 

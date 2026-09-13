@@ -434,6 +434,39 @@ class SyncSettings(BaseSettings):
     max_frames_to_client: int = Field(default=60_000, gt=0)
 
 
+class PluginBusSettings(BaseSettings):
+    """Configuration for the Event Router / out-of-process plugin subsystem
+    (the "VR Telemetry Hub" plugin architecture -- distinct from
+    :class:`HubSettings` above, which is the *other*, pre-existing hub:
+    the separate multi-workstation `central_server`. See the naming note
+    at the top of ``src/interfaces/api/event_router.py`` before adding
+    anything here that could be confused with that one.
+    """
+
+    enabled: bool = True
+
+    #: Required as ?token=/X-Plugin-Token on every /ws/hub/telemetry
+    #: connection when set. None means the endpoint trusts anything that can
+    #: reach it -- acceptable only while the API binds to loopback only.
+    shared_token: str | None = None
+
+    #: What plugins are told to connect to. Not derived from
+    #: ApiSettings' bind host/port automatically: the API may bind 0.0.0.0
+    #: while a local plugin should still connect via 127.0.0.1, so this is
+    #: its own explicit setting rather than a guess.
+    hub_ws_url: str = "ws://127.0.0.1:8000/ws/hub/telemetry"
+
+    #: All three relative to PathSettings.data_root.
+    registry_path: str = "plugins/registry.json"
+    plugins_checkout_dir: str = "plugins/_checkouts"
+    plugins_venv_dir: str = "plugins/_venvs"
+
+    #: ~2 seconds of buffer at 120 Hz. See EventRouter's docstring for why a
+    #: plugin that falls behind has its *oldest* frame dropped, not this
+    #: raised.
+    max_queue_per_client: int = Field(default=240, gt=0)
+
+
 class Settings(BaseSettings):
     """Root configuration object. Get it from :func:`get_settings`."""
 
@@ -452,6 +485,7 @@ class Settings(BaseSettings):
     sync: SyncSettings = Field(default_factory=SyncSettings)
     consent: ConsentSettings = Field(default_factory=ConsentSettings)
     av_recording: AVRecordingSettings = Field(default_factory=AVRecordingSettings)
+    plugin_bus: PluginBusSettings = Field(default_factory=PluginBusSettings)
 
     @model_validator(mode="after")
     def _no_port_collision(self) -> Settings:

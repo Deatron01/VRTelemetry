@@ -1,0 +1,24 @@
+{
+  "//": "HISTORICAL SEED DATA ONLY -- as of VRT-29's admin-CRUD follow-up (2026-09-13), the live catalog is the plugin_catalog table in central_data.db, managed through the admin dashboard's Plugin Catalog tab (/admin/plugins/*), not this file. This JSON was migrated in once by data_schema.seed_plugin_catalog_from_json() the first time that table was empty; editing this file now does nothing on a server that has already booted once. See src/central_server/plugin_catalog.py's module docstring.",
+  "//repo_url": "medical-analytics-01 and ros-unity-bridge were split out of this monorepo into their own repos under Deatron01 on 2026-09-13 (VRT-29) -- these repo_urls are real and installable, not placeholders. plugins/medical-plugin-01/ and plugins/ros-unity-bridge/ remain here too as local-source dev copies for in-repo development (see plugins/registry.json); the published repos are periodically re-synced from them by hand, they are not a git submodule/subtree.",
+  "plugins": [
+    {
+      "plugin_id": "medical-analytics-01",
+      "name": "Medical & Psychometric Analytics",
+      "description": "SSQ/NASA-TLX questionnaire scoring and a per-session biometric summary (mean heart rate, minimum boundary distance), computed out-of-process from live telemetry. Does not enforce GDPR consent and does not compute a stress score.",
+      "repo_url": "https://github.com/Deatron01/vrtelemetry-plugin-medical-analytics",
+      "ref": "main",
+      "homepage": "https://github.com/Deatron01/vrtelemetry-plugin-medical-analytics",
+      "maintainer": "VRTelemetry project"
+    },
+    {
+      "plugin_id": "ros-unity-bridge",
+      "name": "ROS 2 / Unity Bridge",
+      "description": "Converts the live OpenXR HMD pose to ROS's coordinate convention and publishes geometry_msgs/PoseStamped via rosbridge_suite, for a Unity-simulated robotic arm. Requires a ROS 2 distribution and rosbridge_suite already installed on the workstation.",
+      "repo_url": "https://github.com/Deatron01/vrtelemetry-plugin-ros-unity-bridge",
+      "ref": "main",
+      "homepage": "https://github.com/Deatron01/vrtelemetry-plugin-ros-unity-bridge",
+      "maintainer": "VRTelemetry project"
+    }
+  ]
+}
