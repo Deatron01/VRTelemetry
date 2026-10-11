@@ -1,4 +1,12 @@
-# VRTelemetry
+<p align="center">
+  <img src="./.github/assets/banner.svg" alt="VRTelemetry — A research instrument for VR studies." width="100%" />
+</p>
+
+<p align="center">
+  <samp>PYTHON · TYPESCRIPT · ELECTRON · PARQUET</samp>
+</p>
+
+### <samp>01 — WHAT IT IS</samp>
 
 A research instrument for recording what happens to a person inside a VR
 headset — eye tracking, pose, physiology, hardware state — and turning it into
@@ -14,9 +22,7 @@ and syncs to the hub when the network allows — queueing locally when it does n
 laptop in a room without the lab LAN can record a full session; everything
 queues and drains when the hub comes back.
 
----
-
-## What runs where
+### <samp>02 — WHAT RUNS WHERE</samp>
 
 Three processes, separate on purpose:
 
@@ -31,9 +37,7 @@ on loopback: it serves patient records and starts recordings, and there is no
 authentication in front of it because nothing outside the machine is meant to
 reach it. Do not expose it.
 
----
-
-## Install
+### <samp>03 — INSTALL</samp>
 
 **Python 3.10+**, and Node 20+ for the desktop app.
 
@@ -57,9 +61,7 @@ Install the package rather than running from the source tree with
 LibOVR is deliberately not in `workstation` — it does not install everywhere.
 Add `".[workstation,oculus]"` only if you record through it.
 
----
-
-## 1. Start the hub and its admin UI
+### <samp>04 — START THE HUB AND ITS ADMIN UI</samp>
 
 On the machine that will hold the archive, first create a TLS certificate for
 the hub's LAN address. The hub carries participant data and eye-tracking
@@ -120,11 +122,9 @@ VRT_HUB__HOST=0.0.0.0 VRT_HUB__PORT=9500 vrtelemetry-hub
 **Two underscores** between `HUB` and `PORT`. The single-underscore spelling is
 the pre-1.0 form; it is still honoured, but it logs a deprecation warning.
 
----
+### <samp>05 — START THE WORKSTATION</samp>
 
-## 2. Start the workstation
-
-### The desktop app, in development
+#### The desktop app, in development
 
 From the repository root, once:
 
@@ -145,7 +145,7 @@ The shell spawns the Python backend itself (`python -m uvicorn src.main:app` on
 it separately. Activate the virtualenv first, so the `python` it spawns is the
 one with the dependencies.
 
-### The backend alone
+#### The backend alone
 
 For debugging, or a headless recording box:
 
@@ -158,7 +158,7 @@ but only for this command. The Electron shell hardcodes 8000 in
 `electron/backend-manager.js` and does not read the setting, so if you are using
 the desktop app, leave the port alone.
 
-### Recording from the command line
+#### Recording from the command line
 
 ```bash
 vrtelemetry-record --consent-id <consent id> --backend steamvr
@@ -174,7 +174,7 @@ records only that someone typed it, not that the participant agreed (GDPR-09).
 refused unless `acquisition.enable_quest_udp = true`: its receiver accepts
 unencrypted, unauthenticated datagrams from anyone on the network (GDPR-12).
 
-### Packaging the desktop app
+#### Packaging the desktop app
 
 ```bash
 npm run package
@@ -184,9 +184,7 @@ Builds the frontend, freezes the backend with PyInstaller (`build/backend.spec`)
 and produces an installer in `release/` — NSIS on Windows, DMG on macOS,
 AppImage on Linux.
 
----
-
-## 3. Point the workstation at the hub
+### <samp>06 — POINT THE WORKSTATION AT THE HUB</samp>
 
 Skip this only if both run on one machine with default ports.
 
@@ -213,9 +211,7 @@ Skip this only if both run on one machine with default ports.
 An unreachable hub is not an error state. Sessions record locally and queue; the
 background scheduler drains them when the hub comes back.
 
----
-
-## Testing it works
+### <samp>07 — TESTING IT WORKS</samp>
 
 ```bash
 pytest -m "not hardware"          # 294 tests, no headset required
@@ -224,9 +220,7 @@ pytest -m "not hardware"          # 294 tests, no headset required
 The `hardware` marker separates tests that need a headset from the ones that do
 not. CI runs `-m "not hardware"`; so should you, unless one is connected.
 
----
-
-## Clearing local data
+### <samp>08 — CLEARING LOCAL DATA</samp>
 
 Before a fresh study, or to reset a test machine:
 
@@ -240,9 +234,7 @@ Scopes: `--sessions`, `--hub`, `--patients`, `--activation`, `--licences`,
 root is touched, and git-tracked files are refused. `--licences` wipes the
 admin account too — you will bootstrap one again.
 
----
-
-## Configuration
+### <samp>09 — CONFIGURATION</samp>
 
 Nothing is hardcoded. Configuration is typed (`pydantic-settings`) and resolved
 in one place, `src/config/settings.py`. Every path derives from a single data
@@ -258,9 +250,7 @@ An unconfigured central server URL is **empty**, not a guessed default. That is
 deliberate: a placeholder address makes an unconfigured install fail with a
 connection error instead of saying it is unconfigured.
 
----
-
-## Architecture
+### <samp>10 — ARCHITECTURE</samp>
 
 Layered, with dependencies pointing inward. Nothing in `domain/` knows that
 FastAPI or SQLite exist.
@@ -284,7 +274,7 @@ src/
 electron/          Desktop shell
 ```
 
-### The composition root
+#### The composition root
 
 Every collaborator is built in exactly one place —
 `src/interfaces/api/container.py` — and injected. **Importing a module performs
@@ -306,7 +296,7 @@ app = create_app(build_container(Settings(paths=PathSettings(data_root=tmp))))
 app.dependency_overrides[dependencies.get_patients] = lambda: FakeRegistry()
 ```
 
-### Storage
+#### Storage
 
 Four SQLite databases, all opened through one policy in
 `infrastructure/persistence/connection.py`: WAL journalling, a 5-second busy
@@ -321,9 +311,7 @@ metadata for three days before anyone noticed.
 
 Telemetry frames go to Parquet, not SQLite. Metadata goes to SQLite, not Parquet.
 
----
-
-## Data protection
+### <samp>11 — DATA PROTECTION</samp>
 
 The subjects are people, and the recordings are special-category health data.
 
@@ -338,9 +326,7 @@ The subjects are people, and the recordings are special-category health data.
 - **Tenancy is derived from the authenticated account**, never from a client-
   supplied `license_id`.
 
----
-
-## Development
+### <samp>12 — DEVELOPMENT</samp>
 
 The gates are not advisory. CI runs all of them.
 
@@ -372,7 +358,7 @@ Where a route is wrong, the test says so in its docstring and names the ticket
 that will change it. Nothing in that directory is an endorsement. When a ticket
 lands and inverts one, the docstring explains why — that is the audit trail.
 
-### Conventions
+#### Conventions
 
 - Docstrings say *why*, not *what*. The code already says what.
 - A comment that explains a non-obvious decision earns its place; one that
@@ -381,9 +367,7 @@ lands and inverts one, the docstring explains why — that is the audit trail.
   generating the OpenAPI document before and after and diffing it.
 - One ticket, one commit, with the reasoning in the message.
 
----
-
-## Troubleshooting
+### <samp>13 — TROUBLESHOOTING</samp>
 
 **"Cannot reach central server" when activating.** The address is wrong, the hub
 is not running, or the firewall is closed. The **Test** button beside the address
@@ -406,8 +390,12 @@ Check `/api/sync/status` on the workstation and `/health` on the hub.
 `workstation` extra on a machine with no VR runtime. The hub needs `[server]`,
 which requires neither.
 
----
-
-## Licence
+### <samp>14 — LICENCE</samp>
 
 Proprietary. All rights reserved.
+
+<br />
+
+<p align="center">
+  <sub><samp>MORE WORK AT <a href="https://github.com/Deatron01">GITHUB.COM/DEATRON01</a></samp></sub>
+</p>
