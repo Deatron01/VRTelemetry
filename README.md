@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="./.github/assets/banner.svg" alt="VRTelemetry — A research instrument for VR studies." width="100%" />
-</p>
+<h1 align="center">VRTelemetry</h1>
 
 <p align="center">
+  A research instrument for VR studies.<br />
   <samp>PYTHON · TYPESCRIPT · ELECTRON · PARQUET</samp>
 </p>
 
@@ -397,5 +396,7 @@ Proprietary. All rights reserved.
 <br />
 
 <p align="center">
+  <a href="https://github.com/Deatron01"><img src="https://raw.githubusercontent.com/Deatron01/Deatron01/main/assets/icon.png" width="56" alt="Dea" /></a><br />
+  <sub><i>Little chaos in a quiet mind.</i></sub><br />
   <sub><samp>MORE WORK AT <a href="https://github.com/Deatron01">GITHUB.COM/DEATRON01</a></samp></sub>
 </p>
