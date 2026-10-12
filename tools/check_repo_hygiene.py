@@ -89,6 +89,20 @@ REQUIRED: tuple[tuple[str, str], ...] = (
         "PyInstaller build input required by `npm run build:backend`. Previously "
         "excluded by a blanket `build/` ignore rule.",
     ),
+    (
+        "build/make-installer-license.js",
+        "Generates the installer's licence page from LICENSE + DISCLAIMER.md; "
+        "`npm run package` fails without it.",
+    ),
+    (
+        "LICENSE",
+        "The terms the source is published under. Bundled into every installer.",
+    ),
+    (
+        "DISCLAIMER.md",
+        "Research-use-only / not-a-medical-device statement. Part of the licence, "
+        "shown on the installer's licence page and bundled with every build.",
+    ),
 )
 
 #: Tracked-file count above which the repository is considered to have drifted.

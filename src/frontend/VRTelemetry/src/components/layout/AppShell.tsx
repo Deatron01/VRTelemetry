@@ -188,8 +188,18 @@ export const AppShell: React.FC<AppShellProps> = ({ children, currentRoute, onRo
           ))}
         </div>
 
+        {/* Always visible, on every screen: the outputs are research indices,
+            never clinical findings. Wording mirrors DISCLAIMER.md. */}
+        <p
+          role="note"
+          className="mt-auto px-2 text-[10px] leading-[1.35] text-ink-3"
+          title="VRTelemetry is a research data-acquisition tool. It is not a medical device and does not diagnose, monitor or treat any condition. Derived scores are research-support indices, not validated clinical measures. See DISCLAIMER.md."
+        >
+          Research use only. Not a medical device; outputs are not medical advice or a diagnosis.
+        </p>
+
         {user && (
-          <div className="clay-sm mt-auto flex items-center gap-2.5 px-2.5 py-2.5">
+          <div className="clay-sm flex items-center gap-2.5 px-2.5 py-2.5">
             <div
               className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg text-[11px] font-semibold"
               style={{ background: 'var(--s1-soft)', color: 'var(--s1)' }}

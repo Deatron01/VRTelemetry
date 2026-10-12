@@ -5,6 +5,24 @@
   <samp>PYTHON · TYPESCRIPT · ELECTRON · PARQUET</samp>
 </p>
 
+<p align="center">
+  <a href="https://github.com/Deatron01/VRTelemetry/releases/latest"><b>Download the latest release</b></a>
+  &nbsp;·&nbsp; <a href="DISCLAIMER.md">Disclaimer</a>
+  &nbsp;·&nbsp; <a href="SECURITY.md">Security</a>
+  &nbsp;·&nbsp; <a href="LICENSE">Licence</a>
+</p>
+
+> [!WARNING]
+> **Research use only — not a medical device.** VRTelemetry records and
+> summarises sensor data for non-clinical research. It does not diagnose,
+> monitor, predict or treat any medical condition, it is not CE-marked or
+> FDA-cleared, and its derived scores (SSQ, NASA-TLX, cognitive-load,
+> cybersickness or stress indices) are research-support indices, **not
+> validated clinical measures and not medical advice.** Researchers who record
+> people are responsible for ethics approval, informed consent and GDPR
+> compliance. Provided "as is", without warranty. Read the full
+> [DISCLAIMER](DISCLAIMER.md) before use.
+
 ### <samp>01 — WHAT IT IS</samp>
 
 A research instrument for recording what happens to a person inside a VR
@@ -389,9 +407,16 @@ Check `/api/sync/status` on the workstation and `/health` on the hub.
 `workstation` extra on a machine with no VR runtime. The hub needs `[server]`,
 which requires neither.
 
-### <samp>14 — LICENCE</samp>
+### <samp>14 — DISCLAIMER, SECURITY, LICENCE</samp>
 
-Proprietary. All rights reserved.
+- **[DISCLAIMER.md](DISCLAIMER.md)** — research use only; not a medical device;
+  no warranty. It forms part of the licence.
+- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability privately, and
+  the deployment rules that keep participant data safe.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — issues and pull requests. Never
+  attach real participant data to an issue.
+- **[LICENSE](LICENSE)** — proprietary, all rights reserved. The source is
+  published to be read and evaluated; any other use needs written permission.
 
 <br />
 

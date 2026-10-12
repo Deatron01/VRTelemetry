@@ -106,7 +106,7 @@ export const Overview: React.FC<OverviewProps> = ({ onNavigate }) => {
 
       <div className="flex items-end justify-between gap-6">
         <div>
-          <h1 className="page-title">Diagnostic Overview</h1>
+          <h1 className="page-title">Session Overview</h1>
           <p className="page-sub">
             High-fidelity biophysical snapshot and experimental metadata for the active telemetry matrix.
           </p>

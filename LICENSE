@@ -1,0 +1,47 @@
+VRTelemetry — Proprietary Licence
+
+Copyright (c) 2026 Nagy István Bence (GitHub: Deatron01). All rights reserved.
+
+1. Ownership. This software, including its source code, documentation,
+   diagrams, user interface and build artefacts (together, "the Software"), is
+   the property of the copyright holder and is protected by copyright law.
+
+2. What you may do. The source code is published so that it can be read and
+   evaluated. You may view it, and — only to the extent required by the
+   GitHub Terms of Service for public repositories — fork it on GitHub. You may
+   install and run the official release builds solely to evaluate the Software
+   for non-clinical research, unless you hold a separate written agreement with
+   the copyright holder that grants you more.
+
+3. What you may not do without prior written permission. You may not copy,
+   modify, merge, publish, distribute, sublicense, sell, rent, host as a
+   service, or otherwise exploit the Software or any substantial part of it,
+   and you may not use it in any product or service, whether commercial or
+   not.
+
+4. Medical use is excluded. The Software is not a medical device and must not
+   be used for any medical purpose. See DISCLAIMER.md, which forms part of this
+   licence.
+
+5. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY AND
+   NON-INFRINGEMENT.
+
+6. Limitation of liability. TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT
+   SHALL THE AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE, ITS OUTPUTS, OR THE USE OF
+   OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. Third-party components. Open-source libraries used by or bundled with the
+   Software remain under their own licences; nothing here restricts your rights
+   under those licences.
+
+8. Contributions. By submitting a contribution (for example a pull request) you
+   agree that the copyright holder may use, modify and distribute it as part of
+   the Software under any terms, and you confirm you have the right to grant
+   that.
+
+For licensing, lab access or any use beyond the above, contact the copyright
+holder through https://github.com/Deatron01.

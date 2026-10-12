@@ -260,6 +260,7 @@ export const Export = () => {
             special-category health data, per the researcher's explicit opt-in at export time. Confirmed authorized
             research/clinical purpose at export: Yes. Derived scientific measures (cognitive load, postural stability,
             motor kinematics, exertion) are research-support indices, not validated clinical diagnostics.
+            VRTelemetry is not a medical device; this report is not a medical assessment or medical advice.
           </p>
           <script>window.onload = () => window.print();</script>
         </body>

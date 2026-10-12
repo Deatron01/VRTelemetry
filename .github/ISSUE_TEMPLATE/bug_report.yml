@@ -1,0 +1,59 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not attach real participant data** — no recordings, `.parquet` or `.db` files,
+        study logs, or screenshots showing a person's details. Describe the data, or use a synthetic file.
+        Security problems: use *Security → Report a vulnerability* instead of an issue.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag or commit hash.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Desktop app (workstation)
+        - Workstation API / recording
+        - Hub (central server) / admin UI
+        - Plugin
+        - Installer / build
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, headset, VR runtime (SteamVR / OpenXR / Oculus), Python version if running from source.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Remove anything that identifies a participant before pasting.
+      render: text
+  - type: checkboxes
+    id: no-pii
+    attributes:
+      label: Data check
+      options:
+        - label: This issue contains no real participant data or personal information.
+          required: true

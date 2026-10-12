@@ -2,6 +2,10 @@
 """
 Create the VRTelemetry GitHub Projects board and seed it from PROJECT_BOARD.md.
 
+PROJECT_BOARD.md has since been retired from the tree (it is in git history);
+the GitHub Projects board this script created is now the source of truth. The
+seed tickets live in this file, so it still runs without it.
+
 Run this on a machine where the GitHub CLI is installed and logged in:
 
     gh auth status                       # confirm you're logged in
