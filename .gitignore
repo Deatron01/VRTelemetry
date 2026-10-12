@@ -99,6 +99,7 @@ src/frontend/VRTelemetry/dist/
 # ─────────────────────────────────────────────────────────────────────────────
 build/dist-backend/
 build/work/
+build/installer-license.txt
 release/
 apk/
 *.rar

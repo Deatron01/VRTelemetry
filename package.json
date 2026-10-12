@@ -1,6 +1,10 @@
 {
   "name": "vrtelemetry-desktop",
   "version": "1.0.0",
+  "description": "VRTelemetry desktop app - research data acquisition for VR studies. Research use only; not a medical device.",
+  "author": "Nagy István Bence",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/Deatron01/VRTelemetry",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -10,8 +14,9 @@
 
     "build:frontend": "cd src/frontend/VRTelemetry && npm install && npm run build",
     "build:backend": "pyinstaller build/backend.spec --distpath build/dist-backend --workpath build/work --noconfirm",
-    "prepackage": "npm run build:frontend && npm run build:backend",
-    "package": "npm run prepackage && electron-builder"
+    "build:legal": "node build/make-installer-license.js",
+    "prepackage": "npm run build:legal && npm run build:frontend && npm run build:backend",
+    "package": "npm run prepackage && electron-builder --publish never"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -21,7 +26,7 @@
     "cross-env": "^7.0.3"
   },
   "build": {
-    "appId": "com.yourlab.vrtelemetry",
+    "appId": "io.github.deatron01.vrtelemetry",
     "productName": "VRTelemetry",
     "directories": {
       "output": "release"
@@ -37,10 +42,25 @@
       {
         "from": "build/dist-backend/vrtelemetry-backend",
         "to": "backend"
-      }
+      },
+      { "from": "LICENSE", "to": "LICENSE.txt" },
+      { "from": "DISCLAIMER.md", "to": "DISCLAIMER.md" }
     ],
-    "win": { "target": "nsis" },
+    "publish": null,
+    "win": {
+      "target": "nsis",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "license": "build/installer-license.txt"
+    },
     "mac": { "target": "dmg", "category": "public.app-category.education" },
-    "linux": { "target": "AppImage" }
+    "linux": {
+      "target": "AppImage",
+      "category": "Science",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
   }
 }

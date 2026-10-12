@@ -154,8 +154,11 @@ vrtelemetry-bootstrap-admin = "src.license_service.bootstrap_admin:main"
 # VRT-15, not here -- this file's job is to make the dependency graph honest.
 packages = ["src"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/central_server/admin_ui" = "src/central_server/admin_ui"
+# No force-include for src/central_server/admin_ui: it is tracked and lives
+# inside the `src` package above, so it is already in the wheel. Force-including
+# it as well put every admin-UI file into the archive twice, which current
+# hatchling refuses ("A second file is being added to the wheel archive"), and
+# `python -m build` -- the release workflow's wheel step -- failed outright.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # pytest  (was pytest.ini)
