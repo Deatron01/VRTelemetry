@@ -90,6 +90,15 @@ REQUIRED: tuple[tuple[str, str], ...] = (
         "excluded by a blanket `build/` ignore rule.",
     ),
     (
+        "build/hub.spec",
+        "PyInstaller build input for the frozen hub; the release workflow's "
+        "hub-windows job fails without it.",
+    ),
+    (
+        "build/hub-installer.nsi",
+        "NSIS script for the Windows hub installer; makensis has nothing to build without it.",
+    ),
+    (
         "build/make-installer-license.js",
         "Generates the installer's licence page from LICENSE + DISCLAIMER.md; "
         "`npm run package` fails without it.",

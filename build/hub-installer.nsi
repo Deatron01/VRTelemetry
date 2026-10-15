@@ -1,0 +1,284 @@
+; VRTelemetry Hub -- Windows installer.
+;
+; Packages the frozen hub from build/hub.spec and does, on the hub machine,
+; what README section 04 otherwise asks a lab to do by hand with Python:
+; config, TLS certificate, firewall, start at boot, first administrator.
+;
+; Everything with logic in it lives in `vrtelemetry-hub.exe setup` (Python,
+; tested in tests/unit/test_hub_cli.py): config.toml, the certificate, the
+; workstation kit and the scheduled-task XML. This script only copies files,
+; asks for the address and wires Windows up.
+;
+; Build (from the repository root, after `pyinstaller build/hub.spec ...` and
+; `node build/make-installer-license.js`):
+;
+;     makensis /DVERSION=1.1.0 build/hub-installer.nsi
+;
+; Output: release/VRTelemetry-Hub-Setup-<version>.exe
+;
+; Data lives in %ProgramData%\VRTelemetryHub, never in the install directory,
+; and survives uninstalling. Its ACL is Administrators + SYSTEM only: it holds
+; participant data and the CA's private key. The workstation kit inside it is
+; the one folder ordinary users may read -- it holds only the public CA
+; certificate and a config.toml.
+
+Unicode true
+ManifestDPIAware true
+
+!include "MUI2.nsh"
+!include "nsDialogs.nsh"
+!include "LogicLib.nsh"
+
+!ifndef VERSION
+  !error "Pass the version: makensis /DVERSION=x.y.z build/hub-installer.nsi"
+!endif
+
+!define PRODUCT     "VRTelemetry Hub"
+!define HUB_DIST    "dist-hub\vrtelemetry-hub"   ; build/hub.spec's COLLECT name
+!define HUB_EXE     "vrtelemetry-hub.exe"
+!define TASK_NAME   "VRTelemetry Hub"
+!define FW_RULE     "VRTelemetry Hub"
+!define UNINST_KEY  "Software\Microsoft\Windows\CurrentVersion\Uninstall\VRTelemetryHub"
+!define SID_ADMINS  "*S-1-5-32-544"
+!define SID_SYSTEM  "*S-1-5-18"
+!define SID_USERS   "*S-1-5-32-545"
+
+Name "${PRODUCT} ${VERSION}"
+OutFile "..\release\VRTelemetry-Hub-Setup-${VERSION}.exe"
+InstallDir "$PROGRAMFILES64\${PRODUCT}"
+InstallDirRegKey HKLM "${UNINST_KEY}" "InstallLocation"
+RequestExecutionLevel admin
+SetCompressor /SOLID lzma
+BrandingText "${PRODUCT} ${VERSION} - research use only, not a medical device"
+
+VIProductVersion "${VERSION}.0"
+VIAddVersionKey "ProductName" "${PRODUCT}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
+VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "FileDescription" "${PRODUCT} installer"
+VIAddVersionKey "LegalCopyright" "Proprietary. All rights reserved."
+
+Var DataDir
+Var Address
+Var Port
+Var AddressField
+Var PortField
+
+!define MUI_ABORTWARNING
+
+!insertmacro MUI_PAGE_LICENSE "installer-license.txt"
+!insertmacro MUI_PAGE_DIRECTORY
+Page custom NetworkPage NetworkPageLeave
+!insertmacro MUI_PAGE_INSTFILES
+
+!define MUI_FINISHPAGE_TITLE "The hub is installed and running"
+!define MUI_FINISHPAGE_TEXT "It starts with Windows and restarts itself if it stops.$\r$\n$\r$\nNext:$\r$\n1. Create the first administrator (below, or from the Start menu).$\r$\n2. Log in to the admin UI and issue a licence key per researcher.$\r$\n3. Copy the workstation kit to each recording PC (see its README.txt).$\r$\n$\r$\nData: $DataDir"
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Create the first administrator now"
+!define MUI_FINISHPAGE_RUN_FUNCTION CreateAdminNow
+!define MUI_FINISHPAGE_SHOWREADME
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Open the workstation kit folder"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION OpenKit
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
+
+; Mark a .lnk "Run as administrator" (SLDF_RUNAS_USER, byte 0x15 bit 0x20).
+; create-admin writes the licence database, which only Administrators can.
+!macro ShortcutRunAsAdmin LNK
+  FileOpen $0 "${LNK}" a
+  FileSeek $0 0x15 SET
+  FileReadByte $0 $1
+  IntOp $1 $1 | 0x20
+  FileSeek $0 0x15 SET
+  FileWriteByte $0 $1
+  FileClose $0
+!macroend
+
+; Stop a running hub so its files can be replaced or removed.
+!macro StopHub
+  nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
+  Pop $0
+  nsExec::Exec 'taskkill /F /T /IM ${HUB_EXE}'
+  Pop $0
+  Sleep 1000
+!macroend
+
+Function .onInit
+  SetShellVarContext all
+  SetRegView 64
+  ; With SetShellVarContext all, $APPDATA is %ProgramData%.
+  StrCpy $DataDir "$APPDATA\VRTelemetryHub"
+  StrCpy $Port "9000"
+
+  ; Pre-fill the address workstations will use: the IPv4 address of the
+  ; adapter that has a default gateway, i.e. the one on the lab LAN.
+  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "(Get-NetIPConfiguration | Where-Object { $$_.IPv4DefaultGateway -and $$_.NetAdapter.Status -eq $\'Up$\' } | Select-Object -First 1).IPv4Address.IPAddress"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    ; Strip the trailing newline PowerShell prints.
+    trim:
+      StrCpy $2 $1 1 -1
+      ${If} $2 == "$\n"
+      ${OrIf} $2 == "$\r"
+      ${OrIf} $2 == " "
+        StrCpy $1 $1 -1
+        Goto trim
+      ${EndIf}
+    StrCpy $Address $1
+  ${EndIf}
+FunctionEnd
+
+Function NetworkPage
+  !insertmacro MUI_HEADER_TEXT "Network" "How the recording PCs will reach this hub."
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 36u "The LAN address of this machine, as the recording PCs see it. The TLS certificate is issued for this address, so use the one they will type. A fixed (reserved) address is strongly recommended."
+  Pop $0
+  ${NSD_CreateLabel} 0 42u 60u 12u "Address:"
+  Pop $0
+  ${NSD_CreateText} 64u 40u 120u 12u "$Address"
+  Pop $AddressField
+  ${NSD_CreateLabel} 0 62u 60u 12u "Port:"
+  Pop $0
+  ${NSD_CreateNumber} 64u 60u 40u 12u "$Port"
+  Pop $PortField
+  ${NSD_CreateLabel} 0 84u 100% 30u "If a hub was installed here before, its configuration and certificate are kept; the address and port above are used only for a new install and for the workstation kit."
+  Pop $0
+  nsDialogs::Show
+FunctionEnd
+
+Function NetworkPageLeave
+  ${NSD_GetText} $AddressField $Address
+  ${NSD_GetText} $PortField $Port
+  ${If} $Address == ""
+    MessageBox MB_ICONEXCLAMATION "Enter the address the recording PCs use to reach this machine."
+    Abort
+  ${EndIf}
+  ${If} $Port < 1
+  ${OrIf} $Port > 65535
+    MessageBox MB_ICONEXCLAMATION "The port must be between 1 and 65535."
+    Abort
+  ${EndIf}
+FunctionEnd
+
+Function CreateAdminNow
+  Exec '"$INSTDIR\${HUB_EXE}" --data-root "$DataDir" create-admin'
+FunctionEnd
+
+Function OpenKit
+  ExecShell "open" "$DataDir\workstation-kit"
+FunctionEnd
+
+Section "Hub" SecHub
+  SectionIn RO
+  SetShellVarContext all
+  SetRegView 64
+
+  DetailPrint "Stopping a running hub, if any..."
+  !insertmacro StopHub
+
+  SetOutPath "$INSTDIR"
+  File /r "${HUB_DIST}\*"
+  File "/oname=LICENSE.txt" "..\LICENSE"
+  File "..\DISCLAIMER.md"
+  File "..\config.example.toml"
+  WriteUninstaller "$INSTDIR\Uninstall.exe"
+
+  ; Data directory: Administrators and SYSTEM only.
+  CreateDirectory "$DataDir"
+  nsExec::ExecToLog 'icacls "$DataDir" /inheritance:r /grant:r ${SID_ADMINS}:(OI)(CI)F ${SID_SYSTEM}:(OI)(CI)F'
+  Pop $0
+
+  DetailPrint "Writing configuration, certificate and workstation kit..."
+  nsExec::ExecToLog '"$INSTDIR\${HUB_EXE}" --data-root "$DataDir" setup --address "$Address" --port $Port'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP "Hub setup failed (exit code $0). See the details above; nothing was started."
+    Abort
+  ${EndIf}
+  nsExec::ExecToLog 'icacls "$DataDir\workstation-kit" /grant ${SID_USERS}:(OI)(CI)RX'
+  Pop $0
+
+  DetailPrint "Opening TCP port $Port in Windows Firewall..."
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="${FW_RULE}"'
+  Pop $0
+  ; Program- and port-scoped, all profiles: a lab LAN is often classified
+  ; "Public" by Windows, and a hub the recording PCs cannot reach is the most
+  ; common setup failure. TLS and accounts protect what is behind the port.
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE}" dir=in action=allow protocol=TCP localport=$Port program="$INSTDIR\${HUB_EXE}" profile=any'
+  Pop $0
+
+  DetailPrint "Registering the hub to start with Windows..."
+  nsExec::ExecToLog 'schtasks /Create /TN "${TASK_NAME}" /XML "$DataDir\hub-task.xml" /F'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP "Could not register the scheduled task (exit code $0)."
+    Abort
+  ${EndIf}
+  nsExec::ExecToLog 'schtasks /Run /TN "${TASK_NAME}"'
+  Pop $0
+
+  ; Start menu
+  CreateDirectory "$SMPROGRAMS\${PRODUCT}"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk" \
+    "$INSTDIR\${HUB_EXE}" '--data-root "$DataDir" create-admin' "$INSTDIR\${HUB_EXE}" 0
+  !insertmacro ShortcutRunAsAdmin "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk"
+  WriteINIStr "$SMPROGRAMS\${PRODUCT}\Open admin UI.url" "InternetShortcut" "URL" "https://$Address:$Port/admin-ui/"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT}\Workstation kit.lnk" "$DataDir\workstation-kit"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT}\Uninstall ${PRODUCT}.lnk" "$INSTDIR\Uninstall.exe"
+
+  ; Programs and Features
+  WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
+  WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "VRTelemetry"
+  WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${HUB_EXE}"
+  WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
+SectionEnd
+
+Section "Uninstall"
+  SetShellVarContext all
+  SetRegView 64
+
+  nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
+  Pop $0
+  nsExec::Exec 'schtasks /Delete /TN "${TASK_NAME}" /F'
+  Pop $0
+  nsExec::Exec 'taskkill /F /T /IM ${HUB_EXE}'
+  Pop $0
+  Sleep 1000
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="${FW_RULE}"'
+  Pop $0
+
+  ; Remove only what this installer put there. `RMDir /r $INSTDIR` would
+  ; delete everything in it, and the directory is the user's choice -- it could
+  ; be "C:\Program Files" itself.
+  RMDir /r "$INSTDIR\_internal"
+  Delete "$INSTDIR\${HUB_EXE}"
+  Delete "$INSTDIR\LICENSE.txt"
+  Delete "$INSTDIR\DISCLAIMER.md"
+  Delete "$INSTDIR\config.example.toml"
+  Delete "$INSTDIR\Uninstall.exe"
+  RMDir "$INSTDIR"
+
+  Delete "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT}\Open admin UI.url"
+  Delete "$SMPROGRAMS\${PRODUCT}\Workstation kit.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT}\Uninstall ${PRODUCT}.lnk"
+  RMDir "$SMPROGRAMS\${PRODUCT}"
+
+  DeleteRegKey HKLM "${UNINST_KEY}"
+
+  MessageBox MB_ICONINFORMATION "The hub's data -- accounts, licences, uploaded sessions, the TLS certificate -- was kept in$\r$\n$APPDATA\VRTelemetryHub$\r$\nDelete that folder yourself if it is no longer needed." /SD IDOK
+SectionEnd

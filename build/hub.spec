@@ -1,0 +1,119 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""PyInstaller spec for the central hub (the Windows hub installer's payload).
+
+The hub was shipped only as a wheel, which asks a lab to install Python, pip
+and the ``server`` extra on the machine that holds every participant's data.
+This freezes ``src/central_server/cli.py`` -- serve, gen-cert,
+bootstrap-admin, setup -- into one directory that ``build/hub-installer.nsi``
+packages.
+
+What an import-graph walk does not see, and is therefore declared here:
+
+* **The admin UI and the plugin catalogue.** ``server.py`` mounts
+  ``Path(__file__).parent / "admin_ui"`` and ``plugin_catalog.py`` reads
+  ``plugin_catalog.json`` beside itself. Both are data, not modules; without
+  them the hub starts and ``/admin-ui/`` is a 404, with no error anywhere --
+  ``server.py`` mounts the directory only if it exists.
+* **uvicorn's loop and protocol implementations**, chosen by name at startup.
+* **multipart**, imported by FastAPI only when a route declares Form()/File(),
+  which the auth, licence and upload routes do.
+
+No VR bindings: the hub never touches a headset, and ``engine.py`` (which
+imports all four backends) is not reachable from it. They are excluded
+outright so a stray import cannot pull tens of megabytes of loader libraries
+into a server.
+
+UPX is off for the same reason as ``backend.spec``: compressed executables are
+a routine Windows Defender false positive.
+
+Build:  ``pyinstaller build/hub.spec --distpath build/dist-hub --workpath build/work-hub --noconfirm``
+Output: ``build/dist-hub/vrtelemetry-hub/vrtelemetry-hub.exe``
+"""
+
+import os
+
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
+
+PROJECT_ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))  # noqa: F821
+CENTRAL = os.path.join(PROJECT_ROOT, "src", "central_server")
+
+datas = [
+    (os.path.join(CENTRAL, "admin_ui"), os.path.join("src", "central_server", "admin_ui")),
+    (os.path.join(CENTRAL, "plugin_catalog.json"), os.path.join("src", "central_server")),
+]
+
+# Package metadata, so src/version.py reports the installed version instead of
+# its hand-kept fallback -- the frozen hub reported "1.0.0" on a 1.1.0 build
+# before this. Needs the project installed in the build environment
+# (`pip install -e .`), which both the release workflow and the README's
+# contributor setup do; copy_metadata fails the build loudly otherwise, which
+# is the right outcome for a bundle that would misreport itself.
+datas += copy_metadata("vrtelemetry")
+
+hiddenimports = [
+    # Reached only from inside cli.main()'s branches; named so a refactor that
+    # makes them lazier cannot drop them from the bundle.
+    "src.central_server.server",
+    "src.central_server.certificates",
+    "src.license_service.bootstrap_admin",
+    "multipart",
+    "tomli",
+]
+hiddenimports += collect_submodules("uvicorn")
+
+a = Analysis(  # noqa: F821
+    [os.path.join(CENTRAL, "cli.py")],
+    pathex=[PROJECT_ROOT],
+    binaries=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        "openvr",
+        "xr",
+        "ovr",
+        "torch",
+        "whisper",
+        "matplotlib",
+        "tkinter",
+        "PyQt5",
+        "PySide6",
+    ],
+    noarchive=False,
+    optimize=0,
+)
+
+pyz = PYZ(a.pure)  # noqa: F821
+
+exe = EXE(  # noqa: F821
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="vrtelemetry-hub",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    # A console program: bootstrap-admin prompts for a password, and the
+    # scheduled task that runs `serve` has no window to show either way.
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+coll = COLLECT(  # noqa: F821
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    # Must match build/hub-installer.nsi's HUB_DIST.
+    name="vrtelemetry-hub",
+)

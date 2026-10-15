@@ -64,7 +64,7 @@ Output: ``build/dist-backend/vrtelemetry-backend/vrtelemetry-backend[.exe]``
 
 import os
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 # SPECPATH is injected by PyInstaller and is this file's directory (build/), so
 # the project root is its parent. Derived rather than assumed from the working
@@ -85,6 +85,14 @@ for _package in ("openvr", "xr"):
     datas += _datas
     binaries += _binaries
     hiddenimports += _hidden
+
+# Package metadata, so src/version.py reports the installed version instead of
+# its hand-kept fallback -- the frozen hub reported "1.0.0" on a 1.1.0 build
+# before this. Needs the project installed in the build environment
+# (`pip install -e .`), which both the release workflow and the README's
+# contributor setup do; copy_metadata fails the build loudly otherwise, which
+# is the right outcome for a bundle that would misreport itself.
+datas += copy_metadata("vrtelemetry")
 
 # Imported by name at runtime -- see the module docstring.
 hiddenimports += [

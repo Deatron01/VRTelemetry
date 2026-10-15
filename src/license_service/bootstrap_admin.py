@@ -110,7 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Created {email} as an admin of {args.org!r}.")
-    print("Log in at http://<hub-host>:9000/admin-ui/ to issue licence keys.")
+    port = get_settings().hub.port
+    print(f"Log in at https://<hub-host>:{port}/admin-ui/ to issue licence keys.")
     return 0
 
 

@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the desktop app (Windows installer + Linux AppImage) and the Python
-# package (for hub machines), then publishes them as a GitHub Release.
+# Builds the desktop app (Windows installer + Linux AppImage), the hub's
+# Windows installer, and the Python package (for Linux hubs), then publishes
+# them as a GitHub Release.
 #
 # Trigger: push a tag `vX.Y.Z` that matches the version in pyproject.toml and
 # package.json, or run it by hand from the Actions tab (Release -> Run workflow)
@@ -141,9 +142,68 @@ jobs:
           path: ${{ matrix.artifact }}
           if-no-files-found: error
 
+  hub-windows:
+    name: Hub installer (Windows)
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            .github/ci-constraints.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Editable install: build/hub.spec copies the package metadata so the
+      # frozen hub reports its real version.
+      - name: Install the hub and PyInstaller
+        run: pip install -e ".[server]" "pyinstaller>=6.10,<7" -c .github/ci-constraints.txt
+      - name: Freeze the hub
+        run: pyinstaller build/hub.spec --distpath build/dist-hub --workpath build/work-hub --noconfirm
+      # setup into a scratch root, then serve over TLS on loopback and ask
+      # /health with the generated CA -- the path the installer takes.
+      - name: Smoke-test the frozen hub
+        shell: bash
+        run: |
+          exe=build/dist-hub/vrtelemetry-hub/vrtelemetry-hub.exe
+          root="$RUNNER_TEMP/hub"
+          "$exe" --data-root "$root" setup --address 127.0.0.1 --port 9555
+          sed -i 's/^host = .*/host = "127.0.0.1"/' "$root/config.toml"
+          "$exe" --data-root "$root" > "$RUNNER_TEMP/hub.log" 2>&1 &
+          stop() { taskkill //F //IM vrtelemetry-hub.exe > /dev/null 2>&1 || true; }
+          for i in $(seq 1 60); do
+            body=$(python -c "import requests,sys;print(requests.get('https://127.0.0.1:9555/health',verify=sys.argv[1],timeout=2).json()['service'])" "$root/workstation-kit/hub-ca.pem" 2>/dev/null) || true
+            if [ "$body" = "vrtelemetry-hub" ]; then
+              echo "frozen hub up after ${i}s"; stop; exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/hub.log"; stop; exit 1
+      - name: Installer licence page
+        run: node build/make-installer-license.js
+      # NSIS ships on GitHub's Windows images; install it if an image ever
+      # stops carrying it rather than failing on a missing makensis.
+      - name: Build the installer
+        shell: bash
+        run: |
+          command -v makensis > /dev/null || choco install nsis -y --no-progress
+          export PATH="$PATH:/c/Program Files (x86)/NSIS"
+          makensis -V3 "-DVERSION=${TAG#v}" build/hub-installer.nsi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hub-windows
+          path: release/VRTelemetry-Hub-Setup-*.exe
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
-    needs: [python-dist, desktop]
+    needs: [python-dist, desktop, hub-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

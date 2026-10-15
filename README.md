@@ -80,6 +80,26 @@ Add `".[workstation,oculus]"` only if you record through it.
 
 ### <samp>04 — START THE HUB AND ITS ADMIN UI</samp>
 
+**On Windows, use the installer** — `VRTelemetry-Hub-Setup-<version>.exe` from
+the Releases page. It needs no Python. It asks for the hub's LAN address, then
+does everything below: writes `config.toml`, creates the TLS certificate,
+opens the port in Windows Firewall, registers the hub to start with Windows
+(a scheduled task, restarted if it stops) and offers to create the first
+administrator. Data goes to `%ProgramData%\VRTelemetryHub`, readable by
+Administrators only, and survives uninstalling. The Start menu has *Create
+first administrator*, *Open admin UI* and *Workstation kit* — a folder with
+`hub-ca.pem` and a ready `config.toml` to copy into
+`%APPDATA%\VRTelemetry\data` on each recording PC, which replaces steps 3–4
+of §06. The installed `vrtelemetry-hub.exe` takes the same subcommands as the
+console script: `serve`, `gen-cert`, `bootstrap-admin`, `create-admin`,
+`setup`.
+
+To build it: `pyinstaller build/hub.spec --distpath build/dist-hub --workpath
+build/work-hub --noconfirm`, `node build/make-installer-license.js`, then
+`makensis -DVERSION=<version> build/hub-installer.nsi`.
+
+Otherwise, by hand:
+
 On the machine that will hold the archive, first create a TLS certificate for
 the hub's LAN address. The hub carries participant data and eye-tracking
 telemetry, so it refuses to listen on the network over plain HTTP (GDPR-01):
@@ -200,6 +220,11 @@ npm run package
 Builds the frontend, freezes the backend with PyInstaller (`build/backend.spec`)
 and produces an installer in `release/` — NSIS on Windows, DMG on macOS,
 AppImage on Linux.
+
+The packaged app keeps its data — sessions, `patients.db`, the licence
+activation, `config.toml` — in `%APPDATA%\VRTelemetry\data` (Electron's
+`userData` + `data` elsewhere), not in the install directory, so upgrading or
+uninstalling does not touch it. `VRT_PATHS__DATA_ROOT` overrides it.
 
 ### <samp>06 — POINT THE WORKSTATION AT THE HUB</samp>
 

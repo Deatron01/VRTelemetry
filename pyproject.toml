@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # ─────────────────────────────────────────────────────────────────────────────
 [project]
 name = "vrtelemetry"
-version = "1.0.0"
+version = "1.1.0"
 description = "Biometric telemetry acquisition and analysis for VR research studies"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -141,7 +141,9 @@ dev = [
 # invocations scattered across package.json, backend-manager.js and the README.
 vrtelemetry-server = "src.server_entrypoint:boot_server_context"
 vrtelemetry-record = "src.tert_runner:boot_framework_context"
-vrtelemetry-hub = "src.central_server.server:main"
+# One executable for the hub: serve (the default), gen-cert, bootstrap-admin,
+# setup. The frozen hub installer has nothing else to run.
+vrtelemetry-hub = "src.central_server.cli:main"
 # The first admin cannot be created over HTTP by design: registration always
 # makes a researcher, and promotion requires an admin session. Without this
 # a fresh hub can never issue a licence, so no workstation can activate.
@@ -255,6 +257,10 @@ ignore = [
 "tools/*" = ["T20", "S603", "S607"]
 # bootstrap_admin.py is an interactive CLI for creating the first admin account.
 "src/license_service/bootstrap_admin.py" = ["T20"]
+# The hub's command line and the certificate tool it runs; printing is their
+# interface, as for bootstrap_admin.py above.
+"src/central_server/cli.py" = ["T20"]
+"src/central_server/certificates.py" = ["T20"]
 # Tests assert on private state and use hardcoded fixtures by design.
 # S607: a couple of tests shell out to `git` to build a fixture repository;
 # a full path would be less portable than the partial one, not safer.
