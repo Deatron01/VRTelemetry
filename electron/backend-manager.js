@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { app } = require('electron');
@@ -16,6 +17,29 @@ function getBackendExecutablePath() {
   }
   // Dev mode: run the Python source directly instead of the frozen exe
   return null;
+}
+
+// Where the packaged backend keeps sessions, patients.db, the licence cache and
+// config.toml.
+//
+// Not the install directory. The backend's data root defaults to its working
+// directory, and this used to be resources/backend -- so under Program Files
+// recording could not write at all, and an upgrade or uninstall replaced
+// resources/ and deleted every recording with it.
+//
+// %APPDATA%\VRTelemetry\data: per-user, because a folder one account creates
+// under ProgramData is read-only to the next. The `data` subfolder keeps it
+// apart from Chromium's own files in userData. VRT_PATHS__DATA_ROOT, if the lab
+// set one, still wins.
+//
+// The backend is started *in* this directory as well as told about it:
+// get_settings() reads config.toml from the working directory, and a relative
+// central.ca_bundle resolves against it -- which is what lets the hub's
+// workstation kit say `ca_bundle = "hub-ca.pem"`.
+function getDataRoot() {
+  const dataRoot = process.env.VRT_PATHS__DATA_ROOT || path.join(app.getPath('userData'), 'data');
+  fs.mkdirSync(dataRoot, { recursive: true });
+  return dataRoot;
 }
 
 function waitForPort(port, host, timeoutMs = 15000) {
@@ -43,8 +67,11 @@ function waitForPort(port, host, timeoutMs = 15000) {
 async function startBackend() {
   if (app.isPackaged) {
     const exePath = getBackendExecutablePath();
+    const dataRoot = getDataRoot();
+    console.log(`Data root: ${dataRoot}`);
     backendProcess = spawn(exePath, [], {
-      cwd: path.dirname(exePath),
+      cwd: dataRoot,
+      env: { ...process.env, VRT_PATHS__DATA_ROOT: dataRoot },
       stdio: 'pipe',
     });
   } else {

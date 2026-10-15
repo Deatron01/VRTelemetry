@@ -58,9 +58,11 @@ and `config.toml` *inside the install directory*:
   write at all without elevation;
 - upgrading or uninstalling replaces `resources/`, deleting every recording.
 
-**Fix.** When packaged, the Electron shell passes
-`VRT_PATHS__DATA_ROOT = app.getPath('userData')` (`%APPDATA%\VRTelemetry`) to the
-backend and creates the directory first. Development mode is unchanged
+**Fix.** When packaged, the Electron shell creates
+`%APPDATA%\VRTelemetry\data` (`app.getPath('userData')` + `data`, apart from
+Chromium's own files), passes it as `VRT_PATHS__DATA_ROOT`, **and starts the
+backend in it** — `get_settings()` reads `config.toml` from the working
+directory, and a relative `central.ca_bundle` resolves against it. Development mode is unchanged
 (`npm run dev` keeps the repository root). An explicitly set
 `VRT_PATHS__DATA_ROOT` in the environment still wins, so a lab can point it at
 another disk.
