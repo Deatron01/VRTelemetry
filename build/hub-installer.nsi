@@ -44,6 +44,9 @@ ManifestDPIAware true
 !define SID_USERS   "*S-1-5-32-545"
 
 Name "${PRODUCT} ${VERSION}"
+; makensis does not create the output directory, and on a clean checkout
+; (CI) nothing else has created release/ yet. makensis runs in build/.
+!system 'if not exist "..\release" mkdir "..\release"'
 OutFile "..\release\VRTelemetry-Hub-Setup-${VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${PRODUCT}"
 InstallDirRegKey HKLM "${UNINST_KEY}" "InstallLocation"
