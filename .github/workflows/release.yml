@@ -112,8 +112,11 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             src/frontend/VRTelemetry/package-lock.json
+      # av_recording: session video and its transcription (P-C7) are features
+      # of the app; without the extra the frozen backend silently cannot
+      # record them, and the release would do less than a source install.
       - name: Install the workstation backend and PyInstaller
-        run: pip install -e ".[workstation]" "pyinstaller>=6.10,<7" -c .github/ci-constraints.txt
+        run: pip install -e ".[workstation,av_recording]" "pyinstaller>=6.10,<7" -c .github/ci-constraints.txt
       - name: Install the desktop shell
         run: npm ci
       - name: Installer licence page, frontend, frozen backend
