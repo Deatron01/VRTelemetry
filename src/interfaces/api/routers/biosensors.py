@@ -1,8 +1,7 @@
 # src/interfaces/api/routers/biosensors.py
 """The biosensor ingest API (VRT-32..36).
 
-Normative contract: ``plugins/BIOSENSOR_INGEST.md``. Design rationale:
-``claude/vrtelemetry-biosensor-host-changes.md``. This is the "generic
+Normative contract: ``plugins/BIOSENSOR_INGEST.md``. This is the "generic
 escape hatch" described there -- any third-party device that can POST JSON
 with a bearer token integrates directly, with or without a sensor-plugin
 process in between.

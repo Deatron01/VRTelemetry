@@ -4,9 +4,8 @@
 ## Naming -- read this before renaming anything
 
 This project already has a "hub": `src/central_server`, the separate
-multi-workstation sync/licensing service documented in
-`claude/hub-connection-and-networking.md` (`GET /health`, `VRT_HUB__*`
-settings, `HubSettings`). That hub is a different machine, a different
+multi-workstation sync/licensing service described in the README
+(`GET /health`, `VRT_HUB__*` settings, `HubSettings`). That hub is a different machine, a different
 process, and this file has nothing to do with it.
 
 The "VR Telemetry Hub" in the plugin-architecture request is a different
@@ -99,9 +98,8 @@ class EventRouter:
         #: Required as a `?token=` query param or `X-Plugin-Token` header on
         #: connect when set. `None` (the default) means the endpoint is open
         #: to anything that can reach it -- acceptable only because the
-        #: workstation API itself binds to loopback by default (see
-        #: `claude/hub-connection-and-networking.md`, "Left alone
-        #: deliberately"); set a token via settings before ever exposing this
+        #: workstation API itself binds to loopback by default (README §02);
+        #: set a token via settings before ever exposing this
         #: process beyond loopback.
         self._shared_token = shared_token
         #: ~2 seconds of buffer at 120 Hz. Deliberately small: a plugin this

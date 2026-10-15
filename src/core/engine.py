@@ -143,8 +143,8 @@ class TelemetryEngine:
         # every channel a plugin sends, and the perf_counter_ns<->time_ns
         # offset that lets /api/biosensors/sample convert a producer's
         # t_wall_ns into this session's frame clock. See
-        # claude/vrtelemetry-biosensor-host-changes.md for the design this
-        # implements and src/interfaces/api/routers/biosensors.py for the
+        # plugins/BIOSENSOR_INGEST.md for the contract and
+        # src/interfaces/api/routers/biosensors.py for the
         # route that calls ingest_biosensor_sample() below.
         self.live_biometrics = LiveBiometricState(
             staleness_horizon_sec=settings.biosensor.staleness_horizon_sec

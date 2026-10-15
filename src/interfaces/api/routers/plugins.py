@@ -70,8 +70,7 @@ def get_plugin_catalog(http: HttpDep, central_url: CentralUrlDep) -> list[dict[s
 
     A proxy rather than a client-side fetch of the central server directly:
     the researcher-facing UI only ever talks to this workstation's own
-    loopback API (see `claude/hub-connection-and-networking.md`'s "Left
-    alone deliberately" for why nothing else is exposed to it), and the hub
+    loopback API (README §02: nothing else is exposed to it), and the hub
     address itself is a workstation setting the browser has no business
     knowing or being able to redirect.
     """

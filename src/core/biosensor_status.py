@@ -4,8 +4,7 @@
 Lives on the ``Container``, not on a session's ``TelemetryEngine``: a
 researcher needs to see "Polar H10 connected, no skin contact" on the New
 Session screen *before* pressing Start, so this has to answer
-``GET /api/biosensors/status`` whether or not a recording is running -- see
-``claude/vrtelemetry-biosensor-host-changes.md`` §8's rewrite of
+``GET /api/biosensors/status`` whether or not a recording is running -- it replaced
 ``NewSession.tsx``'s hardcoded handshake row.
 
 Push, not poll (that doc's §3.2): a producer calls

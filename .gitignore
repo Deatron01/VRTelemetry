@@ -144,3 +144,14 @@ Thumbs.db
 *.bundle
 _purge/
 _REFACTOR-STATUS.md
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal working material that is not project content: AI-assistant notes
+# and scratch output, and documentation prepared for one person. The repository
+# is meant to be readable by anyone, so these stay on the machine that has them.
+# ─────────────────────────────────────────────────────────────────────────────
+.claude
+.claude/
+claude/
+Claude outputs/
+doc/KozlovszkyMiklos/

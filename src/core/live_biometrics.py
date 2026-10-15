@@ -11,7 +11,7 @@ staleness rules. A haptic pulse expires on a duration the caller supplied;
 a heart-rate reading expires because the sensor may have lost contact or
 the plugin process may have died, and nothing calls in to say so explicitly
 -- the sensor plugin's own rule (see
-``claude/vrtelemetry-biosensor-host-changes.md`` §4) is "stop sending,
+``plugins/BIOSENSOR_INGEST.md``) is "stop sending,
 don't repeat the last value." So staleness has to be a horizon this side
 judges against the current frame's own clock, not a value the producer
 pushes.

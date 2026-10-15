@@ -37,9 +37,8 @@ What exists today (`v1.0.0`, built by `.github/workflows/release.yml`):
 
 ## 0. Code state
 
-- Commit the staged code (not `doc/KozlovszkyMiklos/`, not `Claude outputs/_tmp/`:
-  the repository is being prepared for public visibility and those are
-  internal), then rebase onto `origin/main` (3 commits; `pyproject.toml` and
+- Commit the staged code (not the internal working files: the repository is
+  being prepared for public visibility), then rebase onto `origin/main` (3 commits; `pyproject.toml` and
   `Export.tsx` overlap).
 - Gates must pass before anything is built: `ruff check`, `ruff format --check`,
   `mypy`, `pytest -m "not hardware"`, `tools/check_repo_hygiene.py`, frontend

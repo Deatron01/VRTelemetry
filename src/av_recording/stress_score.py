@@ -10,12 +10,10 @@ medical/safety exception. A corporate-communication-training-style scenario
 run by an academic lab is exactly the case commentators and the Commission's
 own February-2025 guidance flag as genuinely unresolved -- not a formality to
 route around, and not something this codebase resolves by writing the model
-anyway and hoping. See ``claude/legal/av-recording-addendum.md`` (Section
-6.2) in the project for the full analysis and what a counsel opinion needs to
-answer before this is built: whether intended deployments are workplace
-contexts, whether "academic research" is enough to sit outside Art. 5(1)(f)
-given the acknowledged ambiguity, and whether a medical/safety framing is
-available.
+anyway and hoping. A counsel opinion needs to answer, before this is built,
+whether intended deployments are workplace contexts, whether "academic
+research" is enough to sit outside Art. 5(1)(f) given the acknowledged
+ambiguity, and whether a medical/safety framing is available.
 
 Recording the participant's speech and transcribing it for a researcher to
 read is not the same claim and is implemented (``session_recorder.py``,
@@ -55,6 +53,5 @@ class StressScorer:
     def score(self, transcript: Transcript, media_path: Path) -> float:  # noqa: ARG002 - the signature this deliberately-unimplemented method will take
         raise StressScoringNotImplementedError(
             "Stress-score computation is not implemented pending an EU AI Act Art. 5(1)(f) "
-            "opinion -- see claude/legal/av-recording-addendum.md, Section 6.2, and this "
-            "module's docstring."
+            "opinion -- see this module's docstring."
         )

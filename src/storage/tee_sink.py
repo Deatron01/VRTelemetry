@@ -2,7 +2,7 @@
 """Fan one authoritative FrameSink out to observers, invisibly to everyone above it.
 
 Part of the VR Telemetry Hub / plugin architecture (see
-`claude/vr-telemetry-hub-plugin-architecture-plan.md`). This is the seam that
+`plugins/PROTOCOL.md`). This is the seam that
 lets the Event Router see every frame without `BiometricSynchronizer` or
 `TelemetryEngine` knowing plugins exist at all.
 """

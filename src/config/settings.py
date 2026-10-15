@@ -478,7 +478,6 @@ class PluginBusSettings(BaseSettings):
 class BiosensorSettings(BaseSettings):
     """Configuration for the biosensor ingest API (VRT-32..36) -- the host
     side of the separate ``biosensor-plugin-01`` repository. See
-    ``claude/vrtelemetry-biosensor-host-changes.md`` and
     ``plugins/BIOSENSOR_INGEST.md`` for the contract this configures.
     """
 

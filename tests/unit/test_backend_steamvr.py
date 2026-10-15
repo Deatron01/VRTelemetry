@@ -96,8 +96,7 @@ def test_the_eye_probe_queries_gaze_interaction_support_not_camera_presence():
     the property it must send instead.
 
     `eye_tracking_valid` itself is asserted at 0.0 even though the probe
-    answers True: this backend has no gaze-acquisition path (see the 14 Sep
-    follow-up in claude/vrt-steamvr-eye-support-probe-fix.md), so a capable
+    answers True: this backend has no gaze-acquisition path, so a capable
     headset still gets zero-filled left_eye_*/right_eye_* columns and the
     validity flag must say so rather than claim a fixed, dead-ahead stare is
     real recorded gaze.

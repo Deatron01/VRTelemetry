@@ -8,7 +8,7 @@ build one.
 **Naming:** "the Hub" here means the workstation's own API process (this
 repository, `src/interfaces/api/`), extended with the Event Router. It is
 *not* `src/central_server`, the separate multi-workstation sync/licensing
-service documented in `claude/hub-connection-and-networking.md` — that is a
+service described in the README (§04–§06) — that is a
 different machine, a different process, and this protocol has nothing to do
 with it.
 
@@ -97,8 +97,8 @@ session id (same value written into `vr_telemetry_<session_id>.parquet`).
 
 > **Known gap in the current wiring**: the reference implementation of
 > `WebSocketBroadcastSink.start()` sends only `type` and `session_id`.
-> `consent_id` and `patient_id` are *not yet included*, though the plan doc
-> (`claude/vr-telemetry-hub-plugin-architecture-plan.md` §2) describes
+> `consent_id` and `patient_id` are *not yet included*, though the plugin
+> architecture plan describes
 > plugins reading a `consent_id` off this event to make their own output
 > traceable. If your plugin needs it before that's added upstream: patch
 > `WebSocketBroadcastSink.__init__`/`.start()` to accept and include it
@@ -158,8 +158,7 @@ name (see `SSQ_ITEMS`/`NASA_TLX_ITEMS` in
 Hub does not publish this event yet.** `plugins/medical-plugin-01/app.py`
 already has a handler for it (`_score_questionnaire`), written against this
 proposed shape, so that wiring it up on the Hub side is the only remaining
-step — see `claude/vr-telemetry-hub-plugin-architecture-plan.md` VRT-29 for
-the three options on how (and whether) to wire it.
+step — tracked as VRT-29, which weighs how (and whether) to wire it.
 
 ### `consent_withdrawn` — **not implemented, not yet designed**
 

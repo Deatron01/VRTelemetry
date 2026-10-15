@@ -55,7 +55,7 @@ const BACKENDS = [
   // also currently the only way to get real per-frame eye gaze/pupil data
   // (left_eye_*/right_eye_*/pupil columns) out of a SteamVR-native headset --
   // the SteamVR backend below can only report *whether* the headset supports
-  // gaze interaction, not the gaze itself (see claude/vrt-steamvr-eye-support-probe-fix.md).
+  // gaze interaction, not the gaze itself.
   { value: 'openxr_headless', label: 'OpenXR (Headless)' },
   { value: 'oculus', label: 'Oculus' },
   { value: 'steamvr', label: 'SteamVR' },

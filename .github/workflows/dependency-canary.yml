@@ -15,7 +15,7 @@ name: Dependency canary
 # indistinguishable from no check at all.
 #
 # The failure this was written for: FastAPI 0.141 changed `app.routes`, and
-# `fastapi>=0.110,<1.0` accepted it. See claude/ci-red-2026-09-03.md.
+# `fastapi>=0.110,<1.0` accepted it.
 
 on:
   schedule:
