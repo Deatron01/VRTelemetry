@@ -41,7 +41,7 @@ repos:
     # tests written exactly like the ones already in the tree.
     rev: v0.16.9
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format
 
