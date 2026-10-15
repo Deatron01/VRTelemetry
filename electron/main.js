@@ -36,12 +36,20 @@ protocol.registerSchemesAsPrivileged([
 // Serve the packaged frontend out of resources/frontend, refusing anything that
 // escapes it: the path comes from a URL, and `..` in a URL is a directory
 // traversal against the user's disk.
+//
+// monitor.html is the one page that lives beside this file rather than in the
+// frontend build. It fetches /api/monitor/metrics, so it needs the same app://
+// origin as the main window -- which is also why the scheme is registered in
+// development, where only the monitor window uses it.
 function registerAppProtocol() {
   const root = path.join(process.resourcesPath, 'frontend');
 
   protocol.handle(APP_SCHEME, (request) => {
     const { pathname } = new URL(request.url);
     const relative = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html';
+    if (relative === 'monitor.html') {
+      return net.fetch(pathToFileURL(path.join(__dirname, 'monitor.html')).toString());
+    }
     const resolved = path.resolve(root, relative);
 
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
@@ -78,8 +86,28 @@ async function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+let monitorWindow = null;
+function createMonitorWindow() {
+  monitorWindow = new BrowserWindow({
+    width: 300,
+    height: 400,
+    title: 'PC Monitor',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+    show: false,
+    autoHideMenuBar: true,
+    alwaysOnTop: true,
+  });
+
+  monitorWindow.loadURL(`${APP_SCHEME}://./monitor.html`);
+  monitorWindow.once('ready-to-show', () => monitorWindow.show());
+  monitorWindow.on('closed', () => { monitorWindow = null; });
+}
+
 app.whenReady().then(async () => {
-  if (app.isPackaged) registerAppProtocol();
+  registerAppProtocol();
 
   try {
     await startBackend();
@@ -92,9 +120,13 @@ app.whenReady().then(async () => {
     return;
   }
   await createWindow();
+  createMonitorWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      createMonitorWindow();
+    }
   });
 });
 

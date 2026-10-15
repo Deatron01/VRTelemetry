@@ -25,9 +25,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.interfaces.api.container import Container, build_container
 from src.interfaces.api.routers import (
     auth,
+    biosensors,
     config,
     consent,
     licence,
+    monitor,
     patients,
     plugins,
     questionnaires,
@@ -53,6 +55,8 @@ _ROUTERS = (
     sync.router,
     config.router,
     plugins.router,
+    monitor.router,
+    biosensors.router,
 )
 
 
@@ -126,6 +130,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     lab -- must still come up and serve the local UI.
     """
     container = app.state.container
+
+    loop = asyncio.get_running_loop()
+
+    def _suppress_winerror_10054(loop, context):
+        exc = context.get("exception")
+        if (
+            exc
+            and isinstance(exc, ConnectionResetError)
+            and getattr(exc, "winerror", None) == 10054
+        ):
+            return  # Suppress known noisy browser disconnects (VRT-24)
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_suppress_winerror_10054)
 
     # Imported here rather than at module scope: both modules import the
     # routers package, and this module is what the routers package is mounted

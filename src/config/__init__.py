@@ -11,6 +11,7 @@ composition root's ``settings`` parameter do -- means constructing a
 from src.config.settings import (
     AcquisitionSettings,
     ApiSettings,
+    BiosensorSettings,
     CentralServerSettings,
     ConsentSettings,
     HubSettings,
@@ -25,6 +26,7 @@ from src.config.settings import (
 __all__ = [
     "AcquisitionSettings",
     "ApiSettings",
+    "BiosensorSettings",
     "CentralServerSettings",
     "ConsentSettings",
     "HubSettings",

@@ -433,6 +433,12 @@ export const INFO_REGISTRY: Record<string, InfoContent> = {
     provenance: 'derived',
     limitations: 'A qualitative visualization of gaze movement order, not a validated fixation/saccade classifier.',
   },
+  'spatial.recorded-view': {
+    title: 'Recorded View',
+    description: 'The session’s recorded screen capture (src/av_recording), played back alongside the reconstructed 3D gaze replay — what was on screen next to where the participant was looking.',
+    provenance: 'raw',
+    limitations: 'Only available for sessions with A/V recording enabled and a video that has not yet been deleted under the configured retention period. Playback position is synced to the telemetry clock using each recording’s logged start time, which is accurate to about a second, not frame-exact — the two are independent recordings that start a moment apart.',
+  },
   'spatial.por': {
     title: 'Live Point of Regard',
     description: 'Estimated 3D point where the participant’s left and right gaze rays converge at the current playback frame, found from the closest approach between the two eye rays.',

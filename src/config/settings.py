@@ -300,6 +300,14 @@ class AcquisitionSettings(BaseSettings):
     #: through OpenXR. Switch it on only after adding transport security.
     enable_quest_udp: bool = False
 
+    #: Submit a DXGI Desktop Duplication capture as an ``XrCompositionLayerQuad``
+    #: each frame so the SteamVR / Vive Streaming mirror window shows the
+    #: desktop instead of black.  Only applies to the ``openxr_headless``
+    #: backend, which creates a D3D11 graphics binding and therefore owns the
+    #: compositor.  Default on, because the alternative is a permanently black
+    #: window on the operator's PC.
+    enable_desktop_mirror: bool = True
+
 
 class ConsentSettings(BaseSettings):
     """What the participant consent screen says about *this* study (GDPR-09).
@@ -467,6 +475,48 @@ class PluginBusSettings(BaseSettings):
     max_queue_per_client: int = Field(default=240, gt=0)
 
 
+class BiosensorSettings(BaseSettings):
+    """Configuration for the biosensor ingest API (VRT-32..36) -- the host
+    side of the separate ``biosensor-plugin-01`` repository. See
+    ``claude/vrtelemetry-biosensor-host-changes.md`` and
+    ``plugins/BIOSENSOR_INGEST.md`` for the contract this configures.
+    """
+
+    #: Required for every ``/api/biosensors/*`` call. Unlike
+    #: ``PluginBusSettings.shared_token`` (which defaults to open, tolerable
+    #: only behind loopback), ``None`` here disables ingest outright rather
+    #: than accepting unauthenticated writes into a research record --
+    #: ingest is a write path, ``/ws/hub/telemetry`` is a read path
+    #: (BIOSENSOR_INGEST.md, "Auth", rule 4).
+    shared_token: str | None = None
+
+    #: How long a folded-in ``heart_rate_bpm`` value is trusted before a
+    #: frame reads 0.0 ("absent") instead of the last reported reading.
+    #: Standard GATT HR notifications arrive around 1 Hz; 5 s tolerates a
+    #: few misses without pretending a removed strap is still reading.
+    staleness_horizon_sec: float = Field(default=5.0, gt=0)
+
+    #: A status report older than this is reported "gone" rather than as
+    #: its last known state -- mirrors ``HubSettings.client_online_threshold_sec``.
+    status_stale_after_sec: float = Field(default=90.0, gt=0)
+
+    #: Cap on samples accepted from one ``POST /api/biosensors/sample`` call.
+    #: HR is ~1 Hz; a raw-ECG device could be 130 Hz/channel -- pick a
+    #: number generous enough for a few seconds of batching at that rate.
+    #: Extra samples in an oversized batch are dropped and counted, not
+    #: rejected outright. Open question in the host-changes doc (§12.5):
+    #: revisit with a real measurement before this ships to a lab.
+    max_samples_per_request: int = Field(default=1000, gt=0)
+
+    #: Sidecar Parquet (``src.storage.biosensor_sidecar``): rows buffered
+    #: before a flush.
+    sidecar_flush_interval_rows: int = Field(default=200, gt=0)
+
+    #: Sidecar Parquet: hard ceiling on buffered rows regardless of flush
+    #: interval, mirroring ``AsyncParquetWriter``'s own hard ceiling.
+    sidecar_max_buffer_rows: int = Field(default=20_000, gt=0)
+
+
 class Settings(BaseSettings):
     """Root configuration object. Get it from :func:`get_settings`."""
 
@@ -486,6 +536,7 @@ class Settings(BaseSettings):
     consent: ConsentSettings = Field(default_factory=ConsentSettings)
     av_recording: AVRecordingSettings = Field(default_factory=AVRecordingSettings)
     plugin_bus: PluginBusSettings = Field(default_factory=PluginBusSettings)
+    biosensor: BiosensorSettings = Field(default_factory=BiosensorSettings)
 
     @model_validator(mode="after")
     def _no_port_collision(self) -> Settings:

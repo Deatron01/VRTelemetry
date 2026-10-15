@@ -1,13 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { PlayCircle, ShieldAlert, ShieldCheck, Cpu, Network, StopCircle, Server, Users } from 'lucide-react';
+import { PlayCircle, ShieldAlert, ShieldCheck, Cpu, Network, StopCircle, Server, Users, Video } from 'lucide-react';
 import { PostSessionQuestionnaire } from '../components/PostSessionQuestionnaire';
 import { InfoTooltip } from '../components/InfoTooltip';
+import { ParticipantConsentFlow, type ConsentSubmission, type RecordedConsent } from '../components/ParticipantConsentFlow';
 
 interface Patient {
   patient_id: string;
   display_name: string;
   gdpr_consent_given: number;
   is_anonymized: number;
+  // Session-video (A/V) status (Sep 2026) -- see GET /api/patients.
+  // av_recording_available: the study offers A/V recording at all
+  //   ([consent] enable_av_recording in config.toml). Optional on the type
+  //   only because older cached responses/tests may omit it; the live API
+  //   always sends both fields.
+  av_recording_available?: boolean;
+  // av_recording_permitted: THIS participant's active consent actually
+  // includes P-C7 (video + voice + transcript). This, not the flag above, is
+  // what the recording route checks before capturing anything.
+  av_recording_permitted?: boolean;
 }
 
 const API = 'http://localhost:8000';
@@ -19,6 +30,19 @@ interface HubCheck {
   service?: string;
   version?: string;
   healthy?: boolean;
+}
+
+// One row of GET /api/biosensors/status's response (see
+// plugins/BIOSENSOR_INGEST.md). Optional fields throughout: a device that
+// has never sent a status report yet, or a host build predating VRT-36,
+// both look like "no rows" rather than a shape the UI has to special-case.
+interface BiosensorDevice {
+  device_id: string;
+  display_name?: string;
+  connected?: boolean;
+  contact?: boolean | null;
+  gone?: boolean;
+  channels?: string[];
 }
 
 const BACKENDS = [
@@ -54,6 +78,12 @@ export const NewSession = () => {
     port: 5005,
   });
 
+  // Getting this participant's video (P-C7) consent, opened from the checkbox
+  // below. Reuses the same consent flow the Patients page uses for a new
+  // consent -- there is no separate "session video" consent, only whether
+  // the participant's actual recorded consent includes P-C7.
+  const [consentFlow, setConsentFlow] = useState<Patient | null>(null);
+
   // The hub address is a property of this machine, not of this session.
   //
   // It used to live in `form` above, with 'http://192.168.1.X:9000' as its
@@ -66,17 +96,55 @@ export const NewSession = () => {
   const [hubUrl, setHubUrl] = useState('');
   const [hubCheck, setHubCheck] = useState<HubCheck | null>(null);
 
-  useEffect(() => {
+  // Real per-device probe (VRT-36) for the "Cardiovascular sensor" row
+  // below, replacing what used to be a hardcoded { ready: true }. Polled
+  // independently of isRecording -- a researcher needs to see "no device"
+  // vs. "device present, no skin contact" *before* pressing Start, not only
+  // once acquisition is already running.
+  const [biosensorDevices, setBiosensorDevices] = useState<BiosensorDevice[]>([]);
+
+  const fetchPatients = () => {
     fetch(`${API}/api/patients`)
       .then(r => r.json())
       .then((data: Patient[]) => setPatients(data.filter(p => !p.is_anonymized)))
       .catch(() => setPatients([]));
+  };
+
+  useEffect(() => {
+    fetchPatients();
 
     fetch(`${API}/api/config/central-server`)
       .then(r => r.json())
       .then(d => setHubUrl(d.central_server_url || ''))
       .catch(() => setHubUrl(''));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pollBiosensorStatus = () => {
+      fetch(`${API}/api/biosensors/status`)
+        .then(r => r.json())
+        .then(d => { if (!cancelled) setBiosensorDevices(d.devices || []); })
+        .catch(() => { if (!cancelled) setBiosensorDevices([]); });
+    };
+    pollBiosensorStatus();
+    const intervalId = setInterval(pollBiosensorStatus, 5000);
+    return () => { cancelled = true; clearInterval(intervalId); };
+  }, []);
+
+  // Records a new consent for the patient the video-consent flow was opened
+  // for. Identical to the Patients page's re-consent path -- P-C7 is just
+  // one more box on the same screen once [consent] enable_av_recording is on.
+  const submitVideoConsent = (patientId: string) => async (consent: ConsentSubmission): Promise<RecordedConsent> => {
+    const response = await fetch(`${API}/api/patients/${patientId}/consents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(consent),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Failed to record consent.');
+    return data as RecordedConsent;
+  };
 
   const saveHubUrl = async (value: string) => {
     setHubCheck(null);
@@ -231,6 +299,46 @@ export const NewSession = () => {
 
           <div>
             <span className="field-label flex items-center gap-1.5">
+              <Video className="h-3 w-3" /> Session Video (A/V)
+            </span>
+            {!selectedPatient ? (
+              <p className="mt-1.5 text-[11px] text-ink-3">Select a patient to see video-recording status.</p>
+            ) : !selectedPatient.av_recording_available ? (
+              <p className="mt-1.5 text-[11px] text-ink-3">
+                Video recording is turned off for this study. Set <code>enable_av_recording = true</code> under{' '}
+                <code>[consent]</code> in <code>config.toml</code> to offer it.
+              </p>
+            ) : (
+              <>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-md p-2" style={{ background: 'var(--well-grid)' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!selectedPatient.av_recording_permitted}
+                    onChange={() => { if (!selectedPatient.av_recording_permitted) setConsentFlow(selectedPatient); }}
+                    className="h-4 w-4 flex-none cursor-pointer"
+                    style={{ accentColor: 'var(--s1)' }}
+                  />
+                  <span className="text-[12px]">
+                    {selectedPatient.av_recording_permitted
+                      ? 'Recording the headset view and voice for this session — the participant consented.'
+                      : "Not recording video — this participant hasn't given video consent yet."}
+                  </span>
+                </label>
+                {!selectedPatient.av_recording_permitted && (
+                  <button
+                    type="button"
+                    className="btn-clay mt-2 text-[12px]"
+                    onClick={() => setConsentFlow(selectedPatient)}
+                  >
+                    Get video consent from this participant
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div>
+            <span className="field-label flex items-center gap-1.5">
               <Cpu className="h-3 w-3" /> Runtime Backend <InfoTooltip id="session.backend" />
             </span>
             <div className="seg flex-wrap" role="group" aria-label="Runtime backend">
@@ -365,26 +473,51 @@ export const NewSession = () => {
           <div className="clay p-4">
             <div className="stat-label mb-3">Hardware handshake</div>
             <div className="well flex flex-col gap-2.5 p-3">
-              {[
-                { label: 'HMD pose stream', ready: true },
-                { label: 'Binocular eye tracker', ready: true },
-                { label: 'Cardiovascular sensor', ready: true },
-                { label: 'Controller pair', ready: true },
-              ].map(row => (
-                <div key={row.label} className="flex items-center gap-2.5 text-[12px]">
-                  <span
-                    className="h-[6px] w-[6px] flex-none rounded-full"
-                    style={{ background: isRecording ? 'var(--s6)' : 'var(--ink-3)' }}
-                    aria-hidden="true"
-                  />
-                  <span className="flex-1 text-ink-2">{row.label}</span>
-                  <span className="mono text-[11px] text-ink-3">{isRecording ? 'streaming' : 'idle'}</span>
-                </div>
-              ))}
+              {(() => {
+                // The one row backed by a real per-device probe (VRT-36) --
+                // see BiosensorDevice above and plugins/BIOSENSOR_INGEST.md.
+                // Prefer a device that has actually reported a heart_rate_bpm
+                // channel; fall back to whatever's connected so a plugin that
+                // hasn't sent its first status heartbeat yet still shows up.
+                const cardioDevice =
+                  biosensorDevices.find(d => (d.channels || []).includes('heart_rate_bpm')) ||
+                  biosensorDevices[0];
+                const cardioGone = !cardioDevice || cardioDevice.gone || !cardioDevice.connected;
+                const cardioNoContact = !cardioGone && cardioDevice?.contact === false;
+                const cardioLabel = cardioGone
+                  ? 'Cardiovascular sensor — no device'
+                  : cardioNoContact
+                  ? 'Cardiovascular sensor — no skin contact'
+                  : 'Cardiovascular sensor';
+                const cardioStatus = cardioGone
+                  ? 'no device'
+                  : cardioNoContact
+                  ? 'no contact'
+                  : isRecording ? 'streaming' : 'idle';
+
+                const rows = [
+                  { label: 'HMD pose stream', dotOn: isRecording, status: isRecording ? 'streaming' : 'idle' },
+                  { label: 'Binocular eye tracker', dotOn: isRecording, status: isRecording ? 'streaming' : 'idle' },
+                  { label: cardioLabel, dotOn: isRecording && !cardioGone, status: cardioStatus },
+                  { label: 'Controller pair', dotOn: isRecording, status: isRecording ? 'streaming' : 'idle' },
+                ];
+
+                return rows.map(row => (
+                  <div key={row.label} className="flex items-center gap-2.5 text-[12px]">
+                    <span
+                      className="h-[6px] w-[6px] flex-none rounded-full"
+                      style={{ background: row.dotOn ? 'var(--s6)' : 'var(--ink-3)' }}
+                      aria-hidden="true"
+                    />
+                    <span className="flex-1 text-ink-2">{row.label}</span>
+                    <span className="mono text-[11px] text-ink-3">{row.status}</span>
+                  </div>
+                ));
+              })()}
             </div>
             <p className="m-0 mt-2.5 text-[11px] text-ink-3">
-              Channel state reflects the engine, not a per-device probe — a channel shows as streaming once acquisition
-              is running.
+              Channel state reflects the engine, not a per-device probe — except the cardiovascular row, which polls
+              a connected biosensor plugin directly and distinguishes no device from no skin contact.
             </p>
           </div>
         </div>
@@ -395,6 +528,20 @@ export const NewSession = () => {
           sessionId={completedSessionId}
           onClose={() => setCompletedSessionId(null)}
           onSaved={() => setCompletedSessionId(null)}
+        />
+      )}
+
+      {consentFlow && (
+        <ParticipantConsentFlow
+          onSubmit={submitVideoConsent(consentFlow.patient_id)}
+          onClose={(recorded) => {
+            setConsentFlow(null);
+            // A consent was just recorded (or the flow was cancelled and
+            // recorded is null, in which case this is a harmless refresh) --
+            // re-fetch so the checkbox above reflects the participant's
+            // actual, current consent rather than stale state.
+            if (recorded) fetchPatients();
+          }}
         />
       )}
     </div>

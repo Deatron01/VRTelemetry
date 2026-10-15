@@ -112,6 +112,7 @@ class WhisperTranscriber:
                 the media could not be decoded/transcribed even on CPU.
         """
         model = self._load_model()
+        info = None
         try:
             segments_iter, info = model.transcribe(str(media_path), language=self.language)
             segments = tuple(
@@ -119,6 +120,21 @@ class WhisperTranscriber:
                 for s in segments_iter
             )
         except Exception as exc:
+            if isinstance(exc, IndexError) and "tuple index out of range" in str(exc).lower():
+                # faster-whisper raises this when the audio track is missing or completely silent.
+                # This is a normal state (e.g. video-only fallback), so return an empty transcript.
+                logger.info(
+                    f"No audio found or completely silent in {media_path.name}; skipping transcription."
+                )
+                detected_language = self.language
+                if info is not None and hasattr(info, "language"):
+                    detected_language = info.language or self.language
+                return Transcript(
+                    engine=f"faster-whisper:{self.model_size}",
+                    language=detected_language,
+                    segments=(),
+                )
+
             if self._device != "cpu" and self._looks_like_a_gpu_runtime_failure(exc):
                 # CTranslate2's device="auto" only *detects* a GPU at model
                 # construction; it does not verify the CUDA/cuBLAS/cuDNN

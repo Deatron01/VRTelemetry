@@ -35,7 +35,11 @@ repos:
         args: ["--maxkb=500"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    # Keep in step with what CI installs (`ruff>=0.5`, so the latest). At
+    # v0.6.9 this hook rejected files CI accepts -- E402 after
+    # pytest.importorskip, which newer ruff allows -- and blocked commits of
+    # tests written exactly like the ones already in the tree.
+    rev: v0.16.9
     hooks:
       - id: ruff
         args: [--fix]

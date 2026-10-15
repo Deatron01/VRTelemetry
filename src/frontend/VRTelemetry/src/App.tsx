@@ -12,6 +12,7 @@ import { Metadata } from './pages/Metadata';
 import { Export } from './pages/Export';
 import { Plugins } from './pages/Plugins';
 import { SpatialViewer } from './components/visualizations/SpatialViewer';
+import { SessionVideoPanel } from './components/visualizations/SessionVideoPanel';
 import { SessionExplorer } from './pages/SessionExplorer';
 import { ResearchInsights } from './pages/ResearchInsights';
 import { NewSession } from './pages/NewSession';
@@ -118,15 +119,21 @@ function App() {
       case 'export': return <Export />;
       case 'plugins': return <Plugins />;
       case 'spatial': return (
-        <div className="mx-auto flex h-full max-w-[1360px] flex-col gap-4">
+        <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-4">
           <div>
             <h1 className="page-title">Spatial &amp; Gaze Analysis</h1>
             <p className="page-sub">
-              Reconstructed head, hand and gaze geometry for the loaded session, scrubbed by the transport bar below.
+              Reconstructed head, hand and gaze geometry — alongside the session's recorded screen
+              capture, when one exists — scrubbed together by the transport bar below.
             </p>
           </div>
-          <div className="clay flex-1 overflow-hidden p-1.5">
-            <div className="h-full w-full overflow-hidden rounded-[12px]"><SpatialViewer /></div>
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3.5 lg:grid-cols-5">
+            <div className="clay min-h-[320px] overflow-hidden p-1.5 lg:col-span-2">
+              <SessionVideoPanel />
+            </div>
+            <div className="clay min-h-[320px] overflow-hidden p-1.5 lg:col-span-3">
+              <div className="h-full w-full overflow-hidden rounded-[12px]"><SpatialViewer /></div>
+            </div>
           </div>
         </div>
       );

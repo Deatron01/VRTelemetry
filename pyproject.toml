@@ -325,8 +325,18 @@ ignore = [
 "src/storage/ai_preprocessor.py" = ["RUF012"]
 "src/storage/database_manager.py" = ["RUF005", "S608", "W293"]
 "src/storage/parquet_writer.py" = ["B905", "PTH123", "SIM115"]
+# Same reason as parquet_writer.py above: pyarrow.parquet.ParquetWriter needs
+# a raw file object it can hold open across many push()/flush() calls and
+# fsync() directly -- not a Path.open() context manager scoped to one call.
+"src/storage/biosensor_sidecar.py" = ["PTH123", "SIM115"]
 "src/storage/session_uploader.py" = ["PTH123"]
 "src/utils/hardware_monitor.py" = ["S607"]
+# Same nvidia-smi probe as hardware_monitor.py, resolved from PATH.
+"src/interfaces/api/routers/monitor.py" = ["S607"]
+# The Win32 structures keep the SDK's own names (DXGI_OUTDUPL_DESC, ...) and
+# ctypes reads `_fields_` as a class attribute by protocol -- the same
+# vendor-spelling-wins reasoning as the openvr fakes and openxr_headless.py.
+"src/backends/desktop_mirror.py" = ["N801", "N806", "RUF012"]
 "src/utils/system_profiler.py" = ["E741", "S607"]
 "tools/append_structure.py" = ["B007", "B905", "C414"]
 "tools/generate_docs.py" = ["PTH123", "RUF005", "S608"]
@@ -399,6 +409,14 @@ module = [
     "src.eye_tracking.base_driver",
     "src.utils.clock",
     "src.version",
+    # Biosensor plugin support (VRT-32..36) -- new modules, held to the
+    # strict set from the day they were written, per this list's own rule.
+    "src.core.live_biometrics",
+    "src.core.biosensor_status",
+    "src.storage.biosensor_sidecar",
+    "src.infrastructure.persistence.biosensor_repository",
+    "src.interfaces.api.schemas.biosensors",
+    "src.interfaces.api.routers.biosensors",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

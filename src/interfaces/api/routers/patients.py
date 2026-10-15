@@ -27,6 +27,7 @@ from src.interfaces.api.dependencies import (
     PatientsDep,
     PatientUploaderDep,
     SessionsDep,
+    SettingsDep,
 )
 from src.interfaces.api.schemas.patients import (
     ConsentSubmissionModel,
@@ -70,8 +71,32 @@ def _public_consent(record: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/api/patients")
-def list_patients(patients: PatientsDep, include_anonymized: bool = False):
-    return patients.list_patients(include_anonymized=include_anonymized)
+def list_patients(
+    patients: PatientsDep,
+    consents: ConsentsDep,
+    settings: SettingsDep,
+    include_anonymized: bool = False,
+):
+    rows = patients.list_patients(include_anonymized=include_anonymized)
+    # Session-video (A/V) status, per participant -- so the desktop app can
+    # show whether *this* recording will include video without a separate
+    # round trip per row. Two gates, both surfaced (VRT-32-ish, Sep 2026):
+    #   av_recording_available -- the study offers it at all (config.toml's
+    #     [consent] enable_av_recording); a lab that hasn't turned this on
+    #     has nothing to check consent against.
+    #   av_recording_permitted -- *this* participant's active consent
+    #     actually includes P-C7. Never inferred from the flag alone -- see
+    #     ConsentService.av_recording_permitted's own docstring on why.
+    av_enabled = settings.consent.enable_av_recording
+    for row in rows:
+        row["av_recording_available"] = av_enabled
+        permitted = False
+        if av_enabled and not row.get("is_anonymized"):
+            active = consents.active_consent(row["patient_id"])
+            if active is not None:
+                permitted = consents.av_recording_permitted(active["consent_id"])
+        row["av_recording_permitted"] = permitted
+    return rows
 
 
 @router.post("/api/patients")

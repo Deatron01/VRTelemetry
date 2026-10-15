@@ -15,7 +15,7 @@ export class TelemetryParser {
     }
 
     const data = await response.json();
-    
+
     const frames = data.frames as TelemetryFrame[];
     const colNames = data.columns as string[];
     const originalFrameCount = data.original_frames as number;
@@ -55,6 +55,7 @@ export class TelemetryParser {
       ...metadata,
       session_id: record.session_id ?? metadata.session_id,
       patient_id: record.patient_id ?? metadata.patient_id,
+      start_timestamp_utc: record.start_timestamp_utc || metadata.start_timestamp_utc,
       subject_id: record.subject_id || metadata.subject_id,
       hmd_model: record.hmd_model || metadata.hmd_model,
       subject_ipd_mm: record.subject_ipd_mm || metadata.subject_ipd_mm,
@@ -253,7 +254,7 @@ export class TelemetryParser {
     const metadata: SessionMetadata = {
       filename,
       duration_sec: durationSec,
-      total_frames: originalFrameCount, 
+      total_frames: originalFrameCount,
       channels_detected: channels,
       hmd_validity_pct: (hmdValid / frames.length) * 100,
       eye_validity_pct: (eyeValid / frames.length) * 100,

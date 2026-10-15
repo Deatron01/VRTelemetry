@@ -85,6 +85,16 @@ EXPECTED_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         # PluginManager.start_plugin/stop_plugin.
         ("POST", "/api/plugins/start"),
         ("POST", "/api/plugins/stop"),
+        # Added with the biosensor plugin host support (VRT-32..37): the
+        # ingest/status surface a biosensor plugin process pushes samples and
+        # heartbeats to. See src/interfaces/api/routers/biosensors.py and
+        # plugins/BIOSENSOR_INGEST.md.
+        ("POST", "/api/biosensors/sample"),
+        ("POST", "/api/biosensors/status"),
+        ("GET", "/api/biosensors/status"),
+        # Live PC load for the Electron monitor window (electron/monitor.html)
+        # that sits beside the desktop mirror. Read-only.
+        ("GET", "/api/monitor/metrics"),
     }
 )
 
@@ -173,4 +183,6 @@ def test_routes_carry_tags_so_the_docs_group_sensibly(app: Any) -> None:
         "sync",
         "config",
         "plugins",
+        "biosensors",
+        "monitor",
     }

@@ -129,7 +129,14 @@ REQUIRED: tuple[tuple[str, str], ...] = (
 #: bulk -- but still exactly the shape this check exists to make someone look
 #: at rather than wave through silently. Headroom is deliberately smaller than
 #: the jump itself, same reasoning as the 410 bump above.
-MAX_TRACKED_FILES = 440
+#:
+#: 440 -> 480 on 15 Oct 2026. Two reviewed batches for v1.1.0: 14 files of
+#: biosensor ingest / desktop mirror / synced session video (routers, schemas,
+#: repository, sidecar writer, two frontend components, three test modules),
+#: and the hub installer (frozen-hub CLI and spec, NSIS script, the certificate
+#: tool moved into the package, their tests, and the design note). Source and
+#: tests only -- the installers themselves go to release assets, never here.
+MAX_TRACKED_FILES = 480
 
 
 # --------------------------------------------------------------------------- #

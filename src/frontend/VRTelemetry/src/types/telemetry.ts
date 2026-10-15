@@ -1,19 +1,19 @@
 export interface TelemetryFrame {
   frame_index: number;
   timestamp_ns: number;
-  
+
   hmd_pos_x: number; hmd_pos_y: number; hmd_pos_z: number;
   hmd_rot_x: number; hmd_rot_y: number; hmd_rot_z: number; hmd_rot_w: number;
-  
+
   left_eye_pos_x: number; left_eye_pos_y: number; left_eye_pos_z: number;
   left_eye_rot_x: number; left_eye_rot_y: number; left_eye_rot_z: number; left_eye_rot_w: number;
-  
+
   right_eye_pos_x: number; right_eye_pos_y: number; right_eye_pos_z: number;
   right_eye_rot_x: number; right_eye_rot_y: number; right_eye_rot_z: number; right_eye_rot_w: number;
-  
+
   hmd_tracking_valid: number;
   eye_tracking_valid: number;
-  
+
   left_pupil_size: number;
   right_pupil_size: number;
   heart_rate_bpm: number;
@@ -21,7 +21,7 @@ export interface TelemetryFrame {
   left_pos_x?: number; left_pos_y?: number; left_pos_z?: number;
   left_rot_x?: number; left_rot_y?: number; left_rot_z?: number; left_rot_w?: number;
   left_tracking_valid?: number;
-  
+
   right_pos_x?: number; right_pos_y?: number; right_pos_z?: number;
   right_rot_x?: number; right_rot_y?: number; right_rot_z?: number; right_rot_w?: number;
   right_tracking_valid?: number;
@@ -73,6 +73,11 @@ export interface SessionMetadata {
   // baseline used by ScienceMetrics to normalize kinematic reach & motion.
   session_id?: string;
   patient_id?: string | null;
+  // Naive-UTC ISO string as stored (src/utils/clock.py::as_stored) — no
+  // trailing "Z"/offset. Used by SessionVideoPanel to line up the recorded
+  // screen capture's own start time against this session's telemetry clock;
+  // must be parsed as UTC explicitly (see that file's parseNaiveUtcMs).
+  start_timestamp_utc?: string;
   height_cm?: number;
   weight_kg?: number;
   age_years?: number;

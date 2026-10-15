@@ -20,8 +20,10 @@ from src.core.exceptions import (
     VRTelemetryError,
 )
 from src.core.interfaces import IVRBackend
+from src.core.live_biometrics import LiveBiometricState
 from src.core.live_state import LiveExperimentState
 from src.core.synchronizer import BiometricSynchronizer
+from src.storage.biosensor_sidecar import BiosensorSidecarWriter
 from src.utils.logger import attach_session_log_capture, detach_session_log_capture, logger
 from src.utils.system_profiler import collect_system_profile
 
@@ -135,6 +137,30 @@ class TelemetryEngine:
         self.session_id = time.strftime("%Y%m%d_%H%M%S")
         self.parquet_path = self.output_dir / f"vr_telemetry_{self.session_id}.parquet"
 
+        # Biosensor plugin support (VRT-32..35): a fold-in side-channel for
+        # heart_rate_bpm (read once per frame by BiometricSynchronizer, same
+        # pattern as live_state above), an independent sidecar Parquet for
+        # every channel a plugin sends, and the perf_counter_ns<->time_ns
+        # offset that lets /api/biosensors/sample convert a producer's
+        # t_wall_ns into this session's frame clock. See
+        # claude/vrtelemetry-biosensor-host-changes.md for the design this
+        # implements and src/interfaces/api/routers/biosensors.py for the
+        # route that calls ingest_biosensor_sample() below.
+        self.live_biometrics = LiveBiometricState(
+            staleness_horizon_sec=settings.biosensor.staleness_horizon_sec
+        )
+        self.biosensor_sidecar = BiosensorSidecarWriter(
+            output_path=self.output_dir / f"vr_biosensors_{self.session_id}.parquet",
+            flush_interval_rows=settings.biosensor.sidecar_flush_interval_rows,
+            max_buffer_rows=settings.biosensor.sidecar_max_buffer_rows,
+        )
+        #: Captured once in start(): time.time_ns() - time.perf_counter_ns()
+        #: at (approximately) that moment. None until then, which is also
+        #: what tells ingest_biosensor_sample() there is nowhere yet to fold
+        #: a sample into -- a sample arriving before start() is a race the
+        #: caller loses, not a crash.
+        self._biosensor_clock_offset_ns: int | None = None
+
         # 1. The collaborators. Built here only when the caller did not supply
         # them: this constructor used to open a SQLite database, read the
         # licence cache and construct an HTTP client unconditionally, which is
@@ -170,6 +196,7 @@ class TelemetryEngine:
             hardware_monitor=self.hardware,
             max_hz=max_sampling_hz,
             live_state=self.live_state,
+            live_biometrics=self.live_biometrics,
         )
 
         self._async_loop: asyncio.AbstractEventLoop | None = None
@@ -231,6 +258,20 @@ class TelemetryEngine:
         to the appropriate hardware tracking backend.
         """
         logger.info("Booting production telemetry engine...")
+
+        # VRT-35: captured once, here, rather than lazily on first sample --
+        # a fixed offset for the life of the session is the whole point (see
+        # the host-changes doc §5); recomputing it later would let two
+        # samples that arrived a second apart be converted against two
+        # different offsets.
+        self._biosensor_clock_offset_ns = time.time_ns() - time.perf_counter_ns()
+        try:
+            self.biosensor_sidecar.start()
+        except Exception:  # noqa: BLE001 - a sidecar that fails to open must not fail the session
+            logger.exception(
+                "Biosensor sidecar failed to start; biosensor samples for this session will be "
+                "accepted but not recorded."
+            )
 
         self._session_log_handler = attach_session_log_capture(self.session_id)
 
@@ -364,6 +405,57 @@ class TelemetryEngine:
         self.is_running = False
         self._shutdown_event.set()
 
+    def ingest_biosensor_sample(
+        self,
+        *,
+        device_id: str,
+        channel: str,
+        value: float,
+        quality: float | None,
+        t_wall_ns: int,
+    ) -> None:
+        """Accept one biosensor sample for this session (VRT-32/33/34/35).
+
+        Called from ``src.interfaces.api.routers.biosensors`` -- a FastAPI
+        request thread, never the acquisition or consumer thread this engine
+        otherwise owns. Never raises: a fault here is logged and the sample
+        is dropped, the same posture ``TeeFrameSink`` takes with its
+        observers, and for the same reason -- an ingest fault must never be
+        confused with, or able to affect, ``self.writer.write_failed`` or
+        anything else that actually gates the recording.
+
+        Args:
+            device_id: The producer's stable id for the physical device.
+            channel: ``"heart_rate_bpm"`` folds into the next frame via
+                :attr:`live_biometrics`; every other name is recorded to
+                :attr:`biosensor_sidecar` only (see that class's docstring).
+            value: The reported reading, in the sidecar's units.
+            quality: 0.0-1.0, or ``None`` if the producer does not report it.
+            t_wall_ns: The producer's ``time.time_ns()`` at arrival --
+                converted here into this session's ``perf_counter_ns`` epoch
+                via :attr:`_biosensor_clock_offset_ns` (VRT-35).
+        """
+        offset = self._biosensor_clock_offset_ns
+        if offset is None:
+            # start() has not run yet (or already torn down): nothing to
+            # fold a timestamp against. A sample arriving in that window is
+            # a race the caller loses, not a fault to log loudly about.
+            return
+        perf_ns = t_wall_ns - offset
+
+        if channel == "heart_rate_bpm":
+            try:
+                self.live_biometrics.record_heart_rate(value, perf_ns)
+            except Exception:  # noqa: BLE001 - must never affect the consumer thread that reads this state
+                logger.exception(
+                    "live_biometrics.record_heart_rate failed; dropping this sample's fold-in."
+                )
+
+        try:
+            self.biosensor_sidecar.push(perf_ns, device_id, channel, value, quality)
+        except Exception:  # noqa: BLE001 - a sidecar fault must not propagate past this call
+            logger.exception("biosensor_sidecar.push failed; this sample was not recorded.")
+
     def _run_pcvr_mode(self, backend: IVRBackend) -> None:
         """Poll ``backend`` until the session ends.
 
@@ -396,6 +488,12 @@ class TelemetryEngine:
                 f"Detected live HMD refresh rate: {detected_hz:.1f} Hz — sampling cap set to {cap:.1f} Hz."
             )
         else:
+            # The headroom applies here too. Without it the fallback cap was the
+            # bare 120 Hz default: a 120 Hz eye tracker sampled at a 120 Hz
+            # ceiling, with no margin for the source's own timing jitter.
+            if self.synchronizer.max_hz:
+                headroom = get_settings().acquisition.sampling_headroom
+                self.synchronizer.set_max_hz(self.synchronizer.max_hz * headroom)
             logger.warning(
                 f"Could not detect live refresh rate; using default sampling cap of "
                 f"{self.synchronizer.max_hz:.1f} Hz."
@@ -529,6 +627,10 @@ class TelemetryEngine:
         self._shutdown_event.set()
 
         self.synchronizer.stop()
+        try:
+            self.biosensor_sidecar.stop()
+        except Exception:  # noqa: BLE001 - teardown: the main session still has to be sealed
+            logger.exception("Biosensor sidecar failed to stop cleanly; continuing teardown.")
         logger.info(
             f"Sampling summary: {self.frames_recorded} frames recorded, "
             f"{self.synchronizer.dropped_backpressure} dropped (buffer full), "

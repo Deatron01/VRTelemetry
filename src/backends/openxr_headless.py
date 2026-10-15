@@ -7,7 +7,9 @@ import time
 
 import xr
 
+from src.backends.desktop_mirror import DesktopMirrorLayer
 from src.backends.tracking_faults import TrackingFaultLog
+from src.config import get_settings
 from src.core.datatypes import TelemetryFrame
 from src.core.exceptions import HardwareBindingError
 from src.core.interfaces import IVRBackend
@@ -65,6 +67,11 @@ class OpenXRHeadlessBackend(IVRBackend):
         #: :mod:`src.backends.tracking_faults`.
         self.faults = TrackingFaultLog("OpenXRHeadlessBackend")
         self._frames_polled = 0
+
+        #: Desktop mirror layer for feeding the SteamVR compositor window.
+        #: ``None`` on pure-headless or when the feature is disabled / failed.
+        self.desktop_mirror: DesktopMirrorLayer | None = None
+        self.supports_cylinder_layer = False
 
     def _create_d3d11_binding(self) -> None:
         """Constructs an invisible D3D11 graphics device to satisfy Windows XR runtimes."""
@@ -142,6 +149,12 @@ class OpenXRHeadlessBackend(IVRBackend):
                 else:
                     logger.error("Neither Headless nor D3D11 extensions are supported. Aborting.")
                     return False
+
+            if "XR_KHR_composition_layer_cylinder" in available_extensions:
+                enabled_extensions.append("XR_KHR_composition_layer_cylinder")
+                self.supports_cylinder_layer = True
+            else:
+                self.supports_cylinder_layer = False
 
             self.eye_driver = EyeTrackingFactory.create_best_driver(available_extensions)
             if self.eye_driver:
@@ -231,6 +244,32 @@ class OpenXRHeadlessBackend(IVRBackend):
             self.actions_sync_info.active_action_sets = active_sets_for_sync
 
             self.view_locate_info.space = self.app_space
+
+            # --- DESKTOP MIRROR LAYER (SteamVR compositor feed) ---
+            # Only when we own a D3D11 device (non-pure-headless) and the
+            # config allows it. A failure here is non-fatal: the recording
+            # proceeds normally, but the SteamVR mirror window stays black.
+            if (
+                not self.is_pure_headless
+                and self.d3d_device
+                and self.d3d_context
+                and get_settings().acquisition.enable_desktop_mirror
+            ):
+                try:
+                    mirror = DesktopMirrorLayer()
+                    mirror.setup(
+                        session=self.session,
+                        d3d_device=self.d3d_device,
+                        d3d_context=self.d3d_context,
+                        space=self.app_space,
+                        use_cylinder=self.supports_cylinder_layer,
+                    )
+                    self.desktop_mirror = mirror
+                except Exception:  # optional feature, never blocks recording
+                    logger.warning(
+                        "Desktop mirror unavailable; compositor window will stay black.",
+                        exc_info=True,
+                    )
 
             logger.info("OpenXR telemetry context established successfully.")
             return True
@@ -442,7 +481,24 @@ class OpenXRHeadlessBackend(IVRBackend):
             if self.eye_driver:
                 self.eye_driver.populate_frame(frame, t)
 
+            # 4. Submit frame — with desktop mirror layer if available
             self.frame_end_info.display_time = t
+            if self.desktop_mirror:
+                quad = self.desktop_mirror.update_and_get_layer()
+                if quad is not None:
+                    layer_ptr = ctypes.cast(
+                        ctypes.pointer(quad),
+                        ctypes.POINTER(xr.CompositionLayerBaseHeader),
+                    )
+                    layer_arr = (ctypes.POINTER(xr.CompositionLayerBaseHeader) * 1)(layer_ptr)
+                    self.frame_end_info.layer_count = 1
+                    self.frame_end_info.layers = ctypes.cast(
+                        layer_arr,
+                        ctypes.POINTER(ctypes.POINTER(xr.CompositionLayerBaseHeader)),
+                    )
+                else:
+                    self.frame_end_info.layer_count = 0
+                    self.frame_end_info.layers = None
             xr.end_frame(self.session, self.frame_end_info)
 
         except xr.XrException as e:
@@ -471,6 +527,7 @@ class OpenXRHeadlessBackend(IVRBackend):
         released = any(
             (
                 self.eye_driver,
+                self.desktop_mirror,
                 self.left_space,
                 self.right_space,
                 self.app_space,
@@ -483,6 +540,11 @@ class OpenXRHeadlessBackend(IVRBackend):
         if self.eye_driver:
             self.eye_driver.shutdown()
             self.eye_driver = None
+        # Desktop mirror owns a swapchain under this session — destroy it
+        # before the session itself.
+        if self.desktop_mirror:
+            self.desktop_mirror.destroy()
+            self.desktop_mirror = None
         if self.left_space:
             xr.destroy_space(self.left_space)
             self.left_space = None

@@ -46,8 +46,10 @@ from fastapi import Depends, Request
 from src.application.consent import ConsentService
 from src.application.erasure import ErasureService
 from src.config import Settings
+from src.core.biosensor_status import BiosensorStatusRegistry
 from src.infrastructure.persistence import SessionRepository
 from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
+from src.infrastructure.persistence.biosensor_repository import BiosensorStreamRepository
 from src.interfaces.api.container import Container, RecordingSessionManager
 from src.interfaces.api.event_router import EventRouter
 from src.license_service.local_cache import LocalLicenseCache
@@ -62,6 +64,8 @@ from src.storage.usage_tracker import UsageTracker
 
 __all__ = [
     "AVRecordingsDep",
+    "BiosensorStatusDep",
+    "BiosensorStreamsDep",
     "CentralUrlDep",
     "ConsentsDep",
     "ContainerDep",
@@ -201,6 +205,16 @@ def get_plugin_manager(container: ContainerDep) -> PluginManager:
     return container.plugin_manager
 
 
+def get_biosensor_streams(container: ContainerDep) -> BiosensorStreamRepository:
+    """Per-session, per-device biosensor provenance (VRT-34)."""
+    return container.biosensor_streams
+
+
+def get_biosensor_status(container: ContainerDep) -> BiosensorStatusRegistry:
+    """Latest biosensor producer/device status heartbeats (VRT-36)."""
+    return container.biosensor_status
+
+
 def get_http(container: ContainerDep) -> Any:
     """The HTTP client for outbound calls to the hub.
 
@@ -241,3 +255,5 @@ HttpDep = Annotated[Any, Depends(get_http)]
 CentralUrlDep = Annotated[str, Depends(get_central_url)]
 EventRouterDep = Annotated[EventRouter, Depends(get_event_router)]
 PluginManagerDep = Annotated[PluginManager, Depends(get_plugin_manager)]
+BiosensorStreamsDep = Annotated[BiosensorStreamRepository, Depends(get_biosensor_streams)]
+BiosensorStatusDep = Annotated[BiosensorStatusRegistry, Depends(get_biosensor_status)]

@@ -267,7 +267,44 @@ class SteamVROverlayBackend(IVRBackend):
                     # reads 0 for the session rather than flapping.
                     self.faults.record("eye_support_probe", prop_err)
                     self._gaze_support = False
-            frame.eye_tracking_valid = 1.0 if self._gaze_support else 0.0
+
+                if self._gaze_support:
+                    # This backend has no gaze-acquisition path of its own. Unlike
+                    # the OpenXR backends (see backend_openxr.py), it never resolves
+                    # or calls an IEyeTrackingDriver -- there is no
+                    # ``self.eye_driver.populate_frame(...)`` anywhere in this file.
+                    # So even on a headset that supports gaze (this property), every
+                    # left_eye_*/right_eye_* field below stays at create_empty()'s
+                    # identity quaternion (0, 0, 0, 1) for the entire session: a
+                    # fixed, dead-ahead "gaze" that never moves.
+                    #
+                    # Setting eye_tracking_valid=1.0 here used to tell every
+                    # downstream consumer -- SpatialViewer's live point-of-regard
+                    # cursor and volumetric heatmap, EyeTracking.tsx, every
+                    # ScienceMetrics function keyed on this flag -- that this fixed
+                    # stare was real recorded gaze, i.e. genuine "where the user
+                    # looked" data. It is exactly the failure tracking_faults.py's
+                    # module docstring warns about ("indistinguishable in the data
+                    # from hardware that was switched off"), just inverted: a false
+                    # *positive* instead of a false negative. Logged once, the same
+                    # way a tracking fault is, because a researcher relying on
+                    # SteamVR-backend eye data needs to see this before publishing
+                    # a session, not discover it by noticing the replay cursor never
+                    # moves.
+                    logger.warning(
+                        "SteamVROverlayBackend: HMD reports eye-gaze support "
+                        "(XR_EXT_eye_gaze_interaction), but this backend has no "
+                        "eye-tracking driver wired in and cannot read gaze from it. "
+                        "Recording will proceed WITHOUT eye-tracking data "
+                        "(eye_tracking_valid stays 0 for this session) -- use the "
+                        "OpenXR backend for real eye tracking on this headset."
+                    )
+
+            # Never populated from this backend (see the one-time warning above):
+            # no left_eye_*/right_eye_* field below this point is ever written, so
+            # there is no gaze sample to call valid, regardless of what the
+            # headset's hardware supports. Stays at create_empty()'s 0.0.
+            frame.eye_tracking_valid = 0.0
 
             frame.timestamp_ns = time.perf_counter_ns()
 

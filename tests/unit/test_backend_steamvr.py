@@ -94,6 +94,13 @@ def test_the_eye_probe_queries_gaze_interaction_support_not_camera_presence():
     `Prop_HasCamera_Bool` answers a different question (does the HMD have a
     passthrough camera) and is what the probe used to send -- pinned here as
     the property it must send instead.
+
+    `eye_tracking_valid` itself is asserted at 0.0 even though the probe
+    answers True: this backend has no gaze-acquisition path (see the 14 Sep
+    follow-up in claude/vrt-steamvr-eye-support-probe-fix.md), so a capable
+    headset still gets zero-filled left_eye_*/right_eye_* columns and the
+    validity flag must say so rather than claim a fixed, dead-ahead stare is
+    real recorded gaze.
     """
     vr_system = _FakeVRSystem(eye_probe_result=True)
     frame = _backend(vr_system).poll_frame(0)
@@ -101,7 +108,7 @@ def test_the_eye_probe_queries_gaze_interaction_support_not_camera_presence():
     assert vr_system.bool_property_calls == [
         (openvr.k_unTrackedDeviceIndex_Hmd, openvr.Prop_SupportsXrEyeGazeInteraction_Bool)
     ]
-    assert frame.eye_tracking_valid == 1.0
+    assert frame.eye_tracking_valid == 0.0
 
 
 def test_a_headset_reporting_no_gaze_support_is_not_a_fault():
@@ -138,14 +145,49 @@ def test_the_gaze_capability_is_probed_once_per_session_not_once_per_frame():
     faults in one 43-second session (12 Sep) on a runtime that does not
     recognise the property -- 100% of frames, burying the summary that is
     meant to say which source failed.
+
+    `eye_tracking_valid` stays 0.0 across every frame despite the probe
+    answering True (see the 14 Sep follow-up): this backend never gains a
+    real gaze sample partway through a session, so there is nothing for a
+    later frame to legitimately flip valid.
     """
     vr_system = _FakeVRSystem(eye_probe_result=True)
     backend = _backend(vr_system)
 
     for i in range(50):
-        assert backend.poll_frame(i).eye_tracking_valid == 1.0
+        assert backend.poll_frame(i).eye_tracking_valid == 0.0
 
     assert len(vr_system.bool_property_calls) == 1
+
+
+def test_a_gaze_capable_headset_logs_the_no_acquisition_warning_once(caplog):
+    """The one-time warning this backend logs when the probe says the headset
+    *could* do gaze but this backend still won't record any -- so a
+    researcher reading the log sees why `eye_tracking_valid` is 0.0 on
+    capable hardware, instead of just noticing the replay cursor never moves.
+    """
+    vr_system = _FakeVRSystem(eye_probe_result=True)
+    backend = _backend(vr_system)
+
+    with caplog.at_level("WARNING"):
+        for i in range(10):
+            backend.poll_frame(i)
+
+    warnings = [r for r in caplog.records if "no eye-tracking driver wired in" in r.message]
+    assert len(warnings) == 1
+
+
+def test_a_gaze_incapable_headset_logs_no_such_warning(caplog):
+    """No driver, no capability, no warning -- the message is specifically
+    about a headset that supports gaze and still gets none from this backend,
+    not a blanket "eye tracking is off" notice."""
+    backend = _backend(_FakeVRSystem(eye_probe_result=False))
+
+    with caplog.at_level("WARNING"):
+        backend.poll_frame(0)
+
+    warnings = [r for r in caplog.records if "no eye-tracking driver wired in" in r.message]
+    assert len(warnings) == 0
 
 
 def test_a_rejected_gaze_probe_is_recorded_once_not_once_per_frame():

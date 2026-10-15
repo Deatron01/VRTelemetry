@@ -380,16 +380,21 @@ export function computeMotorKinematics(frames: TelemetryFrame[], metadata: Sessi
   const speedSymmetryIndex = symmetry(left.meanSpeed, right.meanSpeed);
   const reachSymmetryIndex = symmetry(left.maxReachM, right.maxReachM);
 
-  let interpretation = `Left-hand normalized jerk ${left.normalizedJerk.toFixed(1)}, right-hand ${right.normalizedJerk.toFixed(1)} `
-    + '(lower = smoother movement; the two are only comparable within this same session/task). '
-    + `Bilateral speed symmetry index: ${(speedSymmetryIndex * 100).toFixed(1)}% asymmetry `
-    + (speedSymmetryIndex > 0.25 ? '— a pronounced side-to-side difference, the kind of asymmetry monitored in upper-limb rehabilitation (e.g. post-stroke). '
-      : '— reasonably balanced bilateral use. ');
-  if (left.reachPctOfArmLength !== null || right.reachPctOfArmLength !== null) {
-    interpretation += `Peak reach reached ${(left.reachPctOfArmLength ?? 0).toFixed(0)}% (L) / ${(right.reachPctOfArmLength ?? 0).toFixed(0)}% (R) `
-      + 'of this subject\'s calibrated arm length.';
+  let interpretation = '';
+  if (left.timeSeries.length === 0 && right.timeSeries.length === 0) {
+    interpretation = 'Controller tracking data is completely absent or invalid for this session. Motor kinematics and bimanual symmetry cannot be assessed without hand tracking.';
   } else {
-    interpretation += 'Arm length calibration is not recorded for this session, so reach could only be reported in absolute meters, not normalized to the subject\'s body size.';
+    interpretation = `Left-hand normalized jerk ${left.timeSeries.length ? left.normalizedJerk.toFixed(1) : 'N/A'}, right-hand ${right.timeSeries.length ? right.normalizedJerk.toFixed(1) : 'N/A'} `
+      + '(lower = smoother movement; the two are only comparable within this same session/task). '
+      + `Bilateral speed symmetry index: ${(speedSymmetryIndex * 100).toFixed(1)}% asymmetry `
+      + (speedSymmetryIndex > 0.25 ? '— a pronounced side-to-side difference, the kind of asymmetry monitored in upper-limb rehabilitation (e.g. post-stroke). '
+        : '— reasonably balanced bilateral use. ');
+    if (left.reachPctOfArmLength !== null || right.reachPctOfArmLength !== null) {
+      interpretation += `Peak reach reached ${(left.reachPctOfArmLength ?? 0).toFixed(0)}% (L) / ${(right.reachPctOfArmLength ?? 0).toFixed(0)}% (R) `
+        + 'of this subject\'s calibrated arm length.';
+    } else {
+      interpretation += 'Arm length calibration is not recorded for this session, so reach could only be reported in absolute meters, not normalized to the subject\'s body size.';
+    }
   }
 
   return { left, right, speedSymmetryIndex, reachSymmetryIndex, interpretation };

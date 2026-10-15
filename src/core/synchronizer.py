@@ -5,6 +5,7 @@ from collections import deque
 
 from src.core.datatypes import TelemetryFrame
 from src.core.derived_metrics import compute_binocular_focal_distance, compute_distance
+from src.core.live_biometrics import LiveBiometricState
 from src.core.live_state import LiveExperimentState
 
 logger = logging.getLogger(__name__)
@@ -25,10 +26,18 @@ class BiometricSynchronizer:
         buffer_size: int = 5000,
         max_hz: float | None = None,
         live_state: LiveExperimentState | None = None,
+        live_biometrics: LiveBiometricState | None = None,
     ):
         self.writer = writer
         self.hardware = hardware_monitor
         self.live_state = live_state
+        #: Out-of-process biosensor plugins (VRT-32). Kept a separate
+        #: parameter from ``live_state`` rather than folded into it: that
+        #: class's fields are set by *this* application's own UI/routes,
+        #: while this one is set by a third-party producer over the network
+        #: -- different trust boundary, different staleness rule (a horizon,
+        #: not a caller-supplied duration), worth keeping visibly separate.
+        self.live_biometrics = live_biometrics
 
         self._buffer_size = buffer_size
         self._buffer: deque[tuple] = deque(maxlen=buffer_size)
@@ -45,6 +54,7 @@ class BiometricSynchronizer:
 
         self.max_hz = max_hz
         self._min_interval_ns = int(1e9 / max_hz) if max_hz else None
+        self._reject_below_ns = self._rejection_threshold_ns(self._min_interval_ns)
         self._last_accepted_ts_ns: int | None = None
 
         self.dropped_backpressure = 0  # buffer was full when we tried to append
@@ -58,10 +68,31 @@ class BiometricSynchronizer:
         #: how a session ends up short of frames with a clean-looking log.
         self.consume_faults = 0
 
+    #: Fraction of the sampling interval a frame may arrive *early* and still be
+    #: accepted. The acquisition loop paces itself to exactly
+    #: :attr:`sample_interval_ns`, so the pacing period and the rejection
+    #: threshold used to be the same number. OS sleep and runtime timing jitter
+    #: then put roughly half of all genuine samples a fraction of a millisecond
+    #: under the threshold: each one was discarded and left a double-length gap.
+    #: Measured on 15 Sep 2026 (Vive Focus 3, OpenXR): inter-sample intervals
+    #: split into two peaks at ~8.5 ms and ~16.5 ms, the effective rate fell from
+    #: ~120 Hz to 60-66 Hz, and 21,973 of 55,388 polls were thrown away in one
+    #: 7.7-minute session. Rejecting only what arrives in less than half an
+    #: interval still stops the floods the cap exists for (duplicate display
+    #: times, UDP bursts, a free-running loop) without eating jittered samples.
+    JITTER_TOLERANCE = 0.5
+
+    @classmethod
+    def _rejection_threshold_ns(cls, min_interval_ns: int | None) -> int | None:
+        if min_interval_ns is None:
+            return None
+        return int(min_interval_ns * (1.0 - cls.JITTER_TOLERANCE))
+
     def set_max_hz(self, max_hz: float) -> None:
         """Adjust the sampling ceiling at runtime — e.g. once the real device refresh rate is known."""
         self.max_hz = max_hz
         self._min_interval_ns = int(1e9 / max_hz) if max_hz else None
+        self._reject_below_ns = self._rejection_threshold_ns(self._min_interval_ns)
 
     @property
     def sample_interval_ns(self) -> int | None:
@@ -84,9 +115,12 @@ class BiometricSynchronizer:
             session that persisted 322 samples reported 392,956 of them to the
             hub (VRT-24).
         """
-        if self._min_interval_ns is not None and self._last_accepted_ts_ns is not None:
+        if self._reject_below_ns is not None and self._last_accepted_ts_ns is not None:
             delta = frame.timestamp_ns - self._last_accepted_ts_ns
-            if 0 <= delta < self._min_interval_ns:
+            # A duplicate (delta == 0: the runtime handed back the same display
+            # time twice) or a burst well inside one sampling interval. Not a
+            # frame that is merely a little early -- see JITTER_TOLERANCE.
+            if 0 <= delta < self._reject_below_ns:
                 self.dropped_oversampling += 1
                 if self.dropped_oversampling - self._last_oversample_log >= 1000:
                     logger.warning(
@@ -123,6 +157,15 @@ class BiometricSynchronizer:
                 frame.dist_to_target_right = compute_distance(
                     (frame.right_pos_x, frame.right_pos_y, frame.right_pos_z), (tx, ty, tz)
                 )
+
+        if self.live_biometrics is not None:
+            # VRT-32: the only channel a biosensor plugin can move into the
+            # 120 Hz frame grid itself -- see LiveBiometricState's docstring
+            # for why every other channel goes to the sidecar only, and
+            # ``frame.timestamp_ns`` (not a fresh ``time.perf_counter_ns()``
+            # call) for why staleness is judged against this frame's own
+            # clock.
+            frame.heart_rate_bpm = self.live_biometrics.read_heart_rate(frame.timestamp_ns)
 
         # `self._buffer_size`, not `self._buffer.maxlen`: deque types maxlen as
         # `int | None` because an unbounded deque is legal, and this one never is.

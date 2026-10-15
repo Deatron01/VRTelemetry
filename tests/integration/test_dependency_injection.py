@@ -53,7 +53,11 @@ def test_a_dependency_override_reaches_the_route(tmp_path: Path) -> None:
 
     body = TestClient(app).get("/api/patients").json()
 
-    assert body == [{"patient_id": "injected", "display_name": "Not From The Database"}]
+    # The route adds the A/V-recording status to each row; what this test is
+    # about is whose rows they are.
+    assert [(p["patient_id"], p["display_name"]) for p in body] == [
+        ("injected", "Not From The Database")
+    ]
 
 
 def test_removing_an_override_restores_the_real_collaborator(tmp_path: Path) -> None:
@@ -116,7 +120,7 @@ def test_an_override_on_one_application_does_not_affect_another(tmp_path: Path) 
     second = create_app(_container(tmp_path / "b"))
     first.dependency_overrides[dependencies.get_patients] = lambda: _OneFake()
 
-    assert TestClient(first).get("/api/patients").json() == [{"patient_id": "fake"}]
+    assert [p["patient_id"] for p in TestClient(first).get("/api/patients").json()] == ["fake"]
     assert TestClient(second).get("/api/patients").json() == []
 
 

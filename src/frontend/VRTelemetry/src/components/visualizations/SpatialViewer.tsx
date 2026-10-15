@@ -3,8 +3,9 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { useTelemetryStore } from '../../store/useTelemetryStore';
-import { Layers, Eye, Crosshair, Activity } from 'lucide-react';
+import { Layers, Eye, Crosshair, Activity, Video } from 'lucide-react';
 import { InfoTooltip } from '../InfoTooltip';
+import { useSyncedVideo } from '../../hooks/useSyncedVideo';
 
 const VRRig = () => {
   const hmdRef = useRef<THREE.Group>(null);
@@ -12,7 +13,7 @@ const VRRig = () => {
   const rightEyeRef = useRef<THREE.Group>(null);
   const leftCtrlRef = useRef<THREE.Mesh>(null);
   const rightCtrlRef = useRef<THREE.Mesh>(null);
-  
+
   useFrame(() => {
     const { frames, currentFrameIdx } = useTelemetryStore.getState();
     const frame = frames[currentFrameIdx];
@@ -63,7 +64,7 @@ const VRRig = () => {
           <boxGeometry args={[0.2, 0.12, 0.15]} />
           <meshStandardMaterial color="#3b82f6" transparent opacity={0.8} />
         </mesh>
-        
+
         <group ref={leftEyeRef}>
           <mesh>
             <sphereGeometry args={[0.015, 16, 16]} />
@@ -80,7 +81,7 @@ const VRRig = () => {
           <Line points={[[0, 0, 0], [0, 0, -5]]} color="#a855f7" lineWidth={2} />
         </group>
       </group>
-      
+
       <mesh ref={leftCtrlRef}>
         <sphereGeometry args={[0.04, 16, 16]} />
         <meshStandardMaterial color="#10b981" />
@@ -121,9 +122,9 @@ const LivePoRCursor = ({ visible }: { visible: boolean }) => {
 
     const d1d1 = d1.dot(d1); const d1d2 = d1.dot(d2); const d2d2 = d2.dot(d2);
     const d1p12 = d1.dot(p12); const d2p12 = d2.dot(p12);
-    
+
     const denom = d1d1 * d2d2 - d1d2 * d1d2;
-    
+
     const midPos = new THREE.Vector3().addVectors(leftWorldPos, rightWorldPos).multiplyScalar(0.5);
     const avgDir = new THREE.Vector3().addVectors(d1, d2).normalize();
     let finalPoint = new THREE.Vector3();
@@ -137,10 +138,10 @@ const LivePoRCursor = ({ visible }: { visible: boolean }) => {
         const c2 = rightWorldPos.clone().add(d2.multiplyScalar(mu2));
         finalPoint.copy(c1).add(c2).multiplyScalar(0.5);
       } else {
-        finalPoint.copy(midPos).add(avgDir.multiplyScalar(2.0)); 
+        finalPoint.copy(midPos).add(avgDir.multiplyScalar(2.0));
       }
     } else {
-      finalPoint.copy(midPos).add(avgDir.multiplyScalar(2.0)); 
+      finalPoint.copy(midPos).add(avgDir.multiplyScalar(2.0));
     }
 
     cursorRef.current.position.copy(finalPoint);
@@ -151,6 +152,35 @@ const LivePoRCursor = ({ visible }: { visible: boolean }) => {
     <mesh ref={cursorRef} visible={false}>
       <sphereGeometry args={[0.04, 16, 16]} />
       <meshBasicMaterial color="#fcd34d" />
+    </mesh>
+  );
+};
+
+const SpatialVideoPlane = () => {
+  const { videoElement, avInfo, videoAspect } = useSyncedVideo();
+  const textureRef = useRef<THREE.VideoTexture>(null);
+
+  useFrame(() => {
+    if (textureRef.current) {
+      textureRef.current.needsUpdate = true;
+    }
+  });
+
+  if (!avInfo?.has_video || !videoElement) return null;
+
+  const height = 2.4;
+  const width = height * videoAspect;
+
+  const radius = 5;
+  const thetaLength = width / radius;
+  const thetaStart = Math.PI - (thetaLength / 2);
+
+  return (
+    <mesh position={[-0.6, -0.2, 3.9]} scale={[-1, 1, 1]}>
+      <cylinderGeometry args={[radius, radius, height, 64, 1, true, thetaStart, thetaLength]} />
+      <meshBasicMaterial side={THREE.DoubleSide} toneMapped={false}>
+        <videoTexture ref={textureRef} attach="map" args={[videoElement]} colorSpace={THREE.SRGBColorSpace} />
+      </meshBasicMaterial>
     </mesh>
   );
 };
@@ -183,7 +213,7 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
   const fixationsRef = useRef<THREE.InstancedMesh>(null);
 
   // We are using an 8cm Voxel Grid. This provides structured, highly-readable spatial bins.
-  const VOXEL_SIZE = 0.08; 
+  const VOXEL_SIZE = 0.08;
 
   const { heatmapData, fixationData, scanpathPoints } = useMemo(() => {
     if (!frames.length) {
@@ -193,11 +223,11 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
         scanpathPoints: [] as THREE.Vector3[],
       };
     }
-    
+
     // Process samples evenly across the session
-    const step = Math.max(1, Math.floor(frames.length / 1500)); 
+    const step = Math.max(1, Math.floor(frames.length / 1500));
     const valid = frames.filter((f, i) => i % step === 0 && f.eye_tracking_valid > 0 && f.hmd_tracking_valid > 0);
-    
+
     const dummy = new THREE.Object3D();
     const hmdQuat = new THREE.Quaternion();
     const hmdPos = new THREE.Vector3();
@@ -224,21 +254,21 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
       const d1 = new THREE.Vector3(0, 0, -1).applyQuaternion(leftWorldRot);
       const d2 = new THREE.Vector3(0, 0, -1).applyQuaternion(rightWorldRot);
       const p12 = new THREE.Vector3().subVectors(leftWorldPos, rightWorldPos);
-      
+
       const d1d1 = d1.dot(d1); const d1d2 = d1.dot(d2); const d2d2 = d2.dot(d2);
       const d1p12 = d1.dot(p12); const d2p12 = d2.dot(p12);
       const denom = d1d1 * d2d2 - d1d2 * d1d2;
-      
+
       const midPos = new THREE.Vector3().addVectors(leftWorldPos, rightWorldPos).multiplyScalar(0.5);
       const avgDir = new THREE.Vector3().addVectors(d1, d2).normalize();
-      
+
       let convergencePoint = new THREE.Vector3();
       let focalDist = 2.0;
 
       if (denom > 1e-5) {
         const mu1 = (d1d2 * d2p12 - d2d2 * d1p12) / denom;
         const mu2 = (d1d1 * d2p12 - d1d2 * d1p12) / denom;
-        
+
         if (mu1 > 0.05 && mu2 > 0.05 && mu1 < 10) {
           const c1 = leftWorldPos.clone().add(d1.multiplyScalar(mu1));
           const c2 = rightWorldPos.clone().add(d2.multiplyScalar(mu2));
@@ -254,7 +284,7 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
       }
 
       // Tighter beam of attention that bulges precisely at the focal depth
-      const maxDistance = focalDist * 1.3; 
+      const maxDistance = focalDist * 1.3;
       const raySteps = Math.max(8, Math.ceil(maxDistance / VOXEL_SIZE));
       const stepDist = maxDistance / raySteps;
       const focalSigma = Math.max(0.2, focalDist * 0.25);
@@ -266,12 +296,12 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
 
       const addVoxelSample = (samplePos: THREE.Vector3, sampleIntensity: number) => {
         if (sampleIntensity < 0.05) return; // Drop weak edges to keep it clean
-        
+
         const gx = Math.round(samplePos.x / VOXEL_SIZE);
         const gy = Math.round(samplePos.y / VOXEL_SIZE);
         const gz = Math.round(samplePos.z / VOXEL_SIZE);
         const key = `${gx},${gy},${gz}`;
-        
+
         if (voxelMap.has(key)) {
           voxelMap.get(key)!.intensity += sampleIntensity;
         } else {
@@ -291,10 +321,10 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
         const depthIntensity = Math.exp(-(depthDelta * depthDelta) / (2 * focalSigma * focalSigma));
 
         // Visual shape: Narrow beam that expands rapidly into a core at the focal point
-        const baseRadius = curDist * 0.04; 
-        const focalBoost = depthIntensity * curDist * 0.08; 
+        const baseRadius = curDist * 0.04;
+        const focalBoost = depthIntensity * curDist * 0.08;
         const rMax = baseRadius + focalBoost;
-        
+
         addVoxelSample(centerPt, depthIntensity * 1.0);
 
         const rInner = rMax * 0.5;
@@ -336,20 +366,20 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
     const heatmapColors = new Float32Array(voxelCount * 3);
 
     let idx = 0;
-    
+
     voxelMap.forEach(voxel => {
       dummy.position.copy(voxel.pos);
 
       // Normalize density
       const norm = Math.min(1.0, voxel.intensity / targetMax);
-      const curved = Math.pow(norm, 0.7); 
-      
+      const curved = Math.pow(norm, 0.7);
+
       // *** THE SECRET TO READABILITY: DENSITY-BASED SCALING ***
-      // Low attention = tiny 1.5cm speck of dust (easy to see through). 
+      // Low attention = tiny 1.5cm speck of dust (easy to see through).
       // High attention = huge solid 8cm block.
       const sizeScale = 0.2 + (0.8 * Math.pow(norm, 0.5));
       dummy.scale.set(sizeScale, sizeScale, sizeScale);
-      
+
       dummy.updateMatrix();
       dummy.matrix.toArray(heatmapMatrices, idx * 16);
 
@@ -372,18 +402,18 @@ const AnalyticalLayers = ({ showHeatmap, showScanpath }: { showHeatmap: boolean,
     <>
       {/* 3D Discrete Voxel Heatmap Grid */}
       {showHeatmap && heatmapData.count > 0 && (
-        <instancedMesh 
-          ref={heatmapRef} 
+        <instancedMesh
+          ref={heatmapRef}
           args={[null as any, null as any, heatmapData.count]}
         >
           {/* We use a solid Box/Cube that is 85% of the total voxel grid size.
               This leaves a tiny 15% physical gap between even the densest red blocks,
               allowing the human brain to instantly perceive depth edges! */}
           <boxGeometry args={[VOXEL_SIZE * 0.85, VOXEL_SIZE * 0.85, VOXEL_SIZE * 0.85]} />
-          
+
           {/* Solid geometry with lighting restores human depth perception completely */}
-          <meshStandardMaterial 
-            roughness={0.4} 
+          <meshStandardMaterial
+            roughness={0.4}
             metalness={0.1}
           />
           <instancedBufferAttribute attach="instanceMatrix" args={[heatmapData.matrices, 16]} />
@@ -415,17 +445,18 @@ export const SpatialViewer = () => {
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showScanpath, setShowScanpath] = useState(true);
   const [showLivePoR, setShowLivePoR] = useState(true);
+  const [showVideo, setShowVideo] = useState(true);
 
   return (
     <div className="w-full h-full bg-slate-900 rounded-xl overflow-hidden shadow-inner relative border border-research-border">
-      
+
       {/* UI Overlay for Layer Toggles & Heatmap Legend */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 pointer-events-auto">
         <div className="bg-slate-950/80 backdrop-blur-md border border-white/20 p-3 rounded-lg shadow-xl w-60">
           <div className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-2 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-blue-400" /> Spatial Overlays
           </div>
-          
+
           <div className="flex items-center gap-1">
             <button
               onClick={() => setShowHeatmap(!showHeatmap)}
@@ -441,8 +472,8 @@ export const SpatialViewer = () => {
               <div className="text-[9px] font-medium text-white/70 mb-1">
                 Gaze Density / Attention Intensity
               </div>
-              <div 
-                className="h-2 w-full rounded-full shadow-inner" 
+              <div
+                className="h-2 w-full rounded-full shadow-inner"
                 style={{ background: 'linear-gradient(to right, #4c1d95, #2563eb, #06b6d4, #10b981, #eab308, #f97316, #ef4444)' }}
               />
               <div className="flex justify-between text-[8px] font-mono text-white/50 uppercase mt-0.5">
@@ -471,6 +502,15 @@ export const SpatialViewer = () => {
             </button>
             <InfoTooltip id="spatial.por" side="left" className="info-trigger-dark" />
           </div>
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              onClick={() => setShowVideo(!showVideo)}
+              className={`flex flex-1 items-center gap-2 w-full text-left px-3 py-1.5 rounded text-xs transition-colors ${showVideo ? 'bg-indigo-500/20 text-indigo-300 border-indigo-400/30 border' : 'text-white/60 hover:bg-white/5 border border-transparent'}`}
+            >
+              <Video className="w-3.5 h-3.5" /> 3D Video Plane
+            </button>
+            <InfoTooltip id="spatial.video" side="left" className="info-trigger-dark" />
+          </div>
         </div>
       </div>
 
@@ -480,11 +520,12 @@ export const SpatialViewer = () => {
         <directionalLight position={[5, 10, 7]} intensity={1.2} />
         <directionalLight position={[-5, 5, -7]} intensity={0.4} />
         <Grid args={[10, 10]} cellColor="#334155" sectionColor="#1e293b" fadeDistance={10} />
-        
+
         <VRRig />
         <LivePoRCursor visible={showLivePoR} />
+        {showVideo && <SpatialVideoPlane />}
         <AnalyticalLayers showHeatmap={showHeatmap} showScanpath={showScanpath} />
-        
+
         <OrbitControls target={[0, 1.0, 0]} />
       </Canvas>
     </div>

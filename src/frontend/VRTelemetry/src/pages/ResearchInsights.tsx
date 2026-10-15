@@ -180,23 +180,29 @@ export const ResearchInsights = () => {
         {tab === 'motor' && (
           <>
             <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
-              <StatCard label="Left Normalized Jerk" infoId="insights.jerk" value={motor.left.normalizedJerk.toFixed(1)} sub="Lower = smoother" />
-              <StatCard label="Right Normalized Jerk" infoId="insights.jerk" value={motor.right.normalizedJerk.toFixed(1)} sub="Lower = smoother" />
-              <StatCard label="Speed Symmetry" infoId="insights.symmetry" value={`${(motor.speedSymmetryIndex * 100).toFixed(1)}% asymmetry`} />
-              <StatCard label="Reach Symmetry" infoId="insights.symmetry" value={`${(motor.reachSymmetryIndex * 100).toFixed(1)}% asymmetry`} />
-            </div>
-            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+              <StatCard
+                label="Normalized Jerk"
+                infoId="insights.jerk"
+                value={motor.left.timeSeries.length ? `${motor.left.normalizedJerk.toFixed(1)} (L)` : 'N/A'}
+                sub={motor.right.timeSeries.length ? `${motor.right.normalizedJerk.toFixed(1)} (R)` : 'N/A'}
+              />
+              <StatCard
+                label="Bimanual Symmetry Index"
+                infoId="insights.symmetry"
+                value={(motor.left.timeSeries.length || motor.right.timeSeries.length) ? `${(motor.speedSymmetryIndex * 100).toFixed(1)}%` : 'N/A'}
+                sub="0% = perfect symmetry"
+              />
               <StatCard
                 label="Left Peak Reach"
                 infoId="insights.peak-reach"
-                value={`${motor.left.maxReachM.toFixed(2)} m`}
-                sub={motor.left.reachPctOfArmLength !== null ? `${motor.left.reachPctOfArmLength.toFixed(0)}% of calibrated arm length` : 'Arm length not calibrated for this session'}
+                value={motor.left.timeSeries.length ? `${motor.left.maxReachM.toFixed(2)} m` : 'N/A'}
+                sub={motor.left.timeSeries.length ? (motor.left.reachPctOfArmLength !== null ? `${motor.left.reachPctOfArmLength.toFixed(0)}% of calibrated arm length` : 'Arm length not calibrated for this session') : ''}
               />
               <StatCard
                 label="Right Peak Reach"
                 infoId="insights.peak-reach"
-                value={`${motor.right.maxReachM.toFixed(2)} m`}
-                sub={motor.right.reachPctOfArmLength !== null ? `${motor.right.reachPctOfArmLength.toFixed(0)}% of calibrated arm length` : 'Arm length not calibrated for this session'}
+                value={motor.right.timeSeries.length ? `${motor.right.maxReachM.toFixed(2)} m` : 'N/A'}
+                sub={motor.right.timeSeries.length ? (motor.right.reachPctOfArmLength !== null ? `${motor.right.reachPctOfArmLength.toFixed(0)}% of calibrated arm length` : 'Arm length not calibrated for this session') : ''}
               />
             </div>
             <ChartPanel title="Bimanual Controller Speed" note="Left vs. right controller translational speed over time." height={210} infoId="insights.bimanual-chart">

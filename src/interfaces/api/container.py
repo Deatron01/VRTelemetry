@@ -39,8 +39,10 @@ from src.application.consent import ConsentService
 from src.application.erasure import ErasureService
 from src.application.ports import HttpClient
 from src.config import Settings, get_settings
+from src.core.biosensor_status import BiosensorStatusRegistry
 from src.infrastructure.persistence import SessionRepository
 from src.infrastructure.persistence.av_recording_repository import AVRecordingRepository
+from src.infrastructure.persistence.biosensor_repository import BiosensorStreamRepository
 from src.infrastructure.persistence.consent_repository import ConsentRepository
 from src.infrastructure.transport import default_http_client
 from src.interfaces.api.event_router import EventRouter
@@ -217,6 +219,15 @@ class Container:
     #: from ``HubSettings``/``central_server`` above, which is a different hub.
     event_router: EventRouter
     plugin_manager: PluginManager
+    #: Per-session, per-device provenance for biosensor plugin streams
+    #: (VRT-34) -- which device sent what, how much, when. Sample values
+    #: themselves live in each session's sidecar Parquet, never here; see
+    #: src/storage/biosensor_sidecar.py.
+    biosensor_streams: BiosensorStreamRepository
+    #: Latest status heartbeat from each connected biosensor producer
+    #: (VRT-36), independent of whether a recording is running -- see that
+    #: class's docstring for why it lives here rather than on the engine.
+    biosensor_status: BiosensorStatusRegistry
 
     #: The HTTP client every outbound call goes through. An attribute rather
     #: than a direct import so a test replaces one object instead of patching a
@@ -374,6 +385,11 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
         static = engine.subject_metadata.get("M-IV_Static_Metadata", {})
         return bool(static.get("patient_id") == patient_id)
 
+    biosensor_streams = BiosensorStreamRepository(settings.paths.metadata_db)
+    biosensor_status = BiosensorStatusRegistry(
+        stale_after_sec=settings.biosensor.status_stale_after_sec
+    )
+
     container = Container(
         settings=settings,
         sessions=sessions,
@@ -390,6 +406,7 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
             session_logs_dir=settings.paths.session_logs_dir,
             is_recording_patient=_is_recording_patient,
             av_recordings=av_recordings,
+            biosensor_streams=biosensor_streams,
         ),
         local_cache=local_cache,
         session_uploader=session_uploader,
@@ -410,6 +427,8 @@ def build_container(settings: Settings | None = None, http: HttpClient | None = 
         recording=recording,
         event_router=event_router,
         plugin_manager=plugin_manager,
+        biosensor_streams=biosensor_streams,
+        biosensor_status=biosensor_status,
         http=http,
     )
     logger.debug(f"Container built against data root {settings.paths.data_root}")
