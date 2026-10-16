@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # ─────────────────────────────────────────────────────────────────────────────
 [project]
 name = "vrtelemetry"
-version = "1.1.0"
+version = "1.1.1"
 description = "Biometric telemetry acquisition and analysis for VR research studies"
 readme = "README.md"
 requires-python = ">=3.10"
