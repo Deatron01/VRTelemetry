@@ -212,12 +212,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+      # Not `assets/`: that is a directory in the repository (assets/brand),
+      # and `gh release upload assets/*` would then try to upload it.
       - uses: actions/download-artifact@v4
         with:
-          path: assets
+          path: release-assets
           merge-multiple: true
       - name: Checksums
-        working-directory: assets
+        working-directory: release-assets
         run: sha256sum * | tee SHA256SUMS.txt
       - name: Release notes
         run: |
@@ -229,7 +231,7 @@ jobs:
             echo
             echo "### Checksums (SHA-256)"
             echo '```'
-            cat assets/SHA256SUMS.txt
+            cat release-assets/SHA256SUMS.txt
             echo '```'
           } > notes.md
       - name: Create or update the release
@@ -237,10 +239,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" assets/* --clobber
+            gh release upload "$TAG" release-assets/* --clobber
             gh release edit "$TAG" --notes-file notes.md
           else
-            gh release create "$TAG" assets/* \
+            gh release create "$TAG" release-assets/* \
               --verify-tag \
               --title "VRTelemetry ${TAG}" \
               --notes-file notes.md \
