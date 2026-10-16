@@ -220,7 +220,13 @@ jobs:
           merge-multiple: true
       - name: Checksums
         working-directory: release-assets
-        run: sha256sum * | tee SHA256SUMS.txt
+        # Written beside the directory, then moved in: with `| tee SHA256SUMS.txt`
+        # tee could create the file before the glob expanded, and v1.1.1 shipped
+        # a line for SHA256SUMS.txt itself (the empty-file hash).
+        run: |
+          sha256sum * > ../SHA256SUMS.tmp
+          mv ../SHA256SUMS.tmp SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Release notes
         run: |
           {
