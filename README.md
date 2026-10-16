@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/vrtelemetry-mark.svg" width="96" height="96" alt="" />
+</p>
+
 <h1 align="center">VRTelemetry</h1>
 
 <p align="center">

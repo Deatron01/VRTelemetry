@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>VRTelemetry Hub</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f6fd8"/>
+      <stop offset="1" stop-color="#2849a3"/>
+    </linearGradient>
+    <clipPath id="notch">
+      <path d="M0 0 H512 V512 H0 Z M404 404 m-118 0 a118 118 0 1 0 236 0 a118 118 0 1 0 -236 0 Z" clip-rule="evenodd"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#notch)">
+    <rect width="512" height="512" rx="116" fill="url(#tile)"/>
+    <rect x="6" y="6" width="500" height="500" rx="110" fill="none" stroke="#ffffff" stroke-opacity=".14" stroke-width="4"/>
+    <circle cx="256" cy="256" r="148" fill="none" stroke="#ffffff" stroke-width="30"/>
+    <circle cx="256" cy="256" r="88" fill="none" stroke="#ffffff" stroke-opacity=".38" stroke-width="14"/>
+    <path d="M48 284 H164 L200 196 L248 344 L284 236 L306 284 H464" fill="none" stroke="#2c4fa9" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M48 284 H164 L200 196 L248 344 L284 236 L306 284 H464" fill="none" stroke="#7fe3d0" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <circle cx="404" cy="404" r="100" fill="#7fe3d0"/>
+  <g stroke="#1d3a80" stroke-width="14" stroke-linecap="round">
+    <line x1="404" y1="404" x2="404" y2="346"/>
+    <line x1="404" y1="404" x2="354" y2="433"/>
+    <line x1="404" y1="404" x2="454" y2="433"/>
+  </g>
+  <g fill="#1d3a80">
+    <circle cx="404" cy="404" r="22"/>
+    <circle cx="404" cy="340" r="16"/>
+    <circle cx="348" cy="436" r="16"/>
+    <circle cx="460" cy="436" r="16"/>
+  </g>
+</svg>

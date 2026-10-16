@@ -4,6 +4,7 @@ import {
   ShieldAlert, Download, FileText, FolderSearch, Video, LogOut, Users, Brain,
   Sun, Moon, Puzzle,
 } from 'lucide-react';
+import brandMark from '../../assets/vrtelemetry-mark.svg';
 import { useTelemetryStore } from '../../store/useTelemetryStore';
 import { TelemetryParser } from '../../services/TelemetryParser';
 import { useThemeStore } from '../../store/useThemeStore';
@@ -157,9 +158,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children, currentRoute, onRo
         style={{ borderRight: '1px solid var(--hair)' }}
       >
         <div className="flex items-center gap-2.5 px-2 pb-0.5 pt-1.5">
-          <div className="clay-xs flex h-[34px] w-[34px] flex-none items-center justify-center" style={{ color: 'var(--s1)', borderRadius: 11 }}>
-            <Activity className="h-[17px] w-[17px]" strokeWidth={2.1} />
-          </div>
+          <img src={brandMark} alt="" width={34} height={34} className="flex-none" style={{ borderRadius: 9 }} />
           <div className="leading-[1.15]">
             <div className="text-[14px] font-semibold tracking-[-0.01em]">VRTelemetry</div>
             <div className="text-[11px] text-ink-3">Research Studio</div>

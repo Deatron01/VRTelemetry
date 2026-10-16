@@ -12,19 +12,20 @@
     "dev:frontend": "cd src/frontend/VRTelemetry && npm run dev",
     "dev:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
     "dev": "concurrently -k \"npm:dev:frontend\" \"npm:dev:electron\"",
-
     "build:frontend": "cd src/frontend/VRTelemetry && npm install && npm run build",
     "build:backend": "pyinstaller build/backend.spec --distpath build/dist-backend --workpath build/work --noconfirm",
     "build:legal": "node build/make-installer-license.js",
     "prepackage": "npm run build:legal && npm run build:frontend && npm run build:backend",
-    "package": "npm run prepackage && electron-builder --publish never"
+    "package": "npm run prepackage && electron-builder --publish never",
+    "build:icons": "node build/make-icons.js"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
-    "concurrently": "^9.0.0",
-    "wait-on": "^8.0.0",
-    "cross-env": "^7.0.3"
+    "wait-on": "^8.0.0"
   },
   "build": {
     "appId": "io.github.deatron01.vrtelemetry",
@@ -44,8 +45,14 @@
         "from": "build/dist-backend/vrtelemetry-backend",
         "to": "backend"
       },
-      { "from": "LICENSE", "to": "LICENSE.txt" },
-      { "from": "DISCLAIMER.md", "to": "DISCLAIMER.md" }
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "DISCLAIMER.md",
+        "to": "DISCLAIMER.md"
+      }
     ],
     "publish": null,
     "win": {
@@ -57,7 +64,10 @@
       "allowToChangeInstallationDirectory": true,
       "license": "build/installer-license.txt"
     },
-    "mac": { "target": "dmg", "category": "public.app-category.education" },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.education"
+    },
     "linux": {
       "target": "AppImage",
       "category": "Science",

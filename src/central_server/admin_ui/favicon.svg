@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>VRTelemetry Hub</title>
+  <defs>
+    <clipPath id="notch">
+      <path d="M0 0 H512 V512 H0 Z M392 392 m-140 0 a140 140 0 1 0 280 0 a140 140 0 1 0 -280 0 Z" clip-rule="evenodd"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#notch)">
+    <rect width="512" height="512" rx="116" fill="#3059bd"/>
+    <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-width="56"/>
+    <circle cx="256" cy="256" r="58" fill="#7fe3d0"/>
+  </g>
+  <circle cx="392" cy="392" r="112" fill="#7fe3d0"/>
+  <circle cx="392" cy="392" r="40" fill="#1d3a80"/>
+</svg>

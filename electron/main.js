@@ -3,6 +3,11 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { startBackend, stopBackend } = require('./backend-manager');
 
+// Packaged, the window and taskbar take the icon embedded in the executable
+// (build/icon.ico, which electron-builder applies). In development the
+// executable is Electron's own, so point the windows at the generated PNG.
+const DEV_ICON = app.isPackaged ? {} : { icon: path.join(__dirname, '..', 'build', 'icon.png') };
+
 let mainWindow = null;
 
 // The packaged renderer is served from app:// rather than loaded with
@@ -66,6 +71,7 @@ async function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     title: 'VRTelemetry Research Studio',
+    ...DEV_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -92,6 +98,7 @@ function createMonitorWindow() {
     width: 300,
     height: 400,
     title: 'PC Monitor',
+    ...DEV_ICON,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
