@@ -36,7 +36,9 @@ Copyright (c) 2026 Nagy István Bence (GitHub: Deatron01). All rights reserved.
 
 7. Third-party components. Open-source libraries used by or bundled with the
    Software remain under their own licences; nothing here restricts your rights
-   under those licences.
+   under those licences. The same applies to any directory of this repository
+   that carries its own LICENSE file (for example plugins/ros-unity-bridge,
+   which is MIT-licensed): that file, not this one, governs it.
 
 8. Contributions. By submitting a contribution (for example a pull request) you
    agree that the copyright holder may use, modify and distribute it as part of

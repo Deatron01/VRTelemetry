@@ -7,5 +7,5 @@
   "requirements_file": "requirements.txt",
   "protocol_version": 1,
   "author": "VRTelemetry project",
-  "homepage": null
+  "homepage": "https://github.com/Deatron01/vrtelemetry-plugin-ros-unity-bridge"
 }

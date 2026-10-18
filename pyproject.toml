@@ -12,10 +12,11 @@ description = "Biometric telemetry acquisition and analysis for VR research stud
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
-authors = [{ name = "VRTelemetry" }]
+authors = [{ name = "Nagy István Bence" }]
 keywords = ["vr", "telemetry", "openxr", "eye-tracking", "biometrics", "research"]
 classifiers = [
     "Private :: Do Not Upload",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

@@ -446,6 +446,9 @@ which requires neither.
   attach real participant data to an issue.
 - **[LICENSE](LICENSE)** — proprietary, all rights reserved. The source is
   published to be read and evaluated; any other use needs written permission.
+  Directories with their own LICENSE file are excepted —
+  [`plugins/ros-unity-bridge`](plugins/ros-unity-bridge) is MIT, like its
+  standalone repository.
 
 <br />
 
