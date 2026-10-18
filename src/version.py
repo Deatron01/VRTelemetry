@@ -20,7 +20,7 @@ from importlib.metadata import PackageNotFoundError, version
 #: What to report when package metadata is unavailable. Kept in step with
 #: ``pyproject.toml``'s ``version`` by hand; there is no way to read that file
 #: from a frozen bundle, which is the case this fallback exists for.
-FALLBACK_VERSION = "1.1.2"
+FALLBACK_VERSION = "1.1.3"
 
 try:
     APP_VERSION: str = version("vrtelemetry")
