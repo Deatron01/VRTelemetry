@@ -1,7 +1,7 @@
 {
   "name": "vrtelemetry-desktop",
   "productName": "VRTelemetry",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "VRTelemetry desktop app - research data acquisition for VR studies. Research use only; not a medical device.",
   "author": "Nagy István Bence",
   "license": "SEE LICENSE IN LICENSE",
