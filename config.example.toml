@@ -17,7 +17,7 @@
 # keeps an existing install pointed at its existing databases.
 #
 # Set it to stop behaviour depending on where you launched from:
-# data_root = "C:/Users/nipit/Desktop/VRTelemetry"
+# data_root = "C:/VRTelemetry/data"
 
 [central]
 # The hub this workstation uploads to. There is deliberately NO default: unset
