@@ -80,6 +80,12 @@ async function createWindow() {
     show: false,
   });
 
+  // Listen before loading. ready-to-show can fire before loadURL() resolves --
+  // it does for the local app:// page -- and a listener added after the await
+  // misses it, leaving the window loaded but never shown.
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.on('closed', () => { mainWindow = null; });
+
   if (app.isPackaged) {
     await mainWindow.loadURL(`${APP_SCHEME}://./index.html`);
   } else {
@@ -87,9 +93,6 @@ async function createWindow() {
     await mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
-
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 let monitorWindow = null;
@@ -108,12 +111,28 @@ function createMonitorWindow() {
     alwaysOnTop: true,
   });
 
-  monitorWindow.loadURL(`${APP_SCHEME}://./monitor.html`);
   monitorWindow.once('ready-to-show', () => monitorWindow.show());
   monitorWindow.on('closed', () => { monitorWindow = null; });
+  monitorWindow.loadURL(`${APP_SCHEME}://./monitor.html`);
+}
+
+// One instance. A second shell would start a second backend that cannot bind
+// 127.0.0.1:8000, then talk to the first one's -- and quitting the first shell
+// stops the backend under the second. A second launch brings the running
+// window forward instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 app.whenReady().then(async () => {
+  if (!app.hasSingleInstanceLock()) return;
   registerAppProtocol();
 
   try {

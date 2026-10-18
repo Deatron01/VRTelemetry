@@ -104,6 +104,14 @@ Page custom NetworkPage NetworkPageLeave
   FileClose $0
 !macroend
 
+; An Internet shortcut to the admin UI, carrying the hub's icon rather than the
+; browser's generic one.
+!macro AdminUiShortcut FILE
+  WriteINIStr "${FILE}" "InternetShortcut" "URL" "https://$Address:$Port/admin-ui/"
+  WriteINIStr "${FILE}" "InternetShortcut" "IconFile" "$INSTDIR\${HUB_EXE}"
+  WriteINIStr "${FILE}" "InternetShortcut" "IconIndex" "0"
+!macroend
+
 ; Stop a running hub so its files can be replaced or removed.
 !macro StopHub
   nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
@@ -238,7 +246,10 @@ Section "Hub" SecHub
   CreateShortcut "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk" \
     "$INSTDIR\${HUB_EXE}" '--data-root "$DataDir" create-admin' "$INSTDIR\${HUB_EXE}" 0
   !insertmacro ShortcutRunAsAdmin "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk"
-  WriteINIStr "$SMPROGRAMS\${PRODUCT}\Open admin UI.url" "InternetShortcut" "URL" "https://$Address:$Port/admin-ui/"
+  !insertmacro AdminUiShortcut "$SMPROGRAMS\${PRODUCT}\Open admin UI.url"
+  ; The hub runs in the background, so its desktop icon opens what a person
+  ; actually uses: the admin UI, in the browser.
+  !insertmacro AdminUiShortcut "$DESKTOP\${PRODUCT}.url"
   CreateShortcut "$SMPROGRAMS\${PRODUCT}\Workstation kit.lnk" "$DataDir\workstation-kit"
   CreateShortcut "$SMPROGRAMS\${PRODUCT}\Uninstall ${PRODUCT}.lnk" "$INSTDIR\Uninstall.exe"
 
@@ -280,6 +291,7 @@ Section "Uninstall"
 
   Delete "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk"
   Delete "$SMPROGRAMS\${PRODUCT}\Open admin UI.url"
+  Delete "$DESKTOP\${PRODUCT}.url"
   Delete "$SMPROGRAMS\${PRODUCT}\Workstation kit.lnk"
   Delete "$SMPROGRAMS\${PRODUCT}\Uninstall ${PRODUCT}.lnk"
   RMDir "$SMPROGRAMS\${PRODUCT}"
