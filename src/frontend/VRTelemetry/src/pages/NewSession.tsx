@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { PlayCircle, ShieldAlert, ShieldCheck, Cpu, Network, StopCircle, Server, Users, Video } from 'lucide-react';
 import { PostSessionQuestionnaire } from '../components/PostSessionQuestionnaire';
 import { InfoTooltip } from '../components/InfoTooltip';
+import { HubPairing } from '../components/HubPairing';
 import { ParticipantConsentFlow, type ConsentSubmission, type RecordedConsent } from '../components/ParticipantConsentFlow';
 
 interface Patient {
@@ -95,6 +96,7 @@ export const NewSession = () => {
   // workstation's own configuration.
   const [hubUrl, setHubUrl] = useState('');
   const [hubCheck, setHubCheck] = useState<HubCheck | null>(null);
+  const [showPairing, setShowPairing] = useState(false);
 
   // Real per-device probe (VRT-36) for the "Cardiovascular sensor" row
   // below, replacing what used to be a hardcoded { ready: true }. Polled
@@ -407,6 +409,23 @@ export const NewSession = () => {
                   ? `Reachable — ${hubCheck.service} ${hubCheck.version}${hubCheck.healthy ? '' : ' (database not answering)'}`
                   : hubCheck.detail}
               </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowPairing(v => !v)}
+              aria-expanded={showPairing}
+              className="mt-2 text-[11px] font-medium"
+              style={{ color: 'var(--s1)' }}
+            >
+              {showPairing ? 'Hide pairing' : 'Pair with a hub using a code…'}
+            </button>
+            {showPairing && (
+              <div className="well mt-2 p-3">
+                <HubPairing
+                  initialUrl={hubUrl}
+                  onPaired={url => { setHubUrl(url); setHubCheck(null); }}
+                />
+              </div>
             )}
           </div>
 

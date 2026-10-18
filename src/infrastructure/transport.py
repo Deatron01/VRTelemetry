@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
@@ -79,10 +79,10 @@ def insecure_transport_reason(url: str, *, allow_insecure_http: bool = False) ->
         # "refusing to send data to :// without TLS" sent people after
         # certificates when the workstation simply had no hub address.
         return (
-            f"{NO_HUB_ADDRESS}: no hub address is set on this workstation. Copy "
-            "hub-ca.pem and config.toml from the hub's workstation kit into "
-            "%APPDATA%\\VRTelemetry\\data and restart the app, or enter the hub's "
-            "https:// address under Central Server Address."
+            f"{NO_HUB_ADDRESS}: no hub address is set on this workstation. Pair it "
+            "with the hub using a code from the hub's admin UI (Connect to a hub on "
+            "the sign-in screen), or copy hub-ca.pem and config.toml from the hub's "
+            "workstation kit into %APPDATA%\\VRTelemetry\\data and restart the app."
         )
     if parts.scheme == "https":
         return None
@@ -139,6 +139,15 @@ class PolicyEnforcingHttpClient:
         if url.startswith("https://") and self._policy.ca_bundle and "verify" not in kwargs:
             kwargs["verify"] = str(self._policy.ca_bundle)
         return kwargs
+
+    def trust_ca_bundle(self, ca_bundle: Path) -> None:
+        """Verify the hub against ``ca_bundle`` from the next request on.
+
+        Called after pairing (:mod:`src.infrastructure.hub_pairing`) has written
+        a new ``hub-ca.pem``, so the uploaders -- which share this client --
+        use it at once instead of after a restart.
+        """
+        self._policy = replace(self._policy, ca_bundle=ca_bundle)
 
     def get(self, url: str, **kwargs: Any) -> Any:
         return self._inner.get(url, **self._prepare(url, kwargs))

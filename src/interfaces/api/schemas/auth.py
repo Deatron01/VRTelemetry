@@ -31,3 +31,10 @@ class CentralUrlCheck(BaseModel):
     """
 
     central_server_url: str | None = None
+
+
+class CentralPairRequest(BaseModel):
+    """A hub address and the pairing code its admin UI showed."""
+
+    central_server_url: str
+    code: str

@@ -1,7 +1,8 @@
 // src/frontend/VRTelemetry/src/pages/Login.tsx
 
 import React, { useState } from 'react';
-import { Activity, Mail, Lock, Building2, User, ArrowRight, AlertCircle } from 'lucide-react';
+import { Activity, Mail, Lock, Building2, User, ArrowRight, AlertCircle, Server } from 'lucide-react';
+import { HubPairing } from '../components/HubPairing';
 
 interface LoginProps {
   onAuthenticated: (session: { email: string; display_name: string }) => void;
@@ -11,6 +12,9 @@ export const Login: React.FC<LoginProps> = ({ onAuthenticated }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Signing in goes through the hub, so a workstation that has never been
+  // connected to one needs this before anything else works.
+  const [showPairing, setShowPairing] = useState(false);
 
   const [form, setForm] = useState({
     email: '',
@@ -189,6 +193,23 @@ export const Login: React.FC<LoginProps> = ({ onAuthenticated }) => {
             </>
           )}
         </p>
+
+        <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--hair)' }}>
+          <button
+            type="button"
+            onClick={() => setShowPairing(v => !v)}
+            aria-expanded={showPairing}
+            className="flex w-full items-center gap-1.5 text-[12.5px] text-ink-3"
+          >
+            <Server className="h-3.5 w-3.5" />
+            {showPairing ? 'Hide hub connection' : 'Connect to a hub on another machine…'}
+          </button>
+          {showPairing && (
+            <div className="mt-3">
+              <HubPairing onPaired={() => setError(null)} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

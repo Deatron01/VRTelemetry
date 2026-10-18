@@ -70,6 +70,7 @@
     };
     let allLicenses = []; // used to populate license filter dropdowns
     let clientsAutoRefresh = null;
+    let pairingPoll = null;
 
     // --- API Wrapper ---
     async function api(path, opts = {}) {
@@ -333,6 +334,7 @@
             ${renderNavBtn('patients', 'Patient Registry')}
             ${renderNavBtn('files', 'Raw Data Files')}
             ${renderNavBtn('plugins', 'Plugin Catalog')}
+            ${renderNavBtn('pairing', 'Pair a Workstation')}
           </nav>
           <div class="p-4 border-t border-slate-800">
             <button onclick="doLogout()" class="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">Sign Out</button>
@@ -352,6 +354,7 @@
             <div id="tab-patients" class="tab-content hidden space-y-6">${renderPatientsTab()}</div>
             <div id="tab-files" class="tab-content hidden space-y-6">${renderFilesTab()}</div>
             <div id="tab-plugins" class="tab-content hidden space-y-6">${renderPluginsTab()}</div>
+            <div id="tab-pairing" class="tab-content hidden space-y-6">${renderPairingTab()}</div>
           </div>
         </main>`;
     }
@@ -964,6 +967,81 @@
       } catch (e) { showToast(e.message, 'error'); }
     }
 
+
+    // ==========================================================
+    // --- Pair a Workstation Tab ---
+    // ==========================================================
+    // The code is the only thing that lets a workstation tell this hub's CA
+    // certificate from an impostor's, so it is shown here and nowhere else.
+    // One code at a time: generating a new one cancels the previous one.
+    function renderPairingTab() {
+      return `
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-3xl">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Pairing code</h3>
+          <p class="text-sm text-slate-400 mb-4">
+            Lets a workstation on another machine fetch this hub's CA certificate securely, instead of copying
+            <span class="font-mono">hub-ca.pem</span> and <span class="font-mono">config.toml</span> by hand.
+            In the desktop app, under <em>Connect to a hub</em>, enter this hub's address
+            (<span class="font-mono">${escapeHtml(window.location.origin)}</span>) and the code.
+          </p>
+          <div id="pairing-status" class="mb-4"></div>
+          <div class="flex gap-3">
+            <button onclick="generatePairingCode()" class="bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg transition-colors">Generate code</button>
+            <button onclick="cancelPairingCode()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium py-2 px-4 rounded-lg transition-colors">Cancel code</button>
+          </div>
+          <ul class="mt-6 text-xs text-slate-500 space-y-1 list-disc pl-5">
+            <li>A code expires after 10 minutes and works for one workstation. Generating a new code cancels the old one.</li>
+            <li>After 5 attempts with a code it is locked, and pairing requests are rate-limited per machine.</li>
+            <li>Read the code to the researcher in person or by phone, not over an unencrypted chat.</li>
+          </ul>
+        </div>`;
+    }
+
+    function renderPairingStatus(s) {
+      const el = document.getElementById('pairing-status');
+      if (!el) return;
+      const fp = s.ca_fingerprint
+        ? `<div class="mt-3 text-xs text-slate-500">CA fingerprint (SHA-256), shown on the workstation after pairing:<div class="font-mono text-[11px] text-slate-400 break-all mt-1">${escapeHtml(s.ca_fingerprint)}</div></div>`
+        : '';
+      if (s.state === 'active') {
+        const m = Math.floor(s.expires_in / 60), sec = String(s.expires_in % 60).padStart(2, '0');
+        el.innerHTML = `
+          <div class="bg-slate-900 border border-blue-800 rounded-xl p-6 text-center">
+            <div class="font-mono text-5xl tracking-[0.3em] text-white">${escapeHtml(s.code.slice(0, 3))} ${escapeHtml(s.code.slice(3))}</div>
+            <div class="mt-3 text-sm text-slate-400">Expires in ${m}:${sec} · ${s.max_attempts - s.attempts} attempt(s) left</div>
+            ${fp}
+          </div>`;
+      } else if (s.state === 'used') {
+        el.innerHTML = `<div class="bg-emerald-900/40 border border-emerald-800 rounded-xl p-4 text-sm text-emerald-200">
+            Paired: the workstation at <span class="font-mono">${escapeHtml(s.used_by)}</span> now trusts this hub (${fmtDate(s.used_at)}).
+          </div>${fp}`;
+      } else if (s.state === 'expired' || s.state === 'locked') {
+        el.innerHTML = `<div class="bg-amber-900/40 border border-amber-800 rounded-xl p-4 text-sm text-amber-200">
+            The last code ${s.state === 'expired' ? 'expired' : 'was locked after too many attempts'}. Generate a new one.
+          </div>`;
+      } else {
+        el.innerHTML = `<div class="text-sm text-slate-500">No active code.</div>`;
+      }
+    }
+
+    async function loadPairing() {
+      try { renderPairingStatus(await api('/admin/pairing/code')); }
+      catch (e) { showToast(`Failed to load pairing status: ${e.message}`, 'error'); }
+    }
+
+    async function generatePairingCode() {
+      try {
+        renderPairingStatus(await api('/admin/pairing/code', { method: 'POST' }));
+      } catch (e) { showToast(e.message, 'error'); }
+    }
+
+    async function cancelPairingCode() {
+      try {
+        await api('/admin/pairing/code', { method: 'DELETE' });
+        loadPairing();
+      } catch (e) { showToast(e.message, 'error'); }
+    }
+
     // ==========================================================
     // --- Tab switching / bootstrapping ---
     // ==========================================================
@@ -982,12 +1060,17 @@
       document.getElementById('page-title').textContent = activeBtn.textContent;
 
       if (clientsAutoRefresh) { clearInterval(clientsAutoRefresh); clientsAutoRefresh = null; }
+      if (pairingPoll) { clearInterval(pairingPoll); pairingPoll = null; }
 
       if (skipReload) { rerenderTab(tabId); return; }
       refreshTab(tabId);
 
       if (tabId === 'clients') {
         clientsAutoRefresh = setInterval(loadClients, 10000);
+      }
+      if (tabId === 'pairing') {
+        // Counts the expiry down, and shows "Paired" as soon as it happens.
+        pairingPoll = setInterval(loadPairing, 2000);
       }
     }
 
@@ -1000,6 +1083,7 @@
         patients: loadPatients,
         files: loadFiles,
         plugins: loadPlugins,
+        pairing: loadPairing,
       };
       if (loaders[tabId]) loaders[tabId]();
       // Licenses power the filter dropdowns on Sessions/Patients — keep them warm.
@@ -1035,6 +1119,7 @@
       currentUser = null;
       localStorage.removeItem('admin_session_token');
       if (clientsAutoRefresh) { clearInterval(clientsAutoRefresh); clientsAutoRefresh = null; }
+      if (pairingPoll) { clearInterval(pairingPoll); pairingPoll = null; }
       render();
     }
 

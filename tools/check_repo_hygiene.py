@@ -154,7 +154,14 @@ REQUIRED: tuple[tuple[str, str], ...] = (
 #: and the hub installer (frozen-hub CLI and spec, NSIS script, the certificate
 #: tool moved into the package, their tests, and the design note). Source and
 #: tests only -- the installers themselves go to release assets, never here.
-MAX_TRACKED_FILES = 480
+#:
+#: 480 -> 500 on 18 Oct 2026. Same-machine kit adoption (one module, one test)
+#: and workstation pairing by code: the shared protocol
+#: (`src/infrastructure/hub_pairing.py`), the hub's codes and limits
+#: (`src/central_server/pairing.py`), the shared kit writer
+#: (`src/config/workstation_kit.py`), the frontend `HubPairing.tsx`, and three
+#: test modules. Source and tests only.
+MAX_TRACKED_FILES = 500
 
 
 # --------------------------------------------------------------------------- #

@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
+from src.central_server import pairing
 from src.central_server.data_manager import CentralDataManager
 from src.central_server.data_schema import initialize_data_schema
 from src.config import get_settings
@@ -835,6 +836,28 @@ def admin_delete_plugin(plugin_id: str, admin=Depends(require_admin)) -> dict[st
         raise HTTPException(status_code=404, detail=f"'{plugin_id}' is not in the catalog.")
     logger.warning(f"Admin {admin['email']} deleted plugin '{plugin_id}' from the catalog.")
     return {"ok": True}
+
+
+# ============================================================
+# --- WORKSTATION PAIRING (admin UI's "Pair a Workstation" tab) ---
+# ============================================================
+
+
+def hub_ca_path() -> Path:
+    """The CA certificate workstations are paired with.
+
+    ``hub-ca.pem`` beside the configured certificate -- where ``gen-cert`` and
+    ``setup`` put it -- or, with no certificate configured, the default
+    ``CentralServer/tls`` directory those tools write to.
+    """
+    settings = get_settings()
+    if settings.hub.tls_certfile:
+        return Path(settings.hub.tls_certfile).parent / "hub-ca.pem"
+    return settings.paths.central_dir / "tls" / "hub-ca.pem"
+
+
+pairing_service = pairing.PairingService(lambda: hub_ca_path().read_text(encoding="ascii"))
+app.include_router(pairing.build_router(pairing_service, require_admin))
 
 
 def resolve_bind_address() -> tuple[str, int]:

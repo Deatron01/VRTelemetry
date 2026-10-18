@@ -240,20 +240,40 @@ app then picks up the hub's workstation kit on its own.
 1. **Open the port on the hub machine.** Windows Firewall blocks inbound 9000 by
    default. This is the most common reason a setup that works on one machine
    fails across two.
-2. **Find the hub's LAN address** (`ipconfig`, or `ip addr`) and confirm it from
-   the recording PC:
+2. **Find the hub's LAN address** (`ipconfig`, or `ip addr`). The hub's
+   certificate must name it — `vrtelemetry-hub setup --address <hub-ip>` or
+   `gen-cert --host <hub-ip>` — or the workstation will refuse the connection.
+3. **Pair the workstation with the hub.** The hub's certificate comes from its
+   own small CA, so the workstation needs that CA (`hub-ca.pem`) before it can
+   trust the hub. Pairing fetches it securely:
+   - In the hub's admin UI (`https://<hub-ip>:9000/admin-ui/`), open **Pair a
+     Workstation** and press **Generate code**. A six-digit code appears; it
+     expires after ten minutes and works for one workstation.
+   - In the desktop app, open **Connect to a hub on another machine…** on the
+     sign-in screen (or **Pair with a hub using a code…** under Central Server
+     Address on Live Acquisition). Enter `https://<hub-ip>:9000` and the code,
+     and press **Pair**.
+
+   The app writes `hub-ca.pem` and the `[central]` settings (`url`,
+   `ca_bundle`) into its data root, merging them into an existing
+   `config.toml` rather than replacing it, and uses them immediately. It shows
+   the CA's SHA-256 fingerprint, the same one the admin UI shows, for anyone
+   who wants to compare. A wrong code changes nothing; retype it. After five
+   attempts the code is locked and you generate a new one.
+
+   *Without pairing*, copy `hub-ca.pem` and `config.toml` from the hub's
+   `workstation-kit` folder into `%APPDATA%\VRTelemetry\data` (merge the
+   `[central]` block if a `config.toml` is already there) and restart the app.
+
+   Then press **Test** next to Central Server Address on Live Acquisition. It
+   reports the hub's name and version, or says exactly what went wrong. To
+   check from a shell instead:
    ```bash
    curl --cacert hub-ca.pem https://<hub-ip>:9000/health
    ```
    Read the `service` field, not just the status code — a workstation pointed at
    some other service on the right port gets a reply and otherwise looks
-   connected.
-3. **Copy `hub-ca.pem` to the workstation** and set `ca_bundle` to it under
-   `[central]` in the workstation's `config.toml`. Then, **in the desktop app**,
-   on Live Acquisition, put `https://<hub-ip>:9000` into **Central Server
-   Address** and press **Test**. A plain `http://` LAN address is refused. It reports the hub's name and
-   version, or says exactly what went wrong. The address is saved on the
-   machine — a one-time step, not per session.
+   connected. A plain `http://` LAN address is refused.
 4. **Register or log in, then activate** with a licence key from step 1.
 5. Record. `GET /api/sync/status` reads 0 pending once a session has uploaded.
 

@@ -14,13 +14,16 @@ old one until the app was restarted, with no indication anything was wrong.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from src.config.workstation_kit import CA_FILE_NAME
+from src.infrastructure.hub_pairing import PairingError, pair_with_hub
 from src.infrastructure.transport import insecure_transport_reason
 from src.interfaces.api.dependencies import CentralUrlDep, HttpDep, LocalCacheDep, SettingsDep
-from src.interfaces.api.schemas.auth import CentralUrlCheck, CentralUrlConfig
+from src.interfaces.api.schemas.auth import CentralPairRequest, CentralUrlCheck, CentralUrlConfig
 
 router = APIRouter(tags=["config"])
 
@@ -127,4 +130,60 @@ def check_central_config(
         "version": body.get("version"),
         "database": body.get("database"),
         "healthy": bool(body.get("ok")),
+    }
+
+
+@router.post("/api/config/central-server/pair")
+def pair_central_server(
+    payload: CentralPairRequest,
+    http: HttpDep,
+    local_cache: LocalCacheDep,
+    settings: SettingsDep,
+) -> dict[str, Any]:
+    """Pair this workstation with a hub by the code its admin UI shows.
+
+    Replaces copying the hub's workstation kit by hand: fetches the hub's CA
+    certificate, authenticated by the code (see
+    :mod:`src.infrastructure.hub_pairing`), writes ``hub-ca.pem`` and the
+    ``[central]`` settings into the data root -- merging into an existing
+    ``config.toml`` -- and saves the address, as the field above would.
+
+    ``central.ca_bundle`` is written relative, the way the kit has it, when the
+    backend runs in its data root (the packaged app always does); otherwise as
+    an absolute path, since a relative one would resolve somewhere else.
+
+    Returns:
+        ``url``, the CA ``fingerprint`` (to compare with the admin UI's, for
+        anyone who wants to), the ``config_path`` written, and whether the
+        running backend already uses the new CA (``applied_now``).
+    """
+    data_root = settings.paths.data_root
+    try:
+        runs_in_data_root = Path.cwd().resolve() == data_root.resolve()
+    except OSError:
+        runs_in_data_root = False
+    ca_bundle_value = CA_FILE_NAME if runs_in_data_root else (data_root / CA_FILE_NAME).as_posix()
+
+    try:
+        result = pair_with_hub(
+            http,
+            payload.central_server_url,
+            payload.code,
+            data_root,
+            ca_bundle_value=ca_bundle_value,
+            timeout=settings.central.timeout_sec,
+        )
+    except PairingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"reason": exc.reason, "message": exc.message}
+        ) from exc
+
+    local_cache.set_config("central_server_url", result.url)
+    return {
+        "ok": True,
+        "url": result.url,
+        "fingerprint": result.fingerprint,
+        "config_path": str(result.kit.config_path),
+        "merged_existing_config": result.kit.merged,
+        "applied_now": result.applied_now,
     }

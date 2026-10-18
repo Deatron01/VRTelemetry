@@ -28,6 +28,9 @@ EXPECTED_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         # Added in VRT-16a, with its characterisation test in
         # test_recording_sync_and_auth_api.py.
         ("POST", "/api/config/central-server/check"),
+        # Added with hub pairing: the CA and [central] from a code, see
+        # tests/integration/test_hub_pairing_flow.py.
+        ("POST", "/api/config/central-server/pair"),
         ("GET", "/api/sessions"),
         ("GET", "/api/sessions/{session_id}"),
         ("PUT", "/api/sessions/{session_id}"),
