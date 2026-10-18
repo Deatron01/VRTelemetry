@@ -24,7 +24,6 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from xml.sax.saxutils import escape
 
 from src.config.workstation_kit import workstation_config_toml
 from src.utils.clock import utc_now
@@ -111,71 +110,6 @@ def write_workstation_kit(kit_dir: Path, url: str, ca_file: Path) -> Path:
     return kit_dir
 
 
-TASK_XML_NAME = "hub-task.xml"
-
-
-def task_xml(exe: Path, data_root: Path) -> str:
-    """The Task Scheduler definition that keeps the hub running.
-
-    A scheduled task rather than a Windows service: a service needs a wrapper
-    binary (WinSW, NSSM) between the SCM and a console program, and this needs
-    nothing the task lacks -- start at boot as SYSTEM, no time limit, restart
-    after a crash. Written here rather than in the NSIS script so it is tested,
-    and in UTF-16 by the caller because that is what ``schtasks /XML`` reads.
-    """
-    command = escape(str(exe))
-    arguments = escape(f'--data-root "{data_root}" serve')
-    workdir = escape(str(data_root))
-    return f"""<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>VRTelemetry central hub. Installed by the VRTelemetry Hub installer.</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <BootTrigger>
-      <Enabled>true</Enabled>
-    </BootTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>S-1-5-18</UserId>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <IdleSettings>
-      <StopOnIdleEnd>false</StopOnIdleEnd>
-      <RestartOnIdle>false</RestartOnIdle>
-    </IdleSettings>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>false</WakeToRun>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>7</Priority>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>{command}</Command>
-      <Arguments>{arguments}</Arguments>
-      <WorkingDirectory>{workdir}</WorkingDirectory>
-    </Exec>
-  </Actions>
-</Task>
-"""
-
-
 def create_admin() -> int:
     """``bootstrap-admin`` for someone who opened it from the Start menu.
 
@@ -199,7 +133,11 @@ def create_admin() -> int:
 
 
 def setup(data_root: Path, addresses: list[str], port: int) -> int:
-    """Prepare a hub data root: config, certificate, workstation kit, task."""
+    """Prepare a hub data root: config, certificate, workstation kit.
+
+    Nothing here makes the hub start on its own: it runs when someone starts
+    it (``serve``, or the installer's desktop shortcut).
+    """
     from src.central_server import certificates
 
     tls_dir = data_root / "CentralServer" / "tls"
@@ -220,11 +158,6 @@ def setup(data_root: Path, addresses: list[str], port: int) -> int:
     url = f"https://{addresses[0]}:{port}"
     kit = write_workstation_kit(data_root / KIT_DIR_NAME, url, tls_dir / "hub-ca.pem")
     print(f"Workstation kit for {url}: {kit}")
-
-    # Rewritten every time: it names the executable, which moves if the hub is
-    # reinstalled to another directory.
-    exe = Path(sys.executable) if getattr(sys, "frozen", False) else Path(sys.argv[0]).resolve()
-    (data_root / TASK_XML_NAME).write_text(task_xml(exe, data_root), encoding="utf-16")
     return 0
 
 

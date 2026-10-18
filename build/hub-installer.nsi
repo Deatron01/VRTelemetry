@@ -2,11 +2,12 @@
 ;
 ; Packages the frozen hub from build/hub.spec and does, on the hub machine,
 ; what README section 04 otherwise asks a lab to do by hand with Python:
-; config, TLS certificate, firewall, start at boot, first administrator.
+; config, TLS certificate, firewall, first administrator. It does not make the
+; hub start on its own: the hub runs when someone starts it from its shortcut.
 ;
 ; Everything with logic in it lives in `vrtelemetry-hub.exe setup` (Python,
-; tested in tests/unit/test_hub_cli.py): config.toml, the certificate, the
-; workstation kit and the scheduled-task XML. This script only copies files,
+; tested in tests/unit/test_hub_cli.py): config.toml, the certificate and the
+; workstation kit. This script only copies files,
 ; asks for the address and wires Windows up.
 ;
 ; Build (from the repository root, after `pyinstaller build/hub.spec ...` and
@@ -77,14 +78,14 @@ Var PortField
 Page custom NetworkPage NetworkPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_TITLE "The hub is installed and running"
-!define MUI_FINISHPAGE_TEXT "It starts with Windows and restarts itself if it stops.$\r$\n$\r$\nNext:$\r$\n1. Create the first administrator (below, or from the Start menu).$\r$\n2. Log in to the admin UI and issue a licence key per researcher.$\r$\n3. Copy the workstation kit to each recording PC (see its README.txt).$\r$\n$\r$\nData: $DataDir"
+!define MUI_FINISHPAGE_TITLE "The hub is installed"
+!define MUI_FINISHPAGE_TEXT "Start it from the desktop icon or the Start menu when you need it; it runs while its window is open. Windows asks for administrator permission each time, because the hub's data folder is protected.$\r$\n$\r$\nNext:$\r$\n1. Create the first administrator (below, or from the Start menu).$\r$\n2. Start the hub, open the admin UI and issue a licence key per researcher.$\r$\n3. Pair each recording PC: Pair a Workstation, then Generate code, in the admin UI.$\r$\n$\r$\nData: $DataDir"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Create the first administrator now"
 !define MUI_FINISHPAGE_RUN_FUNCTION CreateAdminNow
 !define MUI_FINISHPAGE_SHOWREADME
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "Open the workstation kit folder"
-!define MUI_FINISHPAGE_SHOWREADME_FUNCTION OpenKit
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Start the hub now"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION StartHubNow
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -112,7 +113,8 @@ Page custom NetworkPage NetworkPageLeave
   WriteINIStr "${FILE}" "InternetShortcut" "IconIndex" "0"
 !macroend
 
-; Stop a running hub so its files can be replaced or removed.
+; Stop a running hub so its files can be replaced or removed. `schtasks /End`
+; is for installs from 1.2.0 and earlier, which ran the hub as a scheduled task.
 !macro StopHub
   nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
   Pop $0
@@ -188,8 +190,9 @@ Function CreateAdminNow
   Exec '"$INSTDIR\${HUB_EXE}" --data-root "$DataDir" create-admin'
 FunctionEnd
 
-Function OpenKit
-  ExecShell "open" "$DataDir\workstation-kit"
+Function StartHubNow
+  SetOutPath "$DataDir"
+  Exec '"$INSTDIR\${HUB_EXE}" --data-root "$DataDir" serve'
 FunctionEnd
 
 Section "Hub" SecHub
@@ -199,6 +202,12 @@ Section "Hub" SecHub
 
   DetailPrint "Stopping a running hub, if any..."
   !insertmacro StopHub
+
+  ; 1.2.0 and earlier registered a task that started the hub at boot as SYSTEM.
+  ; The hub now runs only when someone starts it, so an upgrade removes it.
+  nsExec::Exec 'schtasks /Delete /TN "${TASK_NAME}" /F'
+  Pop $0
+  Delete "$DataDir\hub-task.xml"
 
   ; Replace the bundle rather than overwrite it: File /r never deletes, so an
   ; upgrade kept the previous version's dist-info (the hub then reported the
@@ -237,25 +246,24 @@ Section "Hub" SecHub
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE}" dir=in action=allow protocol=TCP localport=$Port program="$INSTDIR\${HUB_EXE}" profile=any'
   Pop $0
 
-  DetailPrint "Registering the hub to start with Windows..."
-  nsExec::ExecToLog 'schtasks /Create /TN "${TASK_NAME}" /XML "$DataDir\hub-task.xml" /F'
-  Pop $0
-  ${If} $0 != 0
-    MessageBox MB_ICONSTOP "Could not register the scheduled task (exit code $0)."
-    Abort
-  ${EndIf}
-  nsExec::ExecToLog 'schtasks /Run /TN "${TASK_NAME}"'
-  Pop $0
-
   ; Start menu
   CreateDirectory "$SMPROGRAMS\${PRODUCT}"
   CreateShortcut "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk" \
     "$INSTDIR\${HUB_EXE}" '--data-root "$DataDir" create-admin' "$INSTDIR\${HUB_EXE}" 0
   !insertmacro ShortcutRunAsAdmin "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk"
   !insertmacro AdminUiShortcut "$SMPROGRAMS\${PRODUCT}\Open admin UI.url"
-  ; The hub runs in the background, so its desktop icon opens what a person
-  ; actually uses: the admin UI, in the browser.
-  !insertmacro AdminUiShortcut "$DESKTOP\${PRODUCT}.url"
+  ; Starting the hub: a console window that serves until it is closed. Run as
+  ; administrator because the data directory is Administrators-only, and
+  ; started in that directory.
+  SetOutPath "$DataDir"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT}\Start ${PRODUCT}.lnk" \
+    "$INSTDIR\${HUB_EXE}" '--data-root "$DataDir" serve' "$INSTDIR\${HUB_EXE}" 0
+  !insertmacro ShortcutRunAsAdmin "$SMPROGRAMS\${PRODUCT}\Start ${PRODUCT}.lnk"
+  CreateShortcut "$DESKTOP\${PRODUCT}.lnk" \
+    "$INSTDIR\${HUB_EXE}" '--data-root "$DataDir" serve' "$INSTDIR\${HUB_EXE}" 0
+  !insertmacro ShortcutRunAsAdmin "$DESKTOP\${PRODUCT}.lnk"
+  ; 1.2.0 and earlier put an admin-UI link on the desktop instead.
+  Delete "$DESKTOP\${PRODUCT}.url"
   CreateShortcut "$SMPROGRAMS\${PRODUCT}\Workstation kit.lnk" "$DataDir\workstation-kit"
   CreateShortcut "$SMPROGRAMS\${PRODUCT}\Uninstall ${PRODUCT}.lnk" "$INSTDIR\Uninstall.exe"
 
@@ -274,13 +282,10 @@ Section "Uninstall"
   SetShellVarContext all
   SetRegView 64
 
-  nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
-  Pop $0
+  !insertmacro StopHub
+  ; Only installs last upgraded by 1.2.0 or earlier still have the task.
   nsExec::Exec 'schtasks /Delete /TN "${TASK_NAME}" /F'
   Pop $0
-  nsExec::Exec 'taskkill /F /T /IM ${HUB_EXE}'
-  Pop $0
-  Sleep 1000
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${FW_RULE}"'
   Pop $0
 
@@ -297,6 +302,8 @@ Section "Uninstall"
 
   Delete "$SMPROGRAMS\${PRODUCT}\Create first administrator.lnk"
   Delete "$SMPROGRAMS\${PRODUCT}\Open admin UI.url"
+  Delete "$SMPROGRAMS\${PRODUCT}\Start ${PRODUCT}.lnk"
+  Delete "$DESKTOP\${PRODUCT}.lnk"
   Delete "$DESKTOP\${PRODUCT}.url"
   Delete "$SMPROGRAMS\${PRODUCT}\Workstation kit.lnk"
   Delete "$SMPROGRAMS\${PRODUCT}\Uninstall ${PRODUCT}.lnk"

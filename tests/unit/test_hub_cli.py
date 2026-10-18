@@ -106,30 +106,15 @@ def test_an_unknown_argument_is_refused(data_root: Path) -> None:
         cli.main(["--data-root", str(data_root), "serve", "--bogus"])
 
 
-def test_setup_writes_the_scheduled_task_schtasks_reads(data_root: Path) -> None:
-    import xml.etree.ElementTree as ET
+def test_setup_registers_nothing_to_start_with_windows(data_root: Path) -> None:
+    """The hub runs when someone starts it, not at boot.
 
+    1.2.0 and earlier wrote a Task Scheduler definition here -- start at boot as
+    SYSTEM, restart after a crash -- and Defender's behaviour heuristics flagged
+    the unsigned installer that registered it as persistence malware. A lab hub
+    that is started by hand needs none of it.
+    """
     _setup(data_root)
 
-    raw = (data_root / cli.TASK_XML_NAME).read_bytes()
-    assert raw[:2] == b"\xff\xfe", "schtasks /XML reads UTF-16; a UTF-8 file is 'malformed'"
-    ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
-    root = ET.fromstring(raw.decode("utf-16"))  # noqa: S314 - our own output
-
-    exec_ = root.find("t:Actions/t:Exec", ns)
-    assert exec_ is not None
-    assert exec_.findtext("t:Arguments", namespaces=ns) == (
-        f'--data-root "{data_root.resolve()}" serve'
-    )
-    assert exec_.findtext("t:WorkingDirectory", namespaces=ns) == str(data_root.resolve())
-    assert root.findtext("t:Principals/t:Principal/t:UserId", namespaces=ns) == "S-1-5-18"
-    assert root.findtext("t:Settings/t:ExecutionTimeLimit", namespaces=ns) == "PT0S"
-    assert root.find("t:Settings/t:RestartOnFailure", ns) is not None
-    assert root.find("t:Triggers/t:BootTrigger", ns) is not None
-
-
-def test_task_xml_escapes_paths() -> None:
-    xml = cli.task_xml(Path(r"C:\R&D\hub.exe"), Path(r"C:\R&D\data"))
-
-    assert r"C:\R&amp;D\hub.exe" in xml
-    assert "R&D" not in xml
+    assert not (data_root / "hub-task.xml").exists()
+    assert not hasattr(cli, "task_xml")

@@ -49,7 +49,7 @@ Three processes, separate on purpose:
 
 | Component | What it is | Where it runs | Default address |
 |---|---|---|---|
-| **Hub** (central server) | Accounts, licences, the admin UI, and the archive every workstation uploads to. | One machine, always on. | `0.0.0.0:9000` |
+| **Hub** (central server) | Accounts, licences, the admin UI, and the archive every workstation uploads to. | One machine, running while the lab records or syncs. | `0.0.0.0:9000` |
 | **Workstation API** | Acquisition, patient records, local storage, sync. | The PC with the headset. | `127.0.0.1:8000` |
 | **Desktop app** | The Electron shell the researcher uses. Talks only to the workstation API on its own machine. | The same PC. | — |
 
@@ -87,15 +87,21 @@ Add `".[workstation,oculus]"` only if you record through it.
 **On Windows, use the installer** — `VRTelemetry-Hub-Setup-<version>.exe` from
 the Releases page. It needs no Python. It asks for the hub's LAN address, then
 does everything below: writes `config.toml`, creates the TLS certificate,
-opens the port in Windows Firewall, registers the hub to start with Windows
-(a scheduled task, restarted if it stops) and offers to create the first
-administrator. Data goes to `%ProgramData%\VRTelemetryHub`, readable by
-Administrators only, and survives uninstalling. The Start menu has *Create
+opens the port in Windows Firewall and offers to create the first
+administrator. It does not start the hub with Windows: the hub runs when you
+start it — the *VRTelemetry Hub* desktop icon or *Start VRTelemetry Hub* in the
+Start menu — and stops when you close its window. Windows asks for
+administrator permission each time, because the data in
+`%ProgramData%\VRTelemetryHub` is readable by Administrators only; it survives
+uninstalling. Workstations that cannot reach the hub queue their sessions and
+upload once it runs again. Upgrading from 1.2.0 or earlier removes the
+scheduled task those versions registered. The Start menu also has *Create
 first administrator*, *Open admin UI* and *Workstation kit* — a folder with
 `hub-ca.pem` and a ready `config.toml` to copy into
 `%APPDATA%\VRTelemetry\data` on each recording PC, which replaces steps 3–4
 of §06. A desktop app installed on the hub's own PC needs no copying: when no
-hub address is configured or saved, the backend adopts this kit at startup. The installed `vrtelemetry-hub.exe` takes the same subcommands as the
+hub address is configured or saved, the backend adopts this kit at startup.
+The installed `vrtelemetry-hub.exe` takes the same subcommands as the
 console script: `serve`, `gen-cert`, `bootstrap-admin`, `create-admin`,
 `setup`.
 
