@@ -94,7 +94,8 @@ Administrators only, and survives uninstalling. The Start menu has *Create
 first administrator*, *Open admin UI* and *Workstation kit* — a folder with
 `hub-ca.pem` and a ready `config.toml` to copy into
 `%APPDATA%\VRTelemetry\data` on each recording PC, which replaces steps 3–4
-of §06. The installed `vrtelemetry-hub.exe` takes the same subcommands as the
+of §06. A desktop app installed on the hub's own PC needs no copying: when no
+hub address is configured or saved, the backend adopts this kit at startup. The installed `vrtelemetry-hub.exe` takes the same subcommands as the
 console script: `serve`, `gen-cert`, `bootstrap-admin`, `create-admin`,
 `setup`.
 
@@ -232,7 +233,9 @@ uninstalling does not touch it. `VRT_PATHS__DATA_ROOT` overrides it.
 
 ### <samp>06 — POINT THE WORKSTATION AT THE HUB</samp>
 
-Skip this only if both run on one machine with default ports.
+Skip this if both run on one machine with default ports, or if the hub was
+installed with the Windows installer on the recording PC itself — the desktop
+app then picks up the hub's workstation kit on its own.
 
 1. **Open the port on the hub machine.** Windows Firewall blocks inbound 9000 by
    default. This is the most common reason a setup that works on one machine
