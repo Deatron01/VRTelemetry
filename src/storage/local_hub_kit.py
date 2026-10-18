@@ -20,14 +20,13 @@ read it at all: only an administrator of this machine could have written it.
 
 from __future__ import annotations
 
-import re
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 from src.central_server.cli import FROZEN_DEFAULT_DATA_ROOT, KIT_DIR_NAME
 from src.config import CentralServerSettings
+from src.config.workstation_kit import CA_FILE_NAME, KitMergeError, install_workstation_kit
 from src.storage.hub_address import is_configured
 from src.utils.logger import logger
 
@@ -39,13 +38,6 @@ else:  # pragma: no cover - exercised only on the 3.10 leg of the CI matrix
 #: Where the hub installer leaves the kit. Looked up at call time, so a test
 #: can point it elsewhere.
 DEFAULT_KIT_DIR = FROZEN_DEFAULT_DATA_ROOT / KIT_DIR_NAME
-
-#: The kit's own name for the CA file, and the name the copy keeps. The kit's
-#: ``config.toml`` refers to it relatively, which resolves against the data root
-#: because that is the backend's working directory.
-CA_FILE_NAME = "hub-ca.pem"
-
-_CENTRAL_HEADER = re.compile(r"^[ \t]*\[[ \t]*central[ \t]*\][ \t]*(#.*)?$", re.MULTILINE)
 
 
 def adopt_local_hub_kit(
@@ -88,19 +80,22 @@ def adopt_local_hub_kit(
         )
         return None
 
-    config_path = config_dir / "config.toml"
+    # The writer pairing uses too (src.config.workstation_kit): ``hub-ca.pem``
+    # beside ``config.toml``, ``[central]`` merged into an existing file, and
+    # nothing written at all when that file cannot be extended safely (dotted
+    # keys, an inline table, invalid TOML). The ``ca_bundle`` it writes is the
+    # kit's relative ``hub-ca.pem``, which resolves against the data root
+    # because that is the backend's working directory. The checks above are
+    # what keep it from replacing a hub someone chose: the merge itself would.
     try:
-        existing = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
-        merged = _merge_central_block(existing, kit_url)
-        if merged is None:
-            logger.info(
-                f"Hub kit at {kit_dir} not adopted: {config_path} defines [central] in a "
-                "form this cannot extend safely; copy the kit's two settings in by hand"
-            )
-            return None
-        shutil.copyfile(kit_ca, config_dir / CA_FILE_NAME)
-        config_path.write_text(merged, encoding="utf-8")
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        install_workstation_kit(config_dir, kit_url, kit_ca.read_bytes())
+    except KitMergeError as exc:
+        logger.info(
+            f"Hub kit at {kit_dir} not adopted: {config_dir / 'config.toml'} cannot be "
+            f"extended safely ({exc}); copy the kit's two settings in by hand"
+        )
+        return None
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         logger.warning(f"Hub kit at {kit_dir} not adopted: {exc}")
         return None
 
@@ -127,32 +122,3 @@ def _kit_url(kit_config: Path) -> str | None:
     if not url.startswith("https://") or any(c in url for c in '"\\\n\r'):
         return None
     return url
-
-
-def _merge_central_block(existing: str, url: str) -> str | None:
-    """``existing`` config text with the kit's two ``[central]`` keys added.
-
-    Returns ``None`` when the file defines ``central`` without a ``[central]``
-    header to insert under (dotted keys, an inline table): writing a second
-    header would make the file invalid TOML, and the backend refuses to start
-    on an invalid config. The result is parsed before it is returned, so a
-    merge can only ever produce a file the backend will read.
-    """
-    lines = f'url = "{url}"\nca_bundle = "{CA_FILE_NAME}"\n'
-    parsed = tomllib.loads(existing)
-    if existing and not existing.endswith("\n"):
-        existing += "\n"
-    if "central" not in parsed:
-        separator = "\n" if existing else ""
-        merged = f"{existing}{separator}# Adopted from this machine's hub kit.\n[central]\n{lines}"
-    else:
-        header = _CENTRAL_HEADER.search(existing)
-        if header is None:
-            return None
-        insert_at = existing.index("\n", header.end()) + 1
-        merged = existing[:insert_at] + lines + existing[insert_at:]
-
-    central = tomllib.loads(merged).get("central", {})
-    if central.get("url") != url or central.get("ca_bundle") != CA_FILE_NAME:
-        return None
-    return merged
