@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 #: Returned in the refusal message, so the UI and the logs can recognise it.
 INSECURE_TRANSPORT = "insecure_transport_refused"
 
+#: Returned in place of it when there is no hub address to judge at all.
+NO_HUB_ADDRESS = "no_hub_address"
+
 
 def is_loopback_host(host: str | None) -> bool:
     """Whether ``host`` names this machine: ``localhost`` or a loopback address."""
@@ -70,6 +73,17 @@ def insecure_transport_reason(url: str, *, allow_insecure_http: bool = False) ->
         A sentence for the log and the UI, or None.
     """
     parts = urlsplit(url)
+    if not parts.scheme and not parts.netloc:
+        # Callers build "<hub>/auth/login" from the configured address, so an
+        # unset one arrives here as a bare path. Refused all the same -- but
+        # "refusing to send data to :// without TLS" sent people after
+        # certificates when the workstation simply had no hub address.
+        return (
+            f"{NO_HUB_ADDRESS}: no hub address is set on this workstation. Copy "
+            "hub-ca.pem and config.toml from the hub's workstation kit into "
+            "%APPDATA%\\VRTelemetry\\data and restart the app, or enter the hub's "
+            "https:// address under Central Server Address."
+        )
     if parts.scheme == "https":
         return None
     if parts.scheme == "http" and (allow_insecure_http or is_loopback_host(parts.hostname)):

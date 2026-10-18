@@ -217,3 +217,23 @@ def test_a_hub_certificate_without_its_key_is_rejected(tmp_path) -> None:
 
     with pytest.raises(ValidationError, match="set together"):
         HubSettings(tls_certfile=tmp_path / "hub-cert.pem")
+
+
+@pytest.mark.parametrize("url", ["/auth/register", "/license/activate"])
+def test_a_missing_hub_address_says_so_instead_of_blaming_tls(url: str) -> None:
+    """No hub configured: callers build "/auth/register" from an empty base URL.
+
+    Still refused before anything is sent, but the message used to read
+    "refusing to send data to :// without TLS" -- which sent a researcher after
+    certificates when the workstation simply had no hub address.
+    """
+    client, inner = _client()
+
+    with pytest.raises(client.RequestException) as refused:
+        client.post(url, data={})
+
+    message = str(refused.value)
+    assert "no_hub_address" in message
+    assert "without TLS" not in message
+    assert "workstation kit" in message
+    assert inner.calls == [], "the request reached the wire"

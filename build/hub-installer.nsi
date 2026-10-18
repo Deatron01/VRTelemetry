@@ -200,6 +200,12 @@ Section "Hub" SecHub
   DetailPrint "Stopping a running hub, if any..."
   !insertmacro StopHub
 
+  ; Replace the bundle rather than overwrite it: File /r never deletes, so an
+  ; upgrade kept the previous version's dist-info (the hub then reported the
+  ; old version) and would keep any module a release drops. Only _internal --
+  ; the frozen bundle this installer owns; data lives in ProgramData.
+  RMDir /r "$INSTDIR\_internal"
+
   SetOutPath "$INSTDIR"
   File /r "${HUB_DIST}\*"
   File "/oname=LICENSE.txt" "..\LICENSE"
