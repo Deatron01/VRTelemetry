@@ -3,7 +3,7 @@
 | File | Use it on |
 |---|---|
 | `VRTelemetry-Setup-<version>.exe` | **Recording workstation (Windows)** — the desktop app with its backend bundled. No Python needed. |
-| `VRTelemetry-Hub-Setup-<version>.exe` | **Hub (central server, Windows)** — no Python needed. Asks for the hub's LAN address, then creates the TLS certificate, opens the firewall port and offers to create the first administrator. The hub runs when you start it from its desktop icon, not at boot. Recording PCs then pair with it by a one-time code. |
+| `VRTelemetry-Hub-Setup-<version>.exe` | **Hub (central server, Windows)** — no Python needed. Asks for the hub's LAN address, then creates the TLS certificate, opens the firewall port to its local subnet and offers to create the first administrator. The hub runs when you start it from its desktop icon, not at boot. Recording PCs then pair with it by a one-time code. |
 | `VRTelemetry-<version>-x86_64.AppImage` | Recording workstation or analysis machine on Linux. |
 | `vrtelemetry-<version>-py3-none-any.whl` | Hub on Linux — `pip install "vrtelemetry-<version>-py3-none-any.whl[server]"`, then follow README §04. |
 | `vrtelemetry-<version>.tar.gz` | Source distribution. |
