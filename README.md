@@ -87,8 +87,10 @@ Add `".[workstation,oculus]"` only if you record through it.
 **On Windows, use the installer** — `VRTelemetry-Hub-Setup-<version>.exe` from
 the Releases page. It needs no Python. It asks for the hub's LAN address, then
 does everything below: writes `config.toml`, creates the TLS certificate,
-opens the port in Windows Firewall and offers to create the first
-administrator. It does not start the hub with Windows: the hub runs when you
+opens the port in Windows Firewall to the hub's own subnet and offers to create
+the first administrator. If the recording PCs are on a different subnet, add
+their range to the *VRTelemetry Hub* rule's remote addresses in Windows
+Firewall. It does not start the hub with Windows: the hub runs when you
 start it — the *VRTelemetry Hub* desktop icon or *Start VRTelemetry Hub* in the
 Start menu — and stops when you close its window. Windows asks for
 administrator permission each time, because the data in

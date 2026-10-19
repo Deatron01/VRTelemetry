@@ -44,12 +44,54 @@ def test_the_installer_registers_nothing_to_start_with_windows() -> None:
     assert "BootTrigger" not in script
 
 
+def _code(text: str) -> str:
+    """``text`` without its comment lines, which may name what the code avoids."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(";"))
+
+
+def _macro(name: str) -> str:
+    script = (REPO_ROOT / "build/hub-installer.nsi").read_text(encoding="utf-8")
+    start = script.index(f"!macro {name}")
+    return script[start : script.index("!macroend", start)]
+
+
 def test_an_upgrade_removes_the_task_an_older_version_registered() -> None:
     """Otherwise a 1.2.0 install keeps starting the hub at boot after upgrading."""
     section = _install_section()
 
-    assert 'schtasks /Delete /TN "${TASK_NAME}" /F' in section
-    assert section.find("schtasks /Delete") < section.find('File /r "${HUB_DIST}')
+    assert 'schtasks /Delete /TN "${TASK_NAME}" /F' in _macro("RemoveOldTask")
+    assert "!insertmacro RemoveOldTask" in _macro("StopHub")
+    assert section.find("!insertmacro StopHub") < section.find('File /r "${HUB_DIST}')
+
+
+def test_schtasks_runs_only_when_the_old_task_exists() -> None:
+    """Calling schtasks on every install is itself a persistence signal to Defender."""
+    script = _code((REPO_ROOT / "build/hub-installer.nsi").read_text(encoding="utf-8"))
+    remove = _macro("RemoveOldTask")
+    gate = remove.index('${If} ${FileExists} "$SYSDIR\\Tasks\\${TASK_NAME}"')
+
+    assert script.count("schtasks") == remove.count("schtasks"), "schtasks outside the gate"
+    assert gate < remove.index("schtasks /End")
+    assert remove.index("${DisableX64FSRedirection}") < gate, (
+        "a 32-bit installer sees SysWOW64\\Tasks, where the task is never found"
+    )
+
+
+def test_the_installer_starts_no_powershell() -> None:
+    """A hidden PowerShell from an unsigned installer scores against it too."""
+    script = _code((REPO_ROOT / "build/hub-installer.nsi").read_text(encoding="utf-8"))
+
+    assert "powershell" not in script.lower()
+    assert "Call DetectLanAddress" in script
+
+
+def test_the_firewall_rule_admits_only_the_local_subnet() -> None:
+    section = _install_section()
+    rule = next(line for line in section.splitlines() if "firewall add rule" in line)
+
+    assert "remoteip=localsubnet" in rule
+    assert 'program="$INSTDIR\\${HUB_EXE}"' in rule
+    assert "localport=$Port" in rule
 
 
 def test_the_hub_is_started_from_a_shortcut_as_administrator() -> None:

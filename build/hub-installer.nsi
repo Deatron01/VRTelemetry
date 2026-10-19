@@ -29,6 +29,7 @@ ManifestDPIAware true
 !include "MUI2.nsh"
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
+!include "x64.nsh"
 
 !ifndef VERSION
   !error "Pass the version: makensis /DVERSION=x.y.z build/hub-installer.nsi"
@@ -113,15 +114,77 @@ Page custom NetworkPage NetworkPageLeave
   WriteINIStr "${FILE}" "InternetShortcut" "IconIndex" "0"
 !macroend
 
-; Stop a running hub so its files can be replaced or removed. `schtasks /End`
-; is for installs from 1.2.0 and earlier, which ran the hub as a scheduled task.
+; 1.2.0 and earlier ran the hub as a boot-time scheduled task. End and delete
+; it only if it is there: an installer that calls schtasks unconditionally
+; looks, to Defender's behaviour model, like one setting up persistence, which
+; is what removed 1.2.0. The task's definition is a file named after it in
+; System32\Tasks, which a 32-bit installer sees only with redirection off.
+!macro RemoveOldTask
+  ${DisableX64FSRedirection}
+  ${If} ${FileExists} "$SYSDIR\Tasks\${TASK_NAME}"
+    ${EnableX64FSRedirection}
+    nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
+    Pop $0
+    nsExec::Exec 'schtasks /Delete /TN "${TASK_NAME}" /F'
+    Pop $0
+  ${EndIf}
+  ${EnableX64FSRedirection}
+!macroend
+
+; Stop a running hub so its files can be replaced or removed.
 !macro StopHub
-  nsExec::Exec 'schtasks /End /TN "${TASK_NAME}"'
-  Pop $0
+  !insertmacro RemoveOldTask
   nsExec::Exec 'taskkill /F /T /IM ${HUB_EXE}'
   Pop $0
   Sleep 1000
 !macroend
+
+; Pre-fill the address workstations will use: the IPv4 address of the
+; interface the default route leaves by, i.e. the one on the lab LAN. Asks
+; the routing table through iphlpapi rather than starting a hidden PowerShell,
+; which is another thing behaviour models score against an installer.
+; 192.0.2.1 (TEST-NET-1) is never contacted; it only selects the default route.
+; GetBestInterface takes it, and GetIpAddrTable returns addresses, in network
+; byte order, so the first octet is the low byte. Leaves $Address alone when
+; there is no default route; the person then types it.
+Function DetectLanAddress
+  System::Call 'iphlpapi::GetBestInterface(i 0x010200C0, *i .r1) i .r0'
+  ${If} $0 <> 0
+    Return
+  ${EndIf}
+  StrCpy $2 0
+  System::Call 'iphlpapi::GetIpAddrTable(p 0, *i r2 r2, i 0) i .r0'
+  ${If} $2 < 4
+    Return
+  ${EndIf}
+  System::Alloc $2
+  Pop $3
+  System::Call 'iphlpapi::GetIpAddrTable(p r3, *i r2, i 0) i .r0'
+  ${If} $0 = 0
+    ; MIB_IPADDRTABLE: a DWORD count, then 24-byte MIB_IPADDRROWs whose first
+    ; two fields are dwAddr and dwIndex.
+    System::Call '*$3(i .r4)'
+    IntOp $5 $3 + 4
+    ${DoWhile} $4 > 0
+      System::Call '*$5(i .r6, i .r7)'
+      ${If} $7 = $1
+        IntOp $8 $6 & 0xFF
+        IntOp $9 $6 >>> 8
+        IntOp $9 $9 & 0xFF
+        StrCpy $Address "$8.$9"
+        IntOp $9 $6 >>> 16
+        IntOp $9 $9 & 0xFF
+        StrCpy $Address "$Address.$9"
+        IntOp $9 $6 >>> 24
+        StrCpy $Address "$Address.$9"
+        ${Break}
+      ${EndIf}
+      IntOp $5 $5 + 24
+      IntOp $4 $4 - 1
+    ${Loop}
+  ${EndIf}
+  System::Free $3
+FunctionEnd
 
 Function .onInit
   SetShellVarContext all
@@ -129,24 +192,7 @@ Function .onInit
   ; With SetShellVarContext all, $APPDATA is %ProgramData%.
   StrCpy $DataDir "$APPDATA\VRTelemetryHub"
   StrCpy $Port "9000"
-
-  ; Pre-fill the address workstations will use: the IPv4 address of the
-  ; adapter that has a default gateway, i.e. the one on the lab LAN.
-  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "(Get-NetIPConfiguration | Where-Object { $$_.IPv4DefaultGateway -and $$_.NetAdapter.Status -eq $\'Up$\' } | Select-Object -First 1).IPv4Address.IPAddress"'
-  Pop $0
-  Pop $1
-  ${If} $0 == 0
-    ; Strip the trailing newline PowerShell prints.
-    trim:
-      StrCpy $2 $1 1 -1
-      ${If} $2 == "$\n"
-      ${OrIf} $2 == "$\r"
-      ${OrIf} $2 == " "
-        StrCpy $1 $1 -1
-        Goto trim
-      ${EndIf}
-    StrCpy $Address $1
-  ${EndIf}
+  Call DetectLanAddress
 FunctionEnd
 
 Function NetworkPage
@@ -201,12 +247,9 @@ Section "Hub" SecHub
   SetRegView 64
 
   DetailPrint "Stopping a running hub, if any..."
+  ; Also removes the boot-time task 1.2.0 and earlier registered: the hub now
+  ; runs only when someone starts it.
   !insertmacro StopHub
-
-  ; 1.2.0 and earlier registered a task that started the hub at boot as SYSTEM.
-  ; The hub now runs only when someone starts it, so an upgrade removes it.
-  nsExec::Exec 'schtasks /Delete /TN "${TASK_NAME}" /F'
-  Pop $0
   Delete "$DataDir\hub-task.xml"
 
   ; Replace the bundle rather than overwrite it: File /r never deletes, so an
@@ -230,7 +273,7 @@ Section "Hub" SecHub
   DetailPrint "Writing configuration, certificate and workstation kit..."
   nsExec::ExecToLog '"$INSTDIR\${HUB_EXE}" --data-root "$DataDir" setup --address "$Address" --port $Port'
   Pop $0
-  ${If} $0 != 0
+  ${If} $0 <> 0
     MessageBox MB_ICONSTOP "Hub setup failed (exit code $0). See the details above; nothing was started."
     Abort
   ${EndIf}
@@ -240,10 +283,14 @@ Section "Hub" SecHub
   DetailPrint "Opening TCP port $Port in Windows Firewall..."
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${FW_RULE}"'
   Pop $0
-  ; Program- and port-scoped, all profiles: a lab LAN is often classified
-  ; "Public" by Windows, and a hub the recording PCs cannot reach is the most
-  ; common setup failure. TLS and accounts protect what is behind the port.
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE}" dir=in action=allow protocol=TCP localport=$Port program="$INSTDIR\${HUB_EXE}" profile=any'
+  ; Program- and port-scoped, all profiles, local subnet only. All profiles
+  ; because a lab LAN is often classified "Public" by Windows, and a hub the
+  ; recording PCs cannot reach is the most common setup failure. Local subnet
+  ; because the recording PCs share the hub's LAN; an inbound rule open to any
+  ; address on every profile is what a backdoor installs. A lab whose recording
+  ; PCs sit on another routed subnet widens the rule's remote addresses in
+  ; Windows Firewall. TLS and accounts protect what is behind the port.
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE}" dir=in action=allow protocol=TCP localport=$Port remoteip=localsubnet program="$INSTDIR\${HUB_EXE}" profile=any'
   Pop $0
 
   ; Start menu
@@ -282,10 +329,8 @@ Section "Uninstall"
   SetShellVarContext all
   SetRegView 64
 
+  ; Also removes the task, on installs last upgraded by 1.2.0 or earlier.
   !insertmacro StopHub
-  ; Only installs last upgraded by 1.2.0 or earlier still have the task.
-  nsExec::Exec 'schtasks /Delete /TN "${TASK_NAME}" /F'
-  Pop $0
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${FW_RULE}"'
   Pop $0
 
